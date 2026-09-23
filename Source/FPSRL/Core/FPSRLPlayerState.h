@@ -8,6 +8,8 @@
 #include "FPSRLPlayerState.generated.h"
 
 class UAbilitySystemComponent;
+class UFPSRLAbilitySystemComponent;
+class UFPSRLHealthSet;
 
 /**
  * Base PlayerState for every FPSRL level (Lobby and Match). BP_PlayerStateLobby derives from this.
@@ -44,5 +46,9 @@ private:
 	void HandlePawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+	TObjectPtr<UFPSRLAbilitySystemComponent> AbilitySystemComponent;
+
+	/** Player health attributes. Lives here (not on the pawn) so run effects on health survive respawn. */
+	UPROPERTY()
+	TObjectPtr<UFPSRLHealthSet> HealthSet;
 };

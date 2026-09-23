@@ -24,6 +24,7 @@ namespace FPSRLGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Kill,	"Event.Kill",	"Sent to the attacker's ASC when their damage kills.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Damage,		"SetByCaller.Damage",		"Base damage amount for GE_Damage.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Healing,		"SetByCaller.Healing",		"Heal amount for the heal effect.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Corruption,	"SetByCaller.Corruption",	"Run corruption level for enemy scaling effects.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Dash,	"Cooldown.Dash",	"Dash is on cooldown.");

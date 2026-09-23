@@ -42,6 +42,7 @@ namespace FPSRLGameplayTags
 
 	// Runtime magnitudes passed into Gameplay Effects by code.
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Damage);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Healing);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Corruption);
 
 	// Granted by cooldown Gameplay Effects; an ability can't activate while its cooldown tag is present.
