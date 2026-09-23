@@ -3,4 +3,6 @@
 #include "FPSRL.h"
 #include "Modules/ModuleManager.h"
 
+DEFINE_LOG_CATEGORY(LogFPSRL);
+
 IMPLEMENT_PRIMARY_GAME_MODULE( FDefaultGameModuleImpl, FPSRL, "FPSRL" );
