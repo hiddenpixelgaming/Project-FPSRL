@@ -15,4 +15,16 @@ namespace FPSRLGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Dead,			"Status.Dead",			"Actor is dead; ignores further damage.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Invulnerable,	"Status.Invulnerable",	"Actor ignores incoming damage.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Dashing,		"Status.Dashing",		"Actor is mid-dash.");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Dash,	"Ability.Dash",		"Dash ability.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Melee,	"Ability.Melee",	"Melee attack ability.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Reload,	"Ability.Reload",	"Weapon reload ability.");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Hit,	"Event.Hit",	"Sent to the attacker's ASC when their damage lands.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Kill,	"Event.Kill",	"Sent to the attacker's ASC when their damage kills.");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Damage,		"SetByCaller.Damage",		"Base damage amount for GE_Damage.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Corruption,	"SetByCaller.Corruption",	"Run corruption level for enemy scaling effects.");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Cooldown_Dash,	"Cooldown.Dash",	"Dash is on cooldown.");
 }

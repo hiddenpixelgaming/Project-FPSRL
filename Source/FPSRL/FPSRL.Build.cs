@@ -19,6 +19,8 @@ public class FPSRL : ModuleRules
 			"InputCore",
 			"EnhancedInput",	// Input Actions / Mapping Contexts
 			"GameplayTags",		// Native tags (Types/FPSRLGameplayTags.h)
+			"GameplayAbilities",	// GAS: ability system component, attributes, effects, abilities
+			"GameplayTasks",		// GAS ability tasks
 			"NetCore",			// Replication helpers (push model, FFastArraySerializer)
 			"DeveloperSettings"	// Project Settings pages for tuning/config
 		});
