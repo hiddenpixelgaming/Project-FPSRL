@@ -5,6 +5,8 @@
 #include "Abilities/Attributes/FPSRLHealthSet.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Net/UnrealNetwork.h"
+#include "Types/FPSRLGameplayTags.h"
 #include "FPSRL.h"
 
 AFPSRLPlayerState::AFPSRLPlayerState(const FObjectInitializer& ObjectInitializer)
@@ -18,11 +20,50 @@ AFPSRLPlayerState::AFPSRLPlayerState(const FObjectInitializer& ObjectInitializer
 
 	// PlayerStates default to a very low update rate; GAS state (tags, attributes) needs to reach clients promptly.
 	SetNetUpdateFrequency(100.f);
+
+	SelectedWeapon = FPSRLGameplayTags::Weapon_Rifle;
 }
 
 UAbilitySystemComponent* AFPSRLPlayerState::GetAbilitySystemComponent() const
 {
 	return AbilitySystemComponent;
+}
+
+void AFPSRLPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AFPSRLPlayerState, bIsReady);
+	DOREPLIFETIME(AFPSRLPlayerState, SelectedWeapon);
+}
+
+void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
+{
+	Super::CopyProperties(PlayerState);
+
+	// Called on the server during seamless travel (old PlayerState -> new one) and on reconnect.
+	if (AFPSRLPlayerState* NewState = Cast<AFPSRLPlayerState>(PlayerState))
+	{
+		NewState->SelectedWeapon = SelectedWeapon;
+	}
+}
+
+void AFPSRLPlayerState::SetIsReady(bool bNewReady)
+{
+	if (HasAuthority())
+	{
+		bIsReady = bNewReady;
+		ForceNetUpdate();
+	}
+}
+
+void AFPSRLPlayerState::SetSelectedWeapon(const FGameplayTag& NewWeapon)
+{
+	if (HasAuthority())
+	{
+		SelectedWeapon = NewWeapon;
+		ForceNetUpdate();
+	}
 }
 
 void AFPSRLPlayerState::PostInitializeComponents()
