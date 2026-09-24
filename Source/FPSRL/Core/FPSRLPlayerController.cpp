@@ -116,8 +116,13 @@ void AFPSRLPlayerController::EquipSelectedWeapon(APawn* InPawn)
 	}
 
 	// Bridge until the character moves to C++ (Step F): the character receives weapons through the Blueprint
-	// interface function AddWeaponClass(WeaponClass) on BPI_WeaponHolder, so call it by name via reflection.
-	UFunction* AddWeaponFunction = InPawn->FindFunction(TEXT("AddWeaponClass"));
+	// interface function "Add Weapon Class" on BPI_WeaponHolder, so call it by name via reflection.
+	// Blueprint interface functions keep their display name (with spaces) as the function name.
+	UFunction* AddWeaponFunction = InPawn->FindFunction(TEXT("Add Weapon Class"));
+	if (!AddWeaponFunction)
+	{
+		AddWeaponFunction = InPawn->FindFunction(TEXT("AddWeaponClass"));
+	}
 	if (!AddWeaponFunction)
 	{
 		UE_LOG(LogFPSRL, Warning, TEXT("%s has no AddWeaponClass; cannot equip %s"), *InPawn->GetName(), *Option->WeaponTag.ToString());
