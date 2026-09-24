@@ -71,6 +71,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Health")
 	float GetMaxHealth() const;
 
+	/** How many of these actors have a health component and are still alive (actors without one are not counted). */
+	UFUNCTION(BlueprintPure, Category = "Health")
+	static int32 CountAliveActors(const TArray<AActor*>& Actors);
+
 	/** Bind to an ASC's HealthSet. The server also creates the set if missing and resets Health to DefaultMaxHealth. */
 	void InitializeWithAbilitySystem(UAbilitySystemComponent* InASC);
 	void UninitializeFromAbilitySystem();

@@ -188,6 +188,20 @@ bool UFPSRLHealthComponent::IsDead() const
 	return GetHealthSet() && GetCurrentHealth() <= 0.f;
 }
 
+int32 UFPSRLHealthComponent::CountAliveActors(const TArray<AActor*>& Actors)
+{
+	int32 Alive = 0;
+	for (const AActor* Actor : Actors)
+	{
+		const UFPSRLHealthComponent* Health = Actor ? Actor->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+		if (Health && !Health->IsDead())
+		{
+			++Alive;
+		}
+	}
+	return Alive;
+}
+
 float UFPSRLHealthComponent::GetHealthPercent() const
 {
 	const float Max = GetMaxHealth();

@@ -171,12 +171,11 @@ void AFPSRLPlayerController::OnPossess(APawn* InPawn)
 	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
 	if (IsInLobby())
 	{
-		// Back from a run (or first arrival): drop temporary Boon/Aspect state, then offer aspects for the weapon.
-		// Players pick their weapon at the station; the pawn starts empty-handed here.
+		// Back from a run (or first arrival): drop temporary Boon/Aspect state. Aspects are offered only once the
+		// player picks a weapon at the station (ServerSelectWeapon); the pawn starts empty-handed here.
 		if (PS)
 		{
 			PS->ClearRunState();
-			PS->GetAspectComponent()->OfferAspects(PS->SelectedWeapon);
 		}
 	}
 	else

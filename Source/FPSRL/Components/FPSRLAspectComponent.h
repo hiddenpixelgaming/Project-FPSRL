@@ -72,6 +72,9 @@ private:
 	/** Server: whether any aspect exists for the weapon last offered (so a weapon without aspects never blocks Start). */
 	bool bAspectsAvailableForWeapon = false;
 
+	/** Server: aspects were offered for a weapon chosen this Lobby visit (nothing counts as complete before that). */
+	bool bAspectsOffered = false;
+
 	FFPSRLGrantHandles AppliedHandles;
 	bool bApplied = false;
 };

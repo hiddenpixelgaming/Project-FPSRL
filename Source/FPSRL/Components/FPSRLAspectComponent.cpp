@@ -43,7 +43,7 @@ AFPSRLPlayerState* UFPSRLAspectComponent::GetOwningPlayerState() const
 
 bool UFPSRLAspectComponent::HasCompletedAspectChoice() const
 {
-	return ActiveAspect != nullptr || !bAspectsAvailableForWeapon;
+	return bAspectsOffered && (ActiveAspect != nullptr || !bAspectsAvailableForWeapon);
 }
 
 void UFPSRLAspectComponent::OfferAspects(const FGameplayTag& WeaponTag)
@@ -52,6 +52,7 @@ void UFPSRLAspectComponent::OfferAspects(const FGameplayTag& WeaponTag)
 	{
 		return;
 	}
+	bAspectsOffered = true;
 
 	// A new weapon invalidates any aspect picked for the previous one (Lobby only; nothing is applied there).
 	if (ActiveAspect && !ActiveAspect->IsCompatibleWithWeapon(WeaponTag))
@@ -144,6 +145,8 @@ void UFPSRLAspectComponent::ClearRunState()
 	bApplied = false;
 	ActiveAspect = nullptr;
 	AspectOptions.Reset();
+	bAspectsAvailableForWeapon = false;
+	bAspectsOffered = false;
 	BroadcastChanged();
 }
 
@@ -153,5 +156,6 @@ void UFPSRLAspectComponent::CopyChoiceTo(UFPSRLAspectComponent* Other) const
 	{
 		Other->ActiveAspect = ActiveAspect;
 		Other->bAspectsAvailableForWeapon = bAspectsAvailableForWeapon;
+		Other->bAspectsOffered = bAspectsOffered;
 	}
 }
