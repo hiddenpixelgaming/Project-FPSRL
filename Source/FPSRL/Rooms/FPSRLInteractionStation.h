@@ -31,7 +31,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction")
 	FString PromptText;
 
+	/**
+	 * The local player pressed interact at this station (called by the character's interact handling).
+	 * Default does nothing; stations whose menu lives in C++ (e.g. AFPSRLBoonTerminal) override it.
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Interaction")
+	void Interact(APlayerController* User);
+
+	/** Whether the station can be used right now. Locked stations show no prompt. Default: always usable. */
+	UFUNCTION(BlueprintPure, Category = "Interaction")
+	virtual bool CanInteract() const { return true; }
+
 protected:
+	/** Call when CanInteract() changes: shows/hides the prompt for a local player already standing in range. */
+	void RefreshLocalInteractor();
+
 	/** The local player entered interaction range. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Interaction", meta = (DisplayName = "On Interactor Entered"))
 	void K2_OnInteractorEntered(ACharacter* Interactor);
@@ -45,4 +59,7 @@ protected:
 
 private:
 	static ACharacter* AsLocalPlayerCharacter(AActor* Actor);
+
+	/** Local character currently shown this station's prompt (so Entered/Left always pair up). */
+	TWeakObjectPtr<ACharacter> PromptedCharacter;
 };

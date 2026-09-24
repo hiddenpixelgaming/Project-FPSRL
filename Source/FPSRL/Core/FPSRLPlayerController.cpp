@@ -131,6 +131,7 @@ void AFPSRLPlayerController::FPSRLStartBoonSelection()
 	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>(); GameState && HasAuthority())
 	{
 		GameState->StartBoonSelection();
+		OpenBoonSelection();	// no room/terminal involved: open the host's screen directly
 	}
 	else
 	{
@@ -233,6 +234,7 @@ void AFPSRLPlayerController::RefreshAspectSelectionUI()
 	AspectSelectionWidget->SetChoices(Names, Descriptions);
 	AspectSelectionWidget->SetReroll(false, FText::GetEmpty(), false);
 	AspectSelectionWidget->SetDeadline(0.0);
+	AspectSelectionWidget->SetCloseVisible(false);
 	AspectSelectionWidget->OnChoice.BindUObject(this, &ThisClass::HandleAspectChoice);
 }
 
@@ -242,7 +244,13 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 	const UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
 	if (!IsLocalController() || !Boons || !Boons->bSelectionPending || Boons->CurrentOptions.IsEmpty())
 	{
+		bBoonSelectionOpen = false;	// resolved (picked / timed out): the next selection needs the terminal again
 		HideSelectionWidget(BoonSelectionWidget);
+		return;
+	}
+	if (!bBoonSelectionOpen)
+	{
+		HideSelectionWidget(BoonSelectionWidget);	// pending, but the player hasn't opened it at a terminal
 		return;
 	}
 
@@ -265,6 +273,33 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 	BoonSelectionWidget->SetDeadline(Boons->SelectionDeadline);
 	BoonSelectionWidget->OnChoice.BindUObject(this, &ThisClass::HandleBoonChoice);
 	BoonSelectionWidget->OnReroll.BindUObject(this, &ThisClass::HandleBoonReroll);
+	BoonSelectionWidget->SetCloseVisible(true);
+	BoonSelectionWidget->OnClose.BindUObject(this, &ThisClass::HandleBoonClose);
+}
+
+bool AFPSRLPlayerController::HasPendingBoonSelection() const
+{
+	const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
+	const UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
+	return Boons && Boons->bSelectionPending && !Boons->CurrentOptions.IsEmpty();
+}
+
+bool AFPSRLPlayerController::OpenBoonSelection()
+{
+	if (!IsLocalController() || !HasPendingBoonSelection())
+	{
+		return false;
+	}
+	bBoonSelectionOpen = true;
+	RefreshBoonSelectionUI();
+	return true;
+}
+
+void AFPSRLPlayerController::HandleBoonClose()
+{
+	// Only hides the screen; the choice stays pending on the server (and still auto-picks on timeout).
+	bBoonSelectionOpen = false;
+	RefreshBoonSelectionUI();
 }
 
 void AFPSRLPlayerController::ShowSelectionWidget(TObjectPtr<UFPSRLSelectionWidget>& Widget, TSubclassOf<UFPSRLSelectionWidget> WidgetClass)

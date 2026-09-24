@@ -17,7 +17,7 @@ DECLARE_DELEGATE_OneParam(FFPSRLChoiceDelegate, int32 /*OptionIndex*/);
  * Presentation only: it shows what AFPSRLPlayerController gives it and reports which button was clicked;
  * the server decides what is valid. Builds a simple default layout in code; a Blueprint subclass can supply its own
  * layout with widgets named Title, Countdown, Choice0..Choice4 (buttons), ChoiceName0..4 / ChoiceDesc0..4 (text),
- * RerollButton and RerollLabel (all optional).
+ * RerollButton, RerollLabel and CloseButton (all optional).
  * The countdown refreshes on a 4 Hz timer, not Tick.
  */
 UCLASS()
@@ -35,8 +35,12 @@ public:
 	/** Server world time when the selection auto-resolves; 0 hides the countdown. */
 	void SetDeadline(double ServerDeadline);
 
+	/** Close = hide the screen without choosing (the choice stays pending). */
+	void SetCloseVisible(bool bVisible);
+
 	FFPSRLChoiceDelegate OnChoice;
 	FSimpleDelegate OnReroll;
+	FSimpleDelegate OnClose;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -54,6 +58,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Selection", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RerollLabel;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Selection", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> CloseButton;
+
 private:
 	void BuildDefaultLayout();
 	void BindChoiceWidgets();
@@ -65,6 +72,7 @@ private:
 	UFUNCTION() void HandleChoice3();
 	UFUNCTION() void HandleChoice4();
 	UFUNCTION() void HandleReroll();
+	UFUNCTION() void HandleClose();
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UButton>> ChoiceButtons;

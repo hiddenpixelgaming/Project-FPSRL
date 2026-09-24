@@ -39,8 +39,10 @@ struct FFPSRLWeaponOption
  * Aspect / Boon selection (requests only; the server validates everything in the player's components):
  *  - ServerSelectAspect (Lobby, after the weapon), ServerSelectBoon, ServerRerollBoons. Each request carries the
  *    selection event id it was made for, so stale or duplicate requests are rejected.
- *  - The owning client shows a selection screen whenever its PlayerState has pending choices (default C++ layout,
- *    restylable with a Blueprint subclass via AspectSelectionClass / BoonSelectionClass).
+ *  - The owning client shows a selection screen for pending choices (default C++ layout, restylable with a
+ *    Blueprint subclass via AspectSelectionClass / BoonSelectionClass). The Aspect screen opens by itself once
+ *    the weapon is picked; the Boon screen opens only when the player uses a Boon terminal (OpenBoonSelection)
+ *    and can be closed and reopened until the choice resolves. The server timeout still applies throughout.
  *  - Run state: arriving outside the Lobby applies the aspect (BeginRunState); returning to the Lobby clears only
  *    temporary Boon/Aspect state (ClearRunState) and offers aspects for the current weapon again.
  *  - Currency: the local profile's TalentEssence (Soul Fragments) is reported to the server once per PlayerState and
@@ -93,6 +95,14 @@ public:
 	/** Server -> owning client: persist the new balance to the local save file. */
 	UFUNCTION(Client, Reliable)
 	void ClientPersistentCurrencyChanged(int32 NewAmount);
+
+	/** Local: show this player's pending Boon choice (used by AFPSRLBoonTerminal). False if nothing is pending. */
+	UFUNCTION(BlueprintCallable, Category = "Boons")
+	bool OpenBoonSelection();
+
+	/** Local: this player has a Boon choice waiting to be made. */
+	UFUNCTION(BlueprintPure, Category = "Boons")
+	bool HasPendingBoonSelection() const;
 
 	/** Dev cheats (host). Console: FPSRLGiveBoon /Game/.../DA_Boon_X.DA_Boon_X  |  FPSRLStartBoonSelection */
 	UFUNCTION(Exec)
@@ -173,6 +183,10 @@ private:
 	void HandleAspectChoice(int32 OptionIndex);
 	void HandleBoonChoice(int32 OptionIndex);
 	void HandleBoonReroll();
+	void HandleBoonClose();
+
+	/** Local: the player opened the Boon screen at a terminal (cleared when they close it or the choice resolves). */
+	bool bBoonSelectionOpen = false;
 
 	// Local profile bridge (BP_GameInstanceBase.CurrentPlayerProfile.TalentEssence) until the save game moves to C++.
 	bool ReadLocalTalentEssence(int32& OutAmount) const;
