@@ -9,6 +9,7 @@
 
 class UInputAction;
 class UInputMappingContext;
+class AFPSRLBoonTerminal;
 class UFPSRLPauseMenuWidget;
 class UFPSRLSelectionWidget;
 
@@ -41,10 +42,12 @@ struct FFPSRLWeaponOption
  *    selection event id it was made for, so stale or duplicate requests are rejected.
  *  - The owning client shows a selection screen for pending choices (default C++ layout, restylable with a
  *    Blueprint subclass via AspectSelectionClass / BoonSelectionClass). The Aspect screen opens by itself once
- *    the weapon is picked; the Boon screen opens only when the player uses a Boon terminal (OpenBoonSelection)
- *    and can be closed and reopened until the choice resolves. The server timeout still applies throughout.
- *  - Run state: arriving outside the Lobby applies the aspect (BeginRunState); returning to the Lobby clears only
- *    temporary Boon/Aspect state (ClearRunState) and offers aspects for the current weapon again.
+ *    the weapon is picked; the Boon screen opens when the player uses a Boon altar (UseBoonAltar -> the server rolls
+ *    their options) and can be closed and reopened until the choice resolves. No timer: altars are optional.
+ *  - Run: the host's Start begins the run set in Project Settings > FPSRL Run (UFPSRLRunSubsystem), or travels to
+ *    MatchMap when none is set.
+ *  - Run state: arriving in a Depth applies the aspect and re-grants carried boons (BeginRunState); returning to the
+ *    Lobby clears only temporary Boon/Aspect state (ClearRunState).
  *  - Currency: the local profile's TalentEssence (Soul Fragments) is reported to the server once per PlayerState and
  *    written back to the save file whenever the server changes it.
  *
@@ -96,7 +99,7 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientPersistentCurrencyChanged(int32 NewAmount);
 
-	/** Local: show this player's pending Boon choice (used by AFPSRLBoonTerminal). False if nothing is pending. */
+	/** Local: show this player's pending Boon choice (reopens it after Close). False if nothing is pending. */
 	UFUNCTION(BlueprintCallable, Category = "Boons")
 	bool OpenBoonSelection();
 
@@ -104,12 +107,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Boons")
 	bool HasPendingBoonSelection() const;
 
-	/** Dev cheats (host). Console: FPSRLGiveBoon /Game/.../DA_Boon_X.DA_Boon_X  |  FPSRLStartBoonSelection */
+	/** Local: the player used a Boon altar. Reopens an open choice, or asks the server for this altar's choice. */
+	void UseBoonAltar(AFPSRLBoonTerminal* Altar);
+
+	UFUNCTION(Server, Reliable)
+	void ServerUseBoonAltar(AFPSRLBoonTerminal* Altar);
+
+	/** Server -> owning client: the altar refused (locked, out of range, already used, nothing to offer). */
+	UFUNCTION(Client, Reliable)
+	void ClientBoonAltarRejected();
+
+	/** Dev cheats (host). Console: FPSRLGiveBoon /Game/.../DA_Boon_X.DA_Boon_X  |  FPSRLOfferBoon (a choice without an altar) */
 	UFUNCTION(Exec)
 	void FPSRLGiveBoon(const FString& BoonAssetPath);
 
 	UFUNCTION(Exec)
-	void FPSRLStartBoonSelection();
+	void FPSRLOfferBoon();
 
 	// --- Pause -------------------------------------------------------------------------------------------------
 

@@ -21,8 +21,8 @@ class UFPSRLProgressionSet;
  *
  * Owns the player's Ability System Component (ASC). The ASC lives here rather than on the Character because:
  *  - The PlayerState outlives the pawn, so run-scoped boons and effects survive death and respawn.
- *  - A run is one streamed level with no map travel, so everything granted during the run lasts until
- *    the travel back to the Lobby, which recreates the PlayerState and wipes it (boons are run-only by design).
+ *  - Each Depth is its own map: seamless travel creates a new PlayerState per Depth, and CopyProperties hands the
+ *    run build (weapon, aspect, boons) across; BeginRunState re-grants it through the new ASC.
  *
  * Replication: the ASC replicates in Mixed mode. The owning client gets full Gameplay Effect data (for its own HUD
  * and prediction); other clients get only tags and cues. Server is authoritative for every attribute change.
@@ -83,7 +83,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Lobby")
 	bool HasCompletedLoadout() const;
 
-	/** Server: entering a run level. Applies the aspect's grants (idempotent) and marks the run as started. */
+	/** Server: entering a Depth. Applies the aspect and re-grants carried boons (idempotent) and marks the run started. */
 	void BeginRunState();
 
 	/** Server: run is over. Removes only temporary Boon/Aspect grants and state; safe to call more than once. */

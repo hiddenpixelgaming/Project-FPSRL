@@ -6,21 +6,22 @@
 #include "GameFramework/GameStateBase.h"
 #include "FPSRLGameState.generated.h"
 
-class UFPSRLBoonComponent;
+class AFPSRLRoom;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonSelectionEvent);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLDepthEvent);
 
 /**
- * Run-level replicated state. BP_GameStateMatch derives from this.
+ * GameState for Depth levels (BP_GameStateMatch derives from this). Owns the current Depth's completion state.
  *
- * Boon selection phase (server-authoritative):
- *  1. StartBoonSelection() - called when an arena is cleared (BP_ArenaManager). Opens a personal selection for every
- *     player (3 options each, independent) and starts the timeout (UFPSRLBoonSettings::SelectionTimeoutSeconds).
- *  2. Each player resolves by picking (or has nothing to offer, e.g. full slots).
- *  3. On timeout the server auto-picks one of each pending player's CURRENT options.
- *  4. A player who leaves is treated as resolved, so they can never block the group.
- *  5. When every player is resolved, OnBoonSelectionComplete fires exactly once (the arena unlocks its exit then).
- * Clients see bBoonSelectionActive / BoonSelectionDeadline for UI; OnBoonSelectionComplete also fires on clients via OnRep.
+ * Room / Depth / Area / Run completion are separate states:
+ *  - Room: an AFPSRLRoom's required enemies are dead (the room reports it here).
+ *  - Depth: every REQUIRED room of this Depth is complete -> OnDepthCompleted fires exactly once -> exit portals open.
+ *    A Depth with no required rooms (merchant / preparation) completes as soon as play begins.
+ *  - Area / Run: advanced by UFPSRLRunSubsystem when the party takes the portal.
+ *
+ * Server-authoritative; clients see the replicated counters and get OnDepthCompleted through OnRep.
+ * Boon choices are no longer a group phase here: they are personal and optional, at Boon altars (AFPSRLBoonTerminal),
+ * and never hold up the Depth.
  */
 UCLASS()
 class FPSRL_API AFPSRLGameState : public AGameStateBase
@@ -28,44 +29,52 @@ class FPSRL_API AFPSRLGameState : public AGameStateBase
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(ReplicatedUsing = OnRep_BoonSelectionActive, BlueprintReadOnly, Category = "Boons")
-	bool bBoonSelectionActive = false;
+	/** 1-based, for display. 0 when no run is active (PIE started directly in this map). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Depth")
+	int32 AreaNumber = 0;
 
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Boons")
-	int32 BoonSelectionEventId = 0;
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Depth")
+	int32 DepthNumber = 0;
 
-	/** Server world time at which pending players are auto-picked. */
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Boons")
-	double BoonSelectionDeadline = 0.0;
+	UPROPERTY(ReplicatedUsing = OnRep_DepthProgress, BlueprintReadOnly, Category = "Depth")
+	int32 RequiredRooms = 0;
 
-	UPROPERTY(BlueprintAssignable, Category = "Boons")
-	FFPSRLBoonSelectionEvent OnBoonSelectionStarted;
+	UPROPERTY(ReplicatedUsing = OnRep_DepthProgress, BlueprintReadOnly, Category = "Depth")
+	int32 CompletedRooms = 0;
 
-	/** Every player has resolved their selection. Fires once per selection event. */
-	UPROPERTY(BlueprintAssignable, Category = "Boons")
-	FFPSRLBoonSelectionEvent OnBoonSelectionComplete;
+	UPROPERTY(ReplicatedUsing = OnRep_DepthComplete, BlueprintReadOnly, Category = "Depth")
+	bool bDepthComplete = false;
 
-	/** Server-only. Ignored if a selection is already running. */
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Boons")
-	void StartBoonSelection();
+	/** Required-room counters changed (server and clients). */
+	UPROPERTY(BlueprintAssignable, Category = "Depth")
+	FFPSRLDepthEvent OnDepthProgressChanged;
 
-	bool IsBoonSelectionEventActive(int32 EventId) const { return bBoonSelectionActive && EventId == BoonSelectionEventId; }
+	/** Every required encounter is done. Fires once per Depth, on server and clients. */
+	UPROPERTY(BlueprintAssignable, Category = "Depth")
+	FFPSRLDepthEvent OnDepthCompleted;
 
-	/** Called by a player's boon component when it resolves. */
-	void NotifyBoonSelectionResolved(int32 EventId);
+	UFUNCTION(BlueprintPure, Category = "Depth")
+	int32 GetRemainingRooms() const { return FMath::Max(0, RequiredRooms - CompletedRooms); }
 
-	virtual void RemovePlayerState(APlayerState* PlayerState) override;
+	/** Server: a required room joins this Depth (called by the room on BeginPlay). */
+	void RegisterRequiredRoom(AFPSRLRoom* Room);
+
+	/** Server: a room finished its encounter. */
+	void NotifyRoomCompleted(AFPSRLRoom* Room);
 
 protected:
+	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION()
-	void OnRep_BoonSelectionActive();
+	void OnRep_DepthProgress();
+
+	UFUNCTION()
+	void OnRep_DepthComplete();
 
 private:
-	void HandleSelectionTimeout();
-	void CheckSelectionComplete();
-	static UFPSRLBoonComponent* GetBoonComponent(const APlayerState* PlayerState);
+	void RecountRooms();
+	void CompleteDepth();
 
-	FTimerHandle SelectionTimeoutHandle;
+	TArray<TWeakObjectPtr<AFPSRLRoom>> RequiredRoomList;
 };

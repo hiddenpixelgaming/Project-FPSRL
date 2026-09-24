@@ -30,19 +30,52 @@ enum class EDoorState : uint8
 	Locked	= 4		// Closed and refuses Open() until Unlock().
 };
 
-/**
- * Role of a room within the 24-room run sequence.
- * Replaces encoding the type as which BP_RoomInfo_* subclass an asset uses.
- */
+/** What a room inside a Depth is for. Combat, Elite and Boss rooms are the ones a Depth can require. */
 UENUM(BlueprintType)
 enum class ERoomType : uint8
 {
-	Spawn,
-	Walk,
-	Arena,
-	SubBoss,
+	Entry,
+	Combat,
+	Elite,
+	Reward,
+	Boon,
+	Merchant,
+	Upgrade,
+	Boss
+};
+
+/** Pacing role of a Depth within its Area (NORMAL -> NORMAL + ELITE -> PREPARATION -> AREA BOSS, then the final area). */
+UENUM(BlueprintType)
+enum class EDepthType : uint8
+{
+	Normal,
+	Elite,
+	Preparation,
+	AreaBoss,
+	FinalArea,
+	FinalBoss
+};
+
+/** Exit portal state machine. Only Active accepts players. */
+UENUM(BlueprintType)
+enum class EPortalState : uint8
+{
+	Hidden,		// Depth not complete; portal invisible and inert
+	Locked,		// Depth not complete; portal visible but inert ("clear remaining encounters")
+	Activating,	// Depth just completed; short activation delay (VFX/SFX)
+	Active,		// players may enter
+	Used,		// travel started
+	Disabled	// never activates (e.g. a Depth without an exit)
+};
+
+/** Where an exit portal leads, derived from the run definition. */
+UENUM(BlueprintType)
+enum class EPortalDestination : uint8
+{
+	NextDepth,
+	NextArea,
 	FinalBoss,
-	EndRun
+	RunComplete
 };
 
 /** Relic rarity tier, ordered lowest to highest. Drop weights live in the rarity DataTable, not here. */

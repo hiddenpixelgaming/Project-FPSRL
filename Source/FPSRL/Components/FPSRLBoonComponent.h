@@ -34,10 +34,13 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
  * through GAS, and marks the selection complete. Clients only display the replicated state and send requests
  * (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons). Another player's choices are never touched.
  *
- * Selection lifecycle (driven by AFPSRLGameState): BeginSelection(EventId) -> TrySelect / TryReroll / AutoSelect ->
- * resolved (bHasSelected) -> the game state checks whether every player is done. Every request carries the EventId,
- * and the first valid resolution wins, so a manual pick racing the timeout, a duplicate click, or a stale request
- * after reconnecting can never grant twice.
+ * Selection lifecycle: a Boon altar (AFPSRLBoonTerminal) calls BeginSelection -> TrySelect / TryReroll -> resolved.
+ * Personal and optional: nobody waits for it, and no timer runs. Every request carries the SelectionEventId and the
+ * first valid resolution wins, so a duplicate click or a stale request after reconnecting can never grant twice.
+ * An unresolved choice is forfeited when the party leaves the Depth.
+ *
+ * Depth travel: owned boons are handed to the next Depth's PlayerState (CopyRunStateTo) and re-granted through GAS
+ * there (RestoreRunState), so the build persists for the whole run.
  *
  * Rules (all numbers in UFPSRLBoonSettings): 3 options; 3 free rerolls then Soul Fragments; per-boon stacking;
  * at most 3 elements owned; +1% offer weight per owned boon of an element; capacity = ProgressionSet.MaxBoonSlots
@@ -66,10 +69,6 @@ public:
 	/** A selection is open for this player and not yet resolved. */
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
 	bool bSelectionPending = false;
-
-	/** Server world time (see AGameStateBase::GetServerWorldTimeSeconds) when the server auto-picks. */
-	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
-	double SelectionDeadline = 0.0;
 
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
 	int32 FreeRerollsRemaining = 0;
@@ -100,10 +99,13 @@ public:
 
 	bool IsSelectionPending(int32 EventId) const { return bSelectionPending && EventId == SelectionEventId; }
 
-	// --- Server API (called by AFPSRLGameState / AFPSRLPlayerController) -------------------------------------
+	// --- Server API (called by AFPSRLBoonTerminal / AFPSRLPlayerController) -----------------------------------
 
-	/** Opens a selection. Returns false (already resolved) if nothing can be offered, e.g. slots are full. */
-	bool BeginSelection(int32 EventId, double Deadline);
+	/**
+	 * Opens a new choice for this player (a Boon altar was used). False if one is already open, or if nothing can be
+	 * offered (e.g. slots are full). Each call gets a new SelectionEventId, so stale requests for an older one fail.
+	 */
+	bool BeginSelection();
 
 	/** Player's manual pick. Returns true if it resolved the selection. */
 	bool TrySelect(int32 EventId, int32 OptionIndex);
@@ -111,18 +113,18 @@ public:
 	/** Replaces the current options. Free while free rerolls remain, then costs Soul Fragments. */
 	bool TryReroll(int32 EventId);
 
-	/** Timeout: picks one of the CURRENT options at random (no new set, no cost). */
-	void AutoSelect(int32 EventId);
-
-	/** Resolves without granting (player left). Stale requests for EventId are then rejected. */
-	void ForceResolve(int32 EventId);
-
 	/** Adds a boon outside a selection (rewards, dev cheat). Respects stacking and capacity. */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Boons")
 	bool GrantBoon(UFPSRLBoonDefinition* Boon);
 
 	/** Run end: removes exactly the effects this component granted and clears all temporary boon state. */
 	void ClearRunState();
+
+	/** Server, seamless travel: hands this player's owned boons to the next Depth's component. */
+	void CopyRunStateTo(UFPSRLBoonComponent* Other) const;
+
+	/** Server: re-grants boons carried over from the previous Depth (called from BeginRunState). */
+	void RestoreRunState();
 
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -133,6 +135,9 @@ protected:
 private:
 	/** Server: per OwnedBoons entry (same index), the grants of each stack. */
 	TArray<TArray<FFPSRLGrantHandles>> OwnedBoonHandles;
+
+	/** Server: boons carried from the previous Depth, waiting for BeginRunState to re-grant them. */
+	TArray<FFPSRLOwnedBoon> PendingRestore;
 
 	AFPSRLPlayerState* GetOwningPlayerState() const;
 	UAbilitySystemComponent* GetAbilitySystem() const;

@@ -42,10 +42,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	virtual bool CanInteract() const { return true; }
 
-protected:
 	/** Call when CanInteract() changes: shows/hides the prompt for a local player already standing in range. */
 	void RefreshLocalInteractor();
 
+protected:
 	/** The local player entered interaction range. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Interaction", meta = (DisplayName = "On Interactor Entered"))
 	void K2_OnInteractorEntered(ACharacter* Interactor);

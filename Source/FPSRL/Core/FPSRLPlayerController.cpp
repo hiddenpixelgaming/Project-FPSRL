@@ -13,6 +13,9 @@
 #include "Components/FPSRLBoonComponent.h"
 #include "Core/FPSRLGameState.h"
 #include "Core/FPSRLPlayerState.h"
+#include "Core/FPSRLRunSubsystem.h"
+#include "EngineUtils.h"
+#include "Rooms/FPSRLBoonTerminal.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
 #include "Data/FPSRLBoonSettings.h"
@@ -44,9 +47,15 @@ void AFPSRLPlayerController::ServerRequestStartMatch_Implementation()
 		UE_LOG(LogFPSRL, Warning, TEXT("Start Match ignored: not every player is ready"));
 		return;
 	}
+	// The run (Project Settings > FPSRL Run) travels to its first Depth. Without one, MatchMap is a one-Depth run.
+	if (UFPSRLRunSubsystem* RunSubsystem = GetGameInstance() ? GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr;
+		RunSubsystem && RunSubsystem->StartRun(GetWorld()))
+	{
+		return;
+	}
 	if (MatchMap.IsNull())
 	{
-		UE_LOG(LogFPSRL, Error, TEXT("Start Match: MatchMap is not set on %s"), *GetClass()->GetName());
+		UE_LOG(LogFPSRL, Error, TEXT("Start Match: no Run Definition in Project Settings > FPSRL Run and no MatchMap on %s"), *GetClass()->GetName());
 		return;
 	}
 
@@ -125,19 +134,57 @@ void AFPSRLPlayerController::FPSRLGiveBoon(const FString& BoonAssetPath)
 #endif
 }
 
-void AFPSRLPlayerController::FPSRLStartBoonSelection()
+void AFPSRLPlayerController::FPSRLOfferBoon()
 {
 #if !UE_BUILD_SHIPPING
-	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>(); GameState && HasAuthority())
+	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
+	if (PS && HasAuthority() && IsLocalController())
 	{
-		GameState->StartBoonSelection();
-		OpenBoonSelection();	// no room/terminal involved: open the host's screen directly
+		bBoonSelectionOpen = true;
+		if (!PS->GetBoonComponent()->BeginSelection())
+		{
+			bBoonSelectionOpen = false;
+			UE_LOG(LogFPSRL, Warning, TEXT("FPSRLOfferBoon: a choice is already open, or nothing is eligible"));
+		}
 	}
 	else
 	{
-		UE_LOG(LogFPSRL, Warning, TEXT("FPSRLStartBoonSelection: host only, in a level using AFPSRLGameState"));
+		UE_LOG(LogFPSRL, Warning, TEXT("FPSRLOfferBoon: host only"));
 	}
 #endif
+}
+
+// --- Boon altars ---------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerController::UseBoonAltar(AFPSRLBoonTerminal* Altar)
+{
+	if (!IsLocalController() || !Altar)
+	{
+		return;
+	}
+	if (OpenBoonSelection())
+	{
+		return;	// a choice is already open: just show it again
+	}
+	// Show the screen as soon as the server's options replicate (RefreshBoonSelectionUI).
+	bBoonSelectionOpen = true;
+	ServerUseBoonAltar(Altar);
+}
+
+void AFPSRLPlayerController::ServerUseBoonAltar_Implementation(AFPSRLBoonTerminal* Altar)
+{
+	if (!Altar || !Altar->TryOffer(this))
+	{
+		ClientBoonAltarRejected();
+	}
+}
+
+void AFPSRLPlayerController::ClientBoonAltarRejected_Implementation()
+{
+	if (!HasPendingBoonSelection())
+	{
+		bBoonSelectionOpen = false;
+	}
 }
 
 bool AFPSRLPlayerController::IsInLobby() const
@@ -242,6 +289,14 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 {
 	const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
 	const UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
+	if (IsLocalController())
+	{
+		// An altar's prompt depends on whether this player still has its choice open.
+		for (TActorIterator<AFPSRLBoonTerminal> It(GetWorld()); It; ++It)
+		{
+			It->RefreshLocalInteractor();
+		}
+	}
 	if (!IsLocalController() || !Boons || !Boons->bSelectionPending || Boons->CurrentOptions.IsEmpty())
 	{
 		bBoonSelectionOpen = false;	// resolved (picked / timed out): the next selection needs the terminal again
@@ -270,7 +325,7 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 	BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseBoon", "CHOOSE A BOON"));
 	BoonSelectionWidget->SetChoices(Names, Descriptions);
 	BoonSelectionWidget->SetReroll(true, RerollLabel, Cost == 0 || PS->TalentEssence >= Cost);
-	BoonSelectionWidget->SetDeadline(Boons->SelectionDeadline);
+	BoonSelectionWidget->SetDeadline(0.0);	// altars have no timer
 	BoonSelectionWidget->OnChoice.BindUObject(this, &ThisClass::HandleBoonChoice);
 	BoonSelectionWidget->OnReroll.BindUObject(this, &ThisClass::HandleBoonReroll);
 	BoonSelectionWidget->SetCloseVisible(true);

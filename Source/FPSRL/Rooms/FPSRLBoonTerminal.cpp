@@ -1,12 +1,16 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Rooms/FPSRLBoonTerminal.h"
+#include "Components/FPSRLBoonComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
-#include "Core/FPSRLGameState.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Core/FPSRLPlayerState.h"
 #include "Engine/CollisionProfile.h"
+#include "Engine/World.h"
+#include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
+#include "Rooms/FPSRLRoom.h"
 #include "FPSRL.h"
 
 AFPSRLBoonTerminal::AFPSRLBoonTerminal()
@@ -33,6 +37,7 @@ void AFPSRLBoonTerminal::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AFPSRLBoonTerminal, bUnlocked);
+	DOREPLIFETIME(AFPSRLBoonTerminal, ClaimedBy);
 }
 
 void AFPSRLBoonTerminal::BeginPlay()
@@ -45,55 +50,23 @@ void AFPSRLBoonTerminal::BeginPlay()
 		return;
 	}
 
-	FMulticastDelegateProperty* ClearedEvent = Arena ? FindFProperty<FMulticastDelegateProperty>(Arena->GetClass(), ArenaCompleteEvent) : nullptr;
-	if (!ClearedEvent)
+	if (!Room)
 	{
-		UE_LOG(LogFPSRL, Warning, TEXT("[Boons] %s: no Arena linked (or it has no '%s' event); this terminal will stay locked"),
-			*GetActorNameOrLabel(), *ArenaCompleteEvent.ToString());
-		return;
+		SetUnlocked(true);	// no encounter to wait for
 	}
-
-	FScriptDelegate Delegate;
-	Delegate.BindUFunction(this, GET_FUNCTION_NAME_CHECKED(ThisClass, HandleArenaCleared));
-	ClearedEvent->AddDelegate(MoveTemp(Delegate), Arena);
+	else if (Room->IsRoomComplete())
+	{
+		HandleRoomCompleted();
+	}
+	else
+	{
+		Room->OnRoomCompleted.AddUniqueDynamic(this, &ThisClass::HandleRoomCompleted);
+	}
 }
 
-void AFPSRLBoonTerminal::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void AFPSRLBoonTerminal::HandleRoomCompleted()
 {
-	if (AFPSRLGameState* GameState = GetWorld() ? GetWorld()->GetGameState<AFPSRLGameState>() : nullptr)
-	{
-		GameState->OnBoonSelectionComplete.RemoveDynamic(this, &ThisClass::HandleSelectionComplete);
-	}
-	Super::EndPlay(EndPlayReason);
-}
-
-void AFPSRLBoonTerminal::HandleArenaCleared()
-{
-	AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>();
-	if (!HasAuthority() || !GameState)
-	{
-		return;
-	}
-
-	// The arena starts the selection before announcing completion. If it is already over (nobody had anything to
-	// choose from), there is nothing to unlock for.
-	if (!GameState->bBoonSelectionActive)
-	{
-		UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s: room cleared but no Boon selection is running; staying locked"), *GetActorNameOrLabel());
-		return;
-	}
-
-	GameState->OnBoonSelectionComplete.AddUniqueDynamic(this, &ThisClass::HandleSelectionComplete);
 	SetUnlocked(true);
-}
-
-void AFPSRLBoonTerminal::HandleSelectionComplete()
-{
-	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
-	{
-		GameState->OnBoonSelectionComplete.RemoveDynamic(this, &ThisClass::HandleSelectionComplete);
-	}
-	SetUnlocked(false);
 }
 
 void AFPSRLBoonTerminal::SetUnlocked(bool bNewUnlocked)
@@ -103,7 +76,7 @@ void AFPSRLBoonTerminal::SetUnlocked(bool bNewUnlocked)
 		return;
 	}
 	bUnlocked = bNewUnlocked;
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s %s"), *GetActorNameOrLabel(), bUnlocked ? TEXT("unlocked (room cleared)") : TEXT("locked"));
+	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s %s"), *GetActorNameOrLabel(), bUnlocked ? TEXT("unlocked") : TEXT("locked"));
 	ForceNetUpdate();
 	OnRep_Unlocked();	// the listen-server host is a local player too
 }
@@ -114,16 +87,66 @@ void AFPSRLBoonTerminal::OnRep_Unlocked()
 	K2_OnUnlockedChanged(bUnlocked);
 }
 
+void AFPSRLBoonTerminal::OnRep_ClaimedBy()
+{
+	RefreshLocalInteractor();
+}
+
+bool AFPSRLBoonTerminal::HasBeenUsedBy(const APlayerState* Player) const
+{
+	return Player && ClaimedBy.Contains(Player);
+}
+
+bool AFPSRLBoonTerminal::CanInteract() const
+{
+	if (!bUnlocked)
+	{
+		return false;	// room not cleared yet
+	}
+	const UWorld* World = GetWorld();
+	const AFPSRLPlayerController* PC = World ? Cast<AFPSRLPlayerController>(World->GetFirstPlayerController()) : nullptr;
+	if (!PC || !HasBeenUsedBy(PC->PlayerState))
+	{
+		return true;
+	}
+	return PC->HasPendingBoonSelection();	// used, but the choice is still open: allow reopening it
+}
+
 void AFPSRLBoonTerminal::Interact_Implementation(APlayerController* User)
 {
 	if (!CanInteract())
 	{
-		return;	// room not cleared yet
+		return;
+	}
+	if (AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(User))
+	{
+		PC->UseBoonAltar(this);
+	}
+}
+
+bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC)
+{
+	AFPSRLPlayerState* PS = PC ? PC->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	if (!HasAuthority() || !bUnlocked || !PS || !Pawn || HasBeenUsedBy(PS))
+	{
+		return false;
 	}
 
-	AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(User);
-	if (!PC || !PC->OpenBoonSelection())
+	// The client is trusted to be at the altar only within a margin of the prompt radius.
+	const float MaxDistance = InteractionRange->GetScaledSphereRadius() + 150.f;
+	if (FVector::Dist(Pawn->GetActorLocation(), InteractionRange->GetComponentLocation()) > MaxDistance)
 	{
-		UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s: no pending Boon choice for %s"), *GetActorNameOrLabel(), *GetNameSafe(User));
+		UE_LOG(LogFPSRL, Warning, TEXT("[Boons] %s: %s is out of range"), *GetActorNameOrLabel(), *PS->GetPlayerName());
+		return false;
 	}
+
+	if (!PS->GetBoonComponent()->BeginSelection())
+	{
+		return false;	// a choice is already open elsewhere, or nothing is eligible
+	}
+	ClaimedBy.Add(PS);
+	ForceNetUpdate();
+	OnRep_ClaimedBy();
+	return true;
 }

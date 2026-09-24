@@ -53,7 +53,7 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 	Super::CopyProperties(PlayerState);
 
 	// Called on the server during seamless travel (old PlayerState -> new one) and on reconnect.
-	// Boons are deliberately NOT copied: they are run-only and the run is one level.
+	// The run build (weapon, aspect, boons) travels Depth to Depth; the Lobby clears it (ClearRunState).
 	if (AFPSRLPlayerState* NewState = Cast<AFPSRLPlayerState>(PlayerState))
 	{
 		NewState->SelectedWeapon = SelectedWeapon;
@@ -61,6 +61,7 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 		NewState->bTalentEssenceReported = bTalentEssenceReported;
 		NewState->bRunStateActive = bRunStateActive;
 		AspectComponent->CopyChoiceTo(NewState->AspectComponent);
+		BoonComponent->CopyRunStateTo(NewState->BoonComponent);
 	}
 }
 
@@ -95,6 +96,7 @@ void AFPSRLPlayerState::BeginRunState()
 	{
 		bRunStateActive = true;
 		AspectComponent->ApplyActiveAspect();
+		BoonComponent->RestoreRunState();	// boons carried from the previous Depth (no-op on the first)
 	}
 }
 

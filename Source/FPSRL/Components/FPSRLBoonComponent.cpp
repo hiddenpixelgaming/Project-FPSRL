@@ -4,7 +4,6 @@
 #include "AbilitySystemComponent.h"
 #include "Abilities/Attributes/FPSRLProgressionSet.h"
 #include "Components/FPSRLAspectComponent.h"
-#include "Core/FPSRLGameState.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
@@ -28,7 +27,6 @@ void UFPSRLBoonComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, CurrentOptions, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, SelectionEventId, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, bSelectionPending, COND_OwnerOnly);
-	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, SelectionDeadline, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, FreeRerollsRemaining, COND_OwnerOnly);
 }
 
@@ -254,15 +252,14 @@ TArray<TObjectPtr<UFPSRLBoonDefinition>> UFPSRLBoonComponent::GenerateOptions(bo
 
 // --- Selection -----------------------------------------------------------------------------------------------------
 
-bool UFPSRLBoonComponent::BeginSelection(int32 EventId, double Deadline)
+bool UFPSRLBoonComponent::BeginSelection()
 {
-	if (!GetOwner()->HasAuthority())
+	if (!GetOwner()->HasAuthority() || bSelectionPending)
 	{
-		return false;
+		return false;	// one open choice at a time; the pending one stays as it is (no reroll by re-opening)
 	}
 
-	SelectionEventId = EventId;
-	SelectionDeadline = Deadline;
+	const int32 EventId = ++SelectionEventId;
 	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerSelection;
 	CurrentOptions = GenerateOptions(false);
 	bSelectionPending = !CurrentOptions.IsEmpty();
@@ -276,11 +273,6 @@ bool UFPSRLBoonComponent::BeginSelection(int32 EventId, double Deadline)
 bool UFPSRLBoonComponent::TrySelect(int32 EventId, int32 OptionIndex)
 {
 	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EventId) || !CurrentOptions.IsValidIndex(OptionIndex))
-	{
-		return false;
-	}
-	const AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>();
-	if (!GameState || !GameState->IsBoonSelectionEventActive(EventId))
 	{
 		return false;
 	}
@@ -317,24 +309,6 @@ bool UFPSRLBoonComponent::TryReroll(int32 EventId)
 	return true;
 }
 
-void UFPSRLBoonComponent::AutoSelect(int32 EventId)
-{
-	if (GetOwner()->HasAuthority() && IsSelectionPending(EventId) && !CurrentOptions.IsEmpty())
-	{
-		ResolveSelection(CurrentOptions[FMath::RandRange(0, CurrentOptions.Num() - 1)], TEXT("auto-picked on timeout"));
-	}
-}
-
-void UFPSRLBoonComponent::ForceResolve(int32 EventId)
-{
-	if (GetOwner()->HasAuthority() && IsSelectionPending(EventId))
-	{
-		bSelectionPending = false;
-		CurrentOptions.Reset();
-		BroadcastChanged();
-	}
-}
-
 void UFPSRLBoonComponent::ResolveSelection(UFPSRLBoonDefinition* Chosen, const TCHAR* How)
 {
 	// Resolve first, so nothing re-entrant can resolve this event a second time.
@@ -344,11 +318,6 @@ void UFPSRLBoonComponent::ResolveSelection(UFPSRLBoonDefinition* Chosen, const T
 	AddBoonStack(Chosen);
 	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s %s %s (event %d)"), *GetNameSafe(GetOwner()), How, *GetNameSafe(Chosen), SelectionEventId);
 	BroadcastChanged();
-
-	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
-	{
-		GameState->NotifyBoonSelectionResolved(SelectionEventId);
-	}
 }
 
 bool UFPSRLBoonComponent::GrantBoon(UFPSRLBoonDefinition* Boon)
@@ -410,8 +379,46 @@ void UFPSRLBoonComponent::ClearRunState()
 	}
 	OwnedBoonHandles.Reset();
 	OwnedBoons.Reset();
+	PendingRestore.Reset();
 	CurrentOptions.Reset();
 	bSelectionPending = false;
 	FreeRerollsRemaining = 0;
+	BroadcastChanged();
+}
+
+// --- Depth-to-Depth carry-over -------------------------------------------------------------------------------------
+
+void UFPSRLBoonComponent::CopyRunStateTo(UFPSRLBoonComponent* Other) const
+{
+	// The new PlayerState has a fresh ASC: hand over the list, and it re-grants on BeginRunState.
+	// An unresolved choice is not carried: leaving the Depth forfeits it.
+	if (Other)
+	{
+		Other->PendingRestore = OwnedBoons;
+		for (const FFPSRLOwnedBoon& Entry : PendingRestore)
+		{
+			Other->PendingRestore.Add(Entry);	// restore not yet run on this component (e.g. two travels before a pawn)
+		}
+	}
+}
+
+void UFPSRLBoonComponent::RestoreRunState()
+{
+	if (!GetOwner()->HasAuthority() || PendingRestore.IsEmpty() || !GetAbilitySystem())
+	{
+		return;
+	}
+
+	TArray<FFPSRLOwnedBoon> ToRestore = MoveTemp(PendingRestore);
+	PendingRestore.Reset();
+	int32 Restored = 0;
+	for (const FFPSRLOwnedBoon& Entry : ToRestore)
+	{
+		for (int32 Stack = 0; Stack < Entry.Stacks; ++Stack)
+		{
+			Restored += AddBoonStack(Entry.Boon) ? 1 : 0;
+		}
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s: restored %d boon stack(s) after travel"), *GetNameSafe(GetOwner()), Restored);
 	BroadcastChanged();
 }

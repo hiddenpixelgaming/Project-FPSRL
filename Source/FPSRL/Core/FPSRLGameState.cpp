@@ -1,9 +1,9 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Core/FPSRLGameState.h"
-#include "Components/FPSRLBoonComponent.h"
-#include "Core/FPSRLPlayerState.h"
-#include "Data/FPSRLBoonSettings.h"
+#include "Core/FPSRLRunSubsystem.h"
+#include "Engine/GameInstance.h"
+#include "Rooms/FPSRLRoom.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "FPSRL.h"
@@ -12,117 +12,96 @@ void AFPSRLGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(AFPSRLGameState, bBoonSelectionActive);
-	DOREPLIFETIME(AFPSRLGameState, BoonSelectionEventId);
-	DOREPLIFETIME(AFPSRLGameState, BoonSelectionDeadline);
+	DOREPLIFETIME(AFPSRLGameState, AreaNumber);
+	DOREPLIFETIME(AFPSRLGameState, DepthNumber);
+	DOREPLIFETIME(AFPSRLGameState, RequiredRooms);
+	DOREPLIFETIME(AFPSRLGameState, CompletedRooms);
+	DOREPLIFETIME(AFPSRLGameState, bDepthComplete);
 }
 
-UFPSRLBoonComponent* AFPSRLGameState::GetBoonComponent(const APlayerState* PlayerState)
+void AFPSRLGameState::BeginPlay()
 {
-	const AFPSRLPlayerState* PS = Cast<AFPSRLPlayerState>(PlayerState);
-	return PS ? PS->GetBoonComponent() : nullptr;
-}
+	Super::BeginPlay();
 
-void AFPSRLGameState::StartBoonSelection()
-{
-	if (!HasAuthority() || bBoonSelectionActive)
+	if (!HasAuthority())
 	{
 		return;
 	}
 
-	const float Timeout = UFPSRLBoonSettings::Get().SelectionTimeoutSeconds;
-	++BoonSelectionEventId;
-	BoonSelectionDeadline = GetServerWorldTimeSeconds() + Timeout;
-	bBoonSelectionActive = true;
+	if (const UFPSRLRunSubsystem* RunSubsystem = GetGameInstance() ? GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr)
+	{
+		AreaNumber = RunSubsystem->GetAreaNumber();
+		DepthNumber = RunSubsystem->GetDepthNumber();
+	}
+
+	// Rooms register in their own BeginPlay (same frame). Check on the next tick so a Depth without required rooms
+	// (merchant / preparation) completes immediately, and one with rooms waits for them.
+	GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Depth] Area %d Depth %d: %d required room(s)"), AreaNumber, DepthNumber, RequiredRooms);
+		if (RequiredRooms == 0)
+		{
+			CompleteDepth();
+		}
+	}));
+}
+
+void AFPSRLGameState::RegisterRequiredRoom(AFPSRLRoom* Room)
+{
+	if (HasAuthority() && Room && !RequiredRoomList.Contains(Room))
+	{
+		RequiredRoomList.Add(Room);
+		RecountRooms();
+	}
+}
+
+void AFPSRLGameState::NotifyRoomCompleted(AFPSRLRoom* Room)
+{
+	if (!HasAuthority() || bDepthComplete)
+	{
+		return;
+	}
+	RecountRooms();
+	if (RequiredRooms > 0 && CompletedRooms >= RequiredRooms)
+	{
+		CompleteDepth();
+	}
+}
+
+void AFPSRLGameState::RecountRooms()
+{
+	RequiredRoomList.RemoveAll([](const TWeakObjectPtr<AFPSRLRoom>& Room) { return !Room.IsValid(); });
+	RequiredRooms = RequiredRoomList.Num();
+	CompletedRooms = 0;
+	for (const TWeakObjectPtr<AFPSRLRoom>& Room : RequiredRoomList)
+	{
+		CompletedRooms += Room->IsRoomComplete() ? 1 : 0;
+	}
 	ForceNetUpdate();
-
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] Selection %d started for %d player(s), %.0fs"), BoonSelectionEventId, PlayerArray.Num(), Timeout);
-	OnBoonSelectionStarted.Broadcast();
-
-	// Each player gets their own independent set. Players with nothing to offer are resolved immediately.
-	for (APlayerState* Player : PlayerArray)
-	{
-		if (UFPSRLBoonComponent* Boons = GetBoonComponent(Player))
-		{
-			Boons->BeginSelection(BoonSelectionEventId, BoonSelectionDeadline);
-		}
-	}
-
-	GetWorldTimerManager().SetTimer(SelectionTimeoutHandle, this, &ThisClass::HandleSelectionTimeout, Timeout, false);
-	CheckSelectionComplete();
+	OnDepthProgressChanged.Broadcast();
 }
 
-void AFPSRLGameState::HandleSelectionTimeout()
+void AFPSRLGameState::CompleteDepth()
 {
-	if (!bBoonSelectionActive)
+	if (bDepthComplete)
 	{
 		return;
 	}
-
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] Selection %d timed out; auto-picking for pending players"), BoonSelectionEventId);
-	const int32 EventId = BoonSelectionEventId;
-	for (APlayerState* Player : PlayerArray)
-	{
-		if (UFPSRLBoonComponent* Boons = GetBoonComponent(Player))
-		{
-			Boons->AutoSelect(EventId);	// no-op for players who already chose
-		}
-	}
-	CheckSelectionComplete();
-}
-
-void AFPSRLGameState::NotifyBoonSelectionResolved(int32 EventId)
-{
-	if (IsBoonSelectionEventActive(EventId))
-	{
-		CheckSelectionComplete();
-	}
-}
-
-void AFPSRLGameState::RemovePlayerState(APlayerState* PlayerState)
-{
-	// A leaving player must never block the group: resolve them (without a grant) before re-checking.
-	if (HasAuthority() && bBoonSelectionActive)
-	{
-		if (UFPSRLBoonComponent* Boons = GetBoonComponent(PlayerState))
-		{
-			Boons->ForceResolve(BoonSelectionEventId);
-		}
-	}
-
-	Super::RemovePlayerState(PlayerState);
-
-	if (HasAuthority() && bBoonSelectionActive)
-	{
-		CheckSelectionComplete();
-	}
-}
-
-void AFPSRLGameState::CheckSelectionComplete()
-{
-	if (!HasAuthority() || !bBoonSelectionActive)
-	{
-		return;
-	}
-
-	for (const APlayerState* Player : PlayerArray)
-	{
-		const UFPSRLBoonComponent* Boons = GetBoonComponent(Player);
-		if (Boons && !Player->IsInactive() && Boons->IsSelectionPending(BoonSelectionEventId))
-		{
-			return;
-		}
-	}
-
-	// Everyone resolved: close exactly once.
-	bBoonSelectionActive = false;
-	GetWorldTimerManager().ClearTimer(SelectionTimeoutHandle);
+	bDepthComplete = true;
 	ForceNetUpdate();
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] Selection %d complete"), BoonSelectionEventId);
-	OnBoonSelectionComplete.Broadcast();
+	UE_LOG(LogFPSRL, Log, TEXT("[Depth] Area %d Depth %d complete"), AreaNumber, DepthNumber);
+	OnDepthCompleted.Broadcast();
 }
 
-void AFPSRLGameState::OnRep_BoonSelectionActive()
+void AFPSRLGameState::OnRep_DepthProgress()
 {
-	(bBoonSelectionActive ? OnBoonSelectionStarted : OnBoonSelectionComplete).Broadcast();
+	OnDepthProgressChanged.Broadcast();
+}
+
+void AFPSRLGameState::OnRep_DepthComplete()
+{
+	if (bDepthComplete)
+	{
+		OnDepthCompleted.Broadcast();
+	}
 }

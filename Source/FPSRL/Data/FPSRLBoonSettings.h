@@ -31,10 +31,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Boon Selection", meta = (ClampMin = "1"))
 	int32 BoonOptionsPerSelection = 3;
 
-	/** Seconds before the server auto-picks one of a player's current options. */
-	UPROPERTY(Config, EditAnywhere, Category = "Boon Selection", meta = (ClampMin = "1"))
-	float SelectionTimeoutSeconds = 30.f;
-
 	UPROPERTY(Config, EditAnywhere, Category = "Rerolls", meta = (ClampMin = "0"))
 	int32 FreeRerollsPerSelection = 3;
 

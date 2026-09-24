@@ -6,21 +6,24 @@
 #include "Rooms/FPSRLInteractionStation.h"
 #include "FPSRLBoonTerminal.generated.h"
 
+class AFPSRLPlayerController;
+class AFPSRLRoom;
+class APlayerState;
 class USphereComponent;
 class UStaticMeshComponent;
 
 /**
- * Walk-up terminal where a player makes their pending Boon choice after a room is cleared.
+ * Boon altar: an optional walk-up terminal where each player gets ONE personal boon choice.
  * BP_BoonTerminal derives from this (mesh, prompt hookup).
  *
- * Rule: the terminal is LOCKED until every enemy in its room is dead. Each placed terminal is linked to its room's
- * arena manager (Arena); the server unlocks it when that arena reports completion (its OnArenaComplete event, which
- * fires after the last enemy dies and the Boon selection has started) and locks it again once the selection is over.
- * The locked state replicates; a locked terminal shows no prompt and ignores interaction.
+ * Locked until its Room's enemies are all dead (a terminal without a Room is open from the start, e.g. in a reward
+ * room). Once open, every player may use it once: the server rolls that player's own options (UFPSRLBoonComponent),
+ * and the player picks, rerolls, or closes the screen and comes back later. Nothing waits for it: the Depth's exit
+ * portal opens regardless, and a choice still open when the party leaves the Depth is forfeited.
  *
- * Using it only opens the local player's own selection screen (AFPSRLPlayerController::OpenBoonSelection); the choice
- * itself is validated and timed out by the server (AFPSRLGameState), so a player who never reaches the terminal is
- * auto-picked and can never block the group. Any number of players can use it; each sees only their own options.
+ * Server-authoritative: the client only asks (AFPSRLPlayerController::ServerUseBoonAltar); the server checks the
+ * altar is open, the player is in range and hasn't used it yet. ClaimedBy replicates so each client hides the prompt
+ * once it has used the altar.
  */
 UCLASS()
 class FPSRL_API AFPSRLBoonTerminal : public AFPSRLInteractionStation
@@ -31,23 +34,26 @@ public:
 	AFPSRLBoonTerminal();
 
 	virtual void Interact_Implementation(APlayerController* User) override;
-	virtual bool CanInteract() const override { return bUnlocked; }
+
+	/** Local: open, and this machine's player either hasn't used it or still has its choice open. */
+	virtual bool CanInteract() const override;
+
+	/** Server: give this player their choice. False if locked, out of range, already used, or nothing to offer. */
+	bool TryOffer(AFPSRLPlayerController* PC);
+
+	UFUNCTION(BlueprintPure, Category = "Terminal")
+	bool IsUnlocked() const { return bUnlocked; }
+
+	UFUNCTION(BlueprintPure, Category = "Terminal")
+	bool HasBeenUsedBy(const APlayerState* Player) const;
 
 protected:
 	virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	/** The arena manager of this terminal's room. Required: an unlinked terminal never unlocks. */
+	/** The room whose encounter must be cleared first. None = open from the start. */
 	UPROPERTY(EditInstanceOnly, Category = "Terminal")
-	TObjectPtr<AActor> Arena;
-
-	/**
-	 * Name of the arena's no-parameter "room cleared" event dispatcher.
-	 * Temporary reflection bridge while the arena manager is still a Blueprint (Step D3 moves rooms to C++).
-	 */
-	UPROPERTY(EditAnywhere, Category = "Terminal")
-	FName ArenaCompleteEvent = TEXT("OnArenaComplete");
+	TObjectPtr<AFPSRLRoom> Room;
 
 	/** Locked/unlocked changed (server and clients); use for visuals such as a lit screen. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Terminal", meta = (DisplayName = "On Unlocked Changed"))
@@ -61,19 +67,21 @@ protected:
 	TObjectPtr<USphereComponent> InteractionRange;
 
 private:
-	/** Server: the linked arena was cleared. */
 	UFUNCTION()
-	void HandleArenaCleared();
-
-	/** Server: every player has resolved this selection. */
-	UFUNCTION()
-	void HandleSelectionComplete();
+	void HandleRoomCompleted();
 
 	void SetUnlocked(bool bNewUnlocked);
 
 	UFUNCTION()
 	void OnRep_Unlocked();
 
+	UFUNCTION()
+	void OnRep_ClaimedBy();
+
 	UPROPERTY(ReplicatedUsing = OnRep_Unlocked)
 	bool bUnlocked = false;
+
+	/** Players who have used this altar. */
+	UPROPERTY(ReplicatedUsing = OnRep_ClaimedBy)
+	TArray<TObjectPtr<APlayerState>> ClaimedBy;
 };
