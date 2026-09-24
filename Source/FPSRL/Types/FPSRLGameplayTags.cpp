@@ -4,6 +4,21 @@
 
 namespace FPSRLGameplayTags
 {
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element,			"Element",			"Root of the six elements.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Air,		"Element.Air",		"Air: move speed, attack speed.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Fire,	"Element.Fire",		"Fire: AoE, damage over time, spread.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Water,	"Element.Water",	"Water: crowd control, heal-on-hit chance.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Earth,	"Element.Earth",	"Earth: crit chance, crit damage.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Light,	"Element.Light",	"Light: elemental damage, proc upgrades.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Dark,	"Element.Dark",		"Dark: physical damage, defense reduction, penetration.");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Aspect,			"Aspect",			"Root for aspect identity tags (Aspect.Gunslinger, ...).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Boon_Category,	"Boon.Category",	"Root for boon categories.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Build,			"Build",			"Root for build-direction tags (Build.RapidFire, ...).");
+
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Effect_Temporary_Run,	"Effect.Temporary.Run",		"Granted by a temporary run system; removed at run end.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Effect_Permanent_Talent,	"Effect.Permanent.Talent",	"Permanent progression; never removed by run cleanup.");
+
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Weapon_Rifle,	"Weapon.Rifle",		"Lobby-selectable rifle.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Weapon_Pistol,	"Weapon.Pistol",	"Lobby-selectable pistol.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Weapon_Cannon,	"Weapon.Cannon",	"Lobby-selectable cannon (grenade launcher).");

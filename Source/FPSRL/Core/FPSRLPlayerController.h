@@ -10,6 +10,7 @@
 class UInputAction;
 class UInputMappingContext;
 class UFPSRLPauseMenuWidget;
+class UFPSRLSelectionWidget;
 
 /** One lobby-selectable weapon: its tag and the weapon actor class the character is given. */
 USTRUCT(BlueprintType)
@@ -35,6 +36,16 @@ struct FFPSRLWeaponOption
  *  - The selected weapon is equipped on the server whenever this controller possesses a pawn outside the lobby
  *    (i.e. on arrival in the Arena), and immediately when picked at the weapon station.
  *
+ * Aspect / Boon selection (requests only; the server validates everything in the player's components):
+ *  - ServerSelectAspect (Lobby, after the weapon), ServerSelectBoon, ServerRerollBoons. Each request carries the
+ *    selection event id it was made for, so stale or duplicate requests are rejected.
+ *  - The owning client shows a selection screen whenever its PlayerState has pending choices (default C++ layout,
+ *    restylable with a Blueprint subclass via AspectSelectionClass / BoonSelectionClass).
+ *  - Run state: arriving outside the Lobby applies the aspect (BeginRunState); returning to the Lobby clears only
+ *    temporary Boon/Aspect state (ClearRunState) and offers aspects for the current weapon again.
+ *  - Currency: the local profile's TalentEssence (Soul Fragments) is reported to the server once per PlayerState and
+ *    written back to the save file whenever the server changes it.
+ *
  * Pause menu (local only, never pauses the world):
  *  - PauseAction (IA_Pause: Esc / gamepad Start) opens the menu via PauseMappingContext (IMC_Pause).
  *  - While open: UI-only input, visible cursor, mouse not locked (Alt+Tab works); gameplay input is blocked.
@@ -59,9 +70,36 @@ public:
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Lobby")
 	void ServerSelectWeapon(FGameplayTag WeaponTag);
 
-	/** True when there is at least one player and every player is ready. Exec node to match the old BP function. */
+	/** True when there is at least one player and every player is ready with a complete loadout (weapon + aspect).
+	 *  Exec node to match the old BP function. */
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "Lobby")
 	bool AreAllPlayersReady() const;
+
+	// --- Aspect / Boon selection -------------------------------------------------------------------------------
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Aspect")
+	void ServerSelectAspect(int32 EventId, int32 OptionIndex);
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
+	void ServerSelectBoon(int32 EventId, int32 OptionIndex);
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
+	void ServerRerollBoons(int32 EventId);
+
+	/** Client: the owning player's saved Soul Fragments balance (sent once per PlayerState). */
+	UFUNCTION(Server, Reliable)
+	void ServerReportTalentEssence(int32 Amount);
+
+	/** Server -> owning client: persist the new balance to the local save file. */
+	UFUNCTION(Client, Reliable)
+	void ClientPersistentCurrencyChanged(int32 NewAmount);
+
+	/** Dev cheats (host). Console: FPSRLGiveBoon /Game/.../DA_Boon_X.DA_Boon_X  |  FPSRLStartBoonSelection */
+	UFUNCTION(Exec)
+	void FPSRLGiveBoon(const FString& BoonAssetPath);
+
+	UFUNCTION(Exec)
+	void FPSRLStartBoonSelection();
 
 	// --- Pause -------------------------------------------------------------------------------------------------
 
@@ -86,6 +124,14 @@ protected:
 	virtual void SetupInputComponent() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void OnRep_PlayerState() override;
+
+	/** Selection screens (default C++ layout; set a Blueprint subclass to restyle). */
+	UPROPERTY(EditDefaultsOnly, Category = "Boons")
+	TSubclassOf<UFPSRLSelectionWidget> AspectSelectionClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Boons")
+	TSubclassOf<UFPSRLSelectionWidget> BoonSelectionClass;
 
 	/** Weapons the lobby station offers. First entry is the fallback if a tag is unknown. */
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
@@ -115,6 +161,32 @@ private:
 	const FFPSRLWeaponOption* FindWeaponOption(const FGameplayTag& WeaponTag) const;
 
 	void HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful);
+
+	bool IsInLobby() const;
+
+	// Local selection UI
+	void BindToPlayerStateComponents();
+	UFUNCTION() void RefreshAspectSelectionUI();
+	UFUNCTION() void RefreshBoonSelectionUI();
+	void ShowSelectionWidget(TObjectPtr<UFPSRLSelectionWidget>& Widget, TSubclassOf<UFPSRLSelectionWidget> WidgetClass);
+	void HideSelectionWidget(TObjectPtr<UFPSRLSelectionWidget>& Widget);
+	void HandleAspectChoice(int32 OptionIndex);
+	void HandleBoonChoice(int32 OptionIndex);
+	void HandleBoonReroll();
+
+	// Local profile bridge (BP_GameInstanceBase.CurrentPlayerProfile.TalentEssence) until the save game moves to C++.
+	bool ReadLocalTalentEssence(int32& OutAmount) const;
+	void WriteLocalTalentEssence(int32 Amount) const;
+	void ReportTalentEssenceIfNeeded();
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFPSRLSelectionWidget> AspectSelectionWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFPSRLSelectionWidget> BoonSelectionWidget;
+
+	TWeakObjectPtr<APlayerState> BoundPlayerState;
+	TWeakObjectPtr<APlayerState> ReportedPlayerState;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UFPSRLPauseMenuWidget> PauseMenu;

@@ -47,4 +47,25 @@ namespace FPSRLGameplayTags
 
 	// Granted by cooldown Gameplay Effects; an ability can't activate while its cooldown tag is present.
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Cooldown_Dash);
+
+	// --- Boons / Aspects / Elements ---
+
+	// The six elements. A boon lists the element(s) it belongs to; a player may own boons of at most 3 elements.
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element_Air);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element_Fire);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element_Water);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element_Earth);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element_Light);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Element_Dark);
+
+	// Roots for designer-defined tags (individual aspects, boon categories, build tags are added as content).
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Aspect);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Boon_Category);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Build);
+
+	// Added to every effect spec granted by a temporary run system (boons, aspects). Run cleanup removes ONLY these.
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Effect_Temporary_Run);
+	// Reserved for permanent effects (Talent Tree); never removed by run cleanup.
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Effect_Permanent_Talent);
 }

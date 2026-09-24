@@ -2,8 +2,13 @@
 
 #include "Core/FPSRLPlayerState.h"
 #include "Abilities/FPSRLAbilitySystemComponent.h"
+#include "Abilities/Attributes/FPSRLCombatSet.h"
 #include "Abilities/Attributes/FPSRLHealthSet.h"
+#include "Abilities/Attributes/FPSRLProgressionSet.h"
+#include "Components/FPSRLAspectComponent.h"
+#include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLHealthComponent.h"
+#include "Core/FPSRLPlayerController.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
 #include "Types/FPSRLGameplayTags.h"
@@ -17,6 +22,11 @@ AFPSRLPlayerState::AFPSRLPlayerState(const FObjectInitializer& ObjectInitializer
 
 	// Attribute sets that are default subobjects of the ASC's owner are registered with the ASC automatically.
 	HealthSet = CreateDefaultSubobject<UFPSRLHealthSet>(TEXT("HealthSet"));
+	CombatSet = CreateDefaultSubobject<UFPSRLCombatSet>(TEXT("CombatSet"));
+	ProgressionSet = CreateDefaultSubobject<UFPSRLProgressionSet>(TEXT("ProgressionSet"));
+
+	BoonComponent = CreateDefaultSubobject<UFPSRLBoonComponent>(TEXT("BoonComponent"));
+	AspectComponent = CreateDefaultSubobject<UFPSRLAspectComponent>(TEXT("AspectComponent"));
 
 	// PlayerStates default to a very low update rate; GAS state (tags, attributes) needs to reach clients promptly.
 	SetNetUpdateFrequency(100.f);
@@ -35,6 +45,7 @@ void AFPSRLPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 
 	DOREPLIFETIME(AFPSRLPlayerState, bIsReady);
 	DOREPLIFETIME(AFPSRLPlayerState, SelectedWeapon);
+	DOREPLIFETIME_CONDITION(AFPSRLPlayerState, TalentEssence, COND_OwnerOnly);
 }
 
 void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
@@ -42,9 +53,14 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 	Super::CopyProperties(PlayerState);
 
 	// Called on the server during seamless travel (old PlayerState -> new one) and on reconnect.
+	// Boons are deliberately NOT copied: they are run-only and the run is one level.
 	if (AFPSRLPlayerState* NewState = Cast<AFPSRLPlayerState>(PlayerState))
 	{
 		NewState->SelectedWeapon = SelectedWeapon;
+		NewState->TalentEssence = TalentEssence;
+		NewState->bTalentEssenceReported = bTalentEssenceReported;
+		NewState->bRunStateActive = bRunStateActive;
+		AspectComponent->CopyChoiceTo(NewState->AspectComponent);
 	}
 }
 
@@ -65,6 +81,81 @@ void AFPSRLPlayerState::SetSelectedWeapon(const FGameplayTag& NewWeapon)
 		ForceNetUpdate();
 	}
 }
+
+bool AFPSRLPlayerState::HasCompletedLoadout() const
+{
+	return SelectedWeapon.IsValid() && AspectComponent && AspectComponent->HasCompletedAspectChoice();
+}
+
+// --- Run state ---------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerState::BeginRunState()
+{
+	if (HasAuthority())
+	{
+		bRunStateActive = true;
+		AspectComponent->ApplyActiveAspect();
+	}
+}
+
+void AFPSRLPlayerState::ClearRunState()
+{
+	if (!HasAuthority() || !bRunStateActive)
+	{
+		return;	// nothing to clear, or already cleared
+	}
+	bRunStateActive = false;
+
+	BoonComponent->ClearRunState();
+	AspectComponent->ClearRunState();
+
+	// Safety net for anything a run system granted without a tracked handle. Only temporary run effects.
+	const int32 Swept = AbilitySystemComponent->RemoveActiveEffectsWithTags(FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run));
+	UE_LOG(LogFPSRL, Log, TEXT("%s run state cleared (%d untracked temporary effect(s) swept)"), *GetPlayerName(), Swept);
+}
+
+// --- Currency ----------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerState::ReceiveReportedTalentEssence(int32 Amount)
+{
+	if (HasAuthority() && !bTalentEssenceReported)
+	{
+		bTalentEssenceReported = true;
+		TalentEssence = FMath::Max(0, Amount);
+		ForceNetUpdate();
+	}
+}
+
+bool AFPSRLPlayerState::TrySpendTalentEssence(int32 Amount)
+{
+	if (!HasAuthority() || Amount < 0 || TalentEssence < Amount)
+	{
+		return false;
+	}
+	TalentEssence -= Amount;
+	PersistTalentEssence();
+	return true;
+}
+
+void AFPSRLPlayerState::AddTalentEssence(int32 Amount)
+{
+	if (HasAuthority() && Amount > 0)
+	{
+		TalentEssence += Amount;
+		PersistTalentEssence();
+	}
+}
+
+void AFPSRLPlayerState::PersistTalentEssence()
+{
+	ForceNetUpdate();
+	if (AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(GetPlayerController()))
+	{
+		PC->ClientPersistentCurrencyChanged(TalentEssence);
+	}
+}
+
+// --- Pawn / ASC --------------------------------------------------------------------------------------------------
 
 void AFPSRLPlayerState::PostInitializeComponents()
 {
