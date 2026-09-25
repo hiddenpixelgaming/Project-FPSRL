@@ -92,4 +92,7 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+
+	/** Server: OnDeath has fired. Kept after the ASC is detached (body removed), so IsDead stays true. */
+	bool bDied = false;
 };

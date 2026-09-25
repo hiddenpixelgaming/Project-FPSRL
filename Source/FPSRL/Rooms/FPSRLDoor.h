@@ -71,6 +71,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door|Size", meta = (ClampMin = "80"))
 	float ZoneDepth = 100.f;
 
+	/**
+	 * Glass tint per state, sent to DoorMesh's material as vector parameter "Tint" (RGB) and scalar "Opacity" (A),
+	 * so the doorway always reads as a door. Materials without those parameters are left alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door|Look")
+	FLinearColor OpenTint = FLinearColor(0.45f, 0.75f, 1.f, 0.12f);
+
+	/** One-way door that is open: passable forward, solid behind you. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door|Look")
+	FLinearColor OneWayTint = FLinearColor(0.3f, 1.f, 0.45f, 0.22f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door|Look")
+	FLinearColor LockedTint = FLinearColor(1.f, 0.2f, 0.15f, 0.45f);
+
 	/** Scale DoorMesh to the door size, assuming the engine's 100 cm cube. Turn off once real door art is used. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door|Size")
 	bool bScaleMeshToDoorSize = true;

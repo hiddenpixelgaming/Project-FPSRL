@@ -8,6 +8,7 @@
 #include "Engine/CollisionProfile.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerState.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Net/UnrealNetwork.h"
 #include "FPSRL.h"
 
@@ -157,6 +158,14 @@ void AFPSRLDoor::ApplyDoorState()
 	if (DoorState != EDoorState::Open)
 	{
 		RevokeAllPassage();
+	}
+
+	// Glass look per state (every machine: called on the server and from OnRep).
+	if (UMaterialInstanceDynamic* Glass = DoorMesh->GetMaterial(0) ? DoorMesh->CreateDynamicMaterialInstance(0) : nullptr)
+	{
+		const FLinearColor& Tint = DoorState != EDoorState::Open ? LockedTint : (bIsOneWayEntrance ? OneWayTint : OpenTint);
+		Glass->SetVectorParameterValue(TEXT("Tint"), Tint);
+		Glass->SetScalarParameterValue(TEXT("Opacity"), Tint.A);
 	}
 
 	K2_OnDoorStateChanged(DoorState);

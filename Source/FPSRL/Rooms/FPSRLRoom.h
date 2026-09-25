@@ -9,6 +9,7 @@
 
 class AController;
 class AFPSRLDoor;
+class AFPSRLEnemySpawnPoint;
 class AFPSRLTriggerVolume;
 class UBoxComponent;
 
@@ -22,7 +23,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLRoomEvent);
  * fires, and the Depth is told (AFPSRLGameState). Enemies that died before the encounter began are never counted, so
  * an early kill can't leave the room unclearable. No CombatTrigger = the encounter starts when play begins.
  *
- * Enemies: the explicit Enemies list, or (if empty) every EnemyClass actor inside RoomBounds when combat starts.
+ * Enemies: normally spawned when combat starts, one per AFPSRLEnemySpawnPoint (the SpawnPoints list, or every spawn
+ * point inside RoomBounds), so nothing is awake before a player enters. Pre-placed enemies are also supported (the
+ * Enemies list, or every EnemyClass actor inside RoomBounds when there are no spawn points).
  * Rooms with bRequiredForDepth count toward the Depth's exit portal; optional rooms (rewards, altars) don't.
  * Event-driven, no Tick.
  */
@@ -52,6 +55,11 @@ public:
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Room|Enemies")
 	TArray<TObjectPtr<AActor>> Enemies;
 
+	/** Where enemies spawn when combat starts. Leave empty to use every spawn point inside RoomBounds. */
+	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Room|Enemies")
+	TArray<TObjectPtr<AFPSRLEnemySpawnPoint>> SpawnPoints;
+
+	/** Default enemy for spawn points without their own class, and the class gathered for pre-placed enemies. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room|Enemies")
 	TSubclassOf<AActor> EnemyClass;
 
@@ -98,6 +106,8 @@ private:
 	void OnRep_RoomState();
 
 	TArray<AActor*> GatherEnemies() const;
+	TArray<AFPSRLEnemySpawnPoint*> GatherSpawnPoints() const;
+	bool IsInsideBounds(const FVector& WorldLocation) const;
 	void CompleteRoom();
 
 	bool bBroadcastCombatStarted = false;

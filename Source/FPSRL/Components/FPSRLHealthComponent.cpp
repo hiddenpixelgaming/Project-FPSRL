@@ -76,6 +76,8 @@ void UFPSRLHealthComponent::InitializeWithAbilitySystem(UAbilitySystemComponent*
 			HealthSet = InASC->AddAttributeSetSubobject(NewObject<UFPSRLHealthSet>(InASC->GetOwner()));
 		}
 
+		bDied = false;
+
 		// Fresh spawn: full health. (A player's set outlives the pawn, so this also resets it on respawn.)
 		InASC->SetNumericAttributeBase(UFPSRLHealthSet::GetMaxHealthAttribute(), DefaultMaxHealth);
 		InASC->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), DefaultMaxHealth);
@@ -178,14 +180,16 @@ void UFPSRLHealthComponent::HandleOutOfHealth(AActor* DamageInstigator, AActor* 
 		}
 	}
 
+	bDied = true;
 	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s DIED (OnDeath broadcasting)"), *GetOwner()->GetActorNameOrLabel()), FColor::Red);
 	OnDeath.Broadcast(InstigatorController, DamageCauser);
 }
 
 bool UFPSRLHealthComponent::IsDead() const
 {
-	// Uninitialized (e.g. a client before the set replicates) counts as alive, never as dead.
-	return GetHealthSet() && GetCurrentHealth() <= 0.f;
+	// Died stays true after the body is removed (EndPlay detaches the ASC). Uninitialized (e.g. a client before the
+	// set replicates) otherwise counts as alive, never as dead.
+	return bDied || (GetHealthSet() && GetCurrentHealth() <= 0.f);
 }
 
 int32 UFPSRLHealthComponent::CountAliveActors(const TArray<AActor*>& Actors)

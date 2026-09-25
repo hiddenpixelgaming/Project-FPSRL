@@ -6,7 +6,9 @@
 #include "Core/FPSRLGameState.h"
 #include "EngineUtils.h"
 #include "Net/UnrealNetwork.h"
+#include "GameFramework/Pawn.h"
 #include "Rooms/FPSRLDoor.h"
+#include "Rooms/FPSRLEnemySpawnPoint.h"
 #include "Rooms/FPSRLTriggerVolume.h"
 #include "FPSRL.h"
 
@@ -66,14 +68,44 @@ void AFPSRLRoom::HandleCombatTriggered(AActor* TriggeringActor)
 	StartCombat();
 }
 
+bool AFPSRLRoom::IsInsideBounds(const FVector& WorldLocation) const
+{
+	const FBox LocalBox(-RoomBounds->GetUnscaledBoxExtent(), RoomBounds->GetUnscaledBoxExtent());
+	return LocalBox.IsInside(RoomBounds->GetComponentTransform().InverseTransformPosition(WorldLocation));
+}
+
+TArray<AFPSRLEnemySpawnPoint*> AFPSRLRoom::GatherSpawnPoints() const
+{
+	TArray<AFPSRLEnemySpawnPoint*> Result;
+	for (AFPSRLEnemySpawnPoint* Point : SpawnPoints)
+	{
+		if (IsValid(Point))
+		{
+			Result.AddUnique(Point);
+		}
+	}
+	if (SpawnPoints.IsEmpty())
+	{
+		for (TActorIterator<AFPSRLEnemySpawnPoint> It(GetWorld()); It; ++It)
+		{
+			if (IsInsideBounds(It->GetActorLocation()))
+			{
+				Result.Add(*It);
+			}
+		}
+	}
+	return Result;
+}
+
 TArray<AActor*> AFPSRLRoom::GatherEnemies() const
 {
+	// Pre-placed enemies. A destroyed body (IsValid false) is skipped; its kill already happened.
 	TArray<AActor*> Result;
 	if (!Enemies.IsEmpty())
 	{
 		for (AActor* Enemy : Enemies)
 		{
-			if (Enemy)
+			if (IsValid(Enemy))
 			{
 				Result.AddUnique(Enemy);
 			}
@@ -81,15 +113,14 @@ TArray<AActor*> AFPSRLRoom::GatherEnemies() const
 		return Result;
 	}
 
-	if (!EnemyClass)
+	// Without spawn points, fall back to every EnemyClass actor already standing in the room.
+	if (!EnemyClass || !GatherSpawnPoints().IsEmpty())
 	{
 		return Result;
 	}
-	const FTransform BoundsTransform = RoomBounds->GetComponentTransform();
-	const FBox LocalBox(-RoomBounds->GetUnscaledBoxExtent(), RoomBounds->GetUnscaledBoxExtent());
 	for (TActorIterator<AActor> It(GetWorld(), EnemyClass); It; ++It)
 	{
-		if (LocalBox.IsInside(BoundsTransform.InverseTransformPosition(It->GetActorLocation())))
+		if (IsValid(*It) && IsInsideBounds(It->GetActorLocation()))
 		{
 			Result.Add(*It);
 		}
@@ -110,9 +141,20 @@ void AFPSRLRoom::StartCombat()
 		ExitDoor->Lock();
 	}
 
-	// Track only enemies that are alive right now; each health component's OnDeath fires once.
+	// Spawn this room's enemies now (nothing existed at the spawn points before), then track every living one.
+	TArray<AActor*> ToTrack = GatherEnemies();
+	const TSubclassOf<APawn> DefaultEnemy = (EnemyClass && EnemyClass->IsChildOf(APawn::StaticClass())) ? TSubclassOf<APawn>(EnemyClass.Get()) : nullptr;
+	for (const AFPSRLEnemySpawnPoint* Point : GatherSpawnPoints())
+	{
+		if (APawn* Spawned = Point->SpawnEnemy(DefaultEnemy))
+		{
+			ToTrack.Add(Spawned);
+		}
+	}
+
+	// Each health component's OnDeath fires once.
 	RemainingEnemies = 0;
-	for (AActor* Enemy : GatherEnemies())
+	for (AActor* Enemy : ToTrack)
 	{
 		UFPSRLHealthComponent* Health = Enemy->FindComponentByClass<UFPSRLHealthComponent>();
 		if (Health && !Health->IsDead())
