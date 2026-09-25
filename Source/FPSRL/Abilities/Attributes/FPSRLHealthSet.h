@@ -36,6 +36,9 @@ public:
 	/** Server-only. See FFPSRLOutOfHealthEvent. */
 	mutable FFPSRLOutOfHealthEvent OnOutOfHealth;
 
+	/** Server-only. Lethal damage on a Status.Downable target (health left at 1 instead of 0). */
+	mutable FFPSRLOutOfHealthEvent OnDowned;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual bool PreGameplayEffectExecute(FGameplayEffectModCallbackData& Data) override;
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;

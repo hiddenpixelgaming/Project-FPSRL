@@ -42,5 +42,17 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0"))
 	float PortalCountdownSeconds = 35.f;
 
+	/** Move speed while downed, as a fraction of normal (0.2 = 20%). */
+	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0", ClampMax = "1"))
+	float DownedMoveSpeedMultiplier = 0.2f;
+
+	/** Seconds a teammate must stay beside a downed player to revive them. */
+	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0"))
+	float ReviveSeconds = 3.f;
+
+	/** Share of max health a revived player gets back (0.15 = 15%). */
+	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0.01", ClampMax = "1"))
+	float ReviveHealthFraction = 0.15f;
+
 	virtual FName GetCategoryName() const override { return TEXT("Game"); }
 };

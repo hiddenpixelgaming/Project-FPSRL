@@ -10,6 +10,12 @@
 #include "GameFramework/Pawn.h"
 #include "HAL/IConsoleManager.h"
 #include "Types/FPSRLGameplayTags.h"
+#include "Data/FPSRLRunSettings.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
+#include "Rooms/FPSRLReviveMarker.h"
 #include "FPSRL.h"
 
 namespace FPSRLHealthDebug
@@ -83,7 +89,12 @@ void UFPSRLHealthComponent::InitializeWithAbilitySystem(UAbilitySystemComponent*
 		InASC->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), DefaultMaxHealth);
 
 		HealthSet->OnOutOfHealth.AddUObject(this, &ThisClass::HandleOutOfHealth);
+		HealthSet->OnDowned.AddUObject(this, &ThisClass::HandleDowned);
 	}
+
+	// Downed state arrives as a replicated tag, so the crawl applies on server and clients alike.
+	DownedTagHandle = InASC->RegisterGameplayTagEvent(FPSRLGameplayTags::Status_Downed, EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &ThisClass::HandleDownedTagChanged);
 
 	InASC->GetGameplayAttributeValueChangeDelegate(UFPSRLHealthSet::GetHealthAttribute()).AddUObject(this, &ThisClass::HandleHealthAttributeChanged);
 	InASC->GetGameplayAttributeValueChangeDelegate(UFPSRLHealthSet::GetMaxHealthAttribute()).AddUObject(this, &ThisClass::HandleHealthAttributeChanged);
@@ -107,6 +118,13 @@ void UFPSRLHealthComponent::UninitializeFromAbilitySystem()
 	if (const UFPSRLHealthSet* HealthSet = GetHealthSet())
 	{
 		HealthSet->OnOutOfHealth.RemoveAll(this);
+		HealthSet->OnDowned.RemoveAll(this);
+	}
+	AbilitySystemComponent->RegisterGameplayTagEvent(FPSRLGameplayTags::Status_Downed, EGameplayTagEventType::NewOrRemoved).Remove(DownedTagHandle);
+	if (ReviveMarker)
+	{
+		ReviveMarker->Destroy();
+		ReviveMarker = nullptr;
 	}
 
 	AbilitySystemComponent = nullptr;
@@ -171,6 +189,10 @@ void UFPSRLHealthComponent::HandleHealthAttributeChanged(const FOnAttributeChang
 
 void UFPSRLHealthComponent::HandleOutOfHealth(AActor* DamageInstigator, AActor* DamageCauser)
 {
+	if (bDied)
+	{
+		return;	// already dead (e.g. finished off, then hit again at 0)
+	}
 	AController* InstigatorController = Cast<AController>(DamageInstigator);
 	if (!InstigatorController)
 	{
@@ -222,4 +244,163 @@ float UFPSRLHealthComponent::GetMaxHealth() const
 {
 	const UFPSRLHealthSet* HealthSet = GetHealthSet();
 	return HealthSet ? HealthSet->GetMaxHealth() : 0.f;
+}
+
+// --- Downed ----------------------------------------------------------------------------------------------------------
+
+bool UFPSRLHealthComponent::IsDowned() const
+{
+	return AbilitySystemComponent && AbilitySystemComponent->HasMatchingGameplayTag(FPSRLGameplayTags::Status_Downed);
+}
+
+bool UFPSRLHealthComponent::IsPawnUp(const APawn* Pawn)
+{
+	const UFPSRLHealthComponent* Health = Pawn ? Pawn->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+	return IsValid(Pawn) && !(Health && (Health->IsDead() || Health->IsDowned()));
+}
+
+bool UFPSRLHealthComponent::IsAnyOtherPlayerUp() const
+{
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	const AGameStateBase* GameState = GetWorld() ? GetWorld()->GetGameState() : nullptr;
+	if (!GameState)
+	{
+		return false;
+	}
+	for (const APlayerState* Player : GameState->PlayerArray)
+	{
+		const APawn* Pawn = (Player && !Player->IsInactive()) ? Player->GetPawn() : nullptr;
+		if (Pawn && Pawn != OwnerPawn && IsPawnUp(Pawn))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UFPSRLHealthComponent::HandleDowned(AActor* DamageInstigator, AActor* DamageCauser)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!AbilitySystemComponent || !OwnerPawn || !GetOwner()->HasAuthority() || IsDowned() || bDied)
+	{
+		return;
+	}
+
+	if (!IsAnyOtherPlayerUp())
+	{
+		// Nobody left to revive anyone: this player dies, and so does everyone already down (party wipe).
+		UE_LOG(LogFPSRL, Log, TEXT("%s went down with nobody left standing"), *OwnerPawn->GetActorNameOrLabel());
+		if (const AGameStateBase* GameState = GetWorld()->GetGameState())
+		{
+			for (const APlayerState* Player : GameState->PlayerArray)
+			{
+				UFPSRLHealthComponent* Other = (Player && Player->GetPawn()) ? Player->GetPawn()->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+				if (Other && Other != this && Other->IsDowned())
+				{
+					Other->Kill();
+				}
+			}
+		}
+		Kill();
+		return;
+	}
+
+	// Down: can't be hurt further, crawls, and carries a "Press E to Revive" station for teammates.
+	AbilitySystemComponent->AddLooseGameplayTag(FPSRLGameplayTags::Status_Downed, 1, EGameplayTagReplicationState::TagOnly);
+	AbilitySystemComponent->AddLooseGameplayTag(FPSRLGameplayTags::Status_Invulnerable, 1, EGameplayTagReplicationState::TagOnly);
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AFPSRLReviveMarker* Marker = GetWorld()->SpawnActor<AFPSRLReviveMarker>(OwnerPawn->GetActorLocation(), FRotator::ZeroRotator, Params);
+	if (Marker)
+	{
+		Marker->SetTarget(OwnerPawn);
+	}
+	ReviveMarker = Marker;
+
+	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s is DOWN"), *OwnerPawn->GetActorNameOrLabel()), FColor::Orange);
+}
+
+void UFPSRLHealthComponent::Revive(float HealthFraction)
+{
+	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || !IsDowned() || bDied)
+	{
+		return;
+	}
+
+	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Downed, 0, EGameplayTagReplicationState::TagOnly);
+	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Invulnerable, 0, EGameplayTagReplicationState::TagOnly);
+	if (ReviveMarker)
+	{
+		ReviveMarker->Destroy();
+		ReviveMarker = nullptr;
+	}
+
+	const float NewHealth = FMath::Max(1.f, GetMaxHealth() * HealthFraction);
+	AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), NewHealth);
+	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s was revived (%.0f HP)"), *GetOwner()->GetActorNameOrLabel(), NewHealth), FColor::Green);
+}
+
+void UFPSRLHealthComponent::Kill()
+{
+	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied)
+	{
+		return;
+	}
+
+	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Downed, 0, EGameplayTagReplicationState::TagOnly);
+	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Invulnerable, 0, EGameplayTagReplicationState::TagOnly);
+	if (ReviveMarker)
+	{
+		ReviveMarker->Destroy();
+		ReviveMarker = nullptr;
+	}
+
+	// OnDeath first (death screen etc.), then health 0 so the character's own death handling (ragdoll) runs.
+	HandleOutOfHealth(nullptr, nullptr);
+	AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), 0.f);
+}
+
+void UFPSRLHealthComponent::HandleDownedTagChanged(const FGameplayTag Tag, int32 NewCount)
+{
+	const bool bDowned = NewCount > 0;
+	ApplyDownedMovement(bDowned);
+	OnDownedChanged.Broadcast(bDowned);
+
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (bDowned && OwnerPawn && OwnerPawn->IsLocallyControlled())
+	{
+		FPSRLHealthDebug::Show(TEXT("You are DOWN - crawl to safety, a teammate can revive you (E)"), FColor::Orange);
+	}
+}
+
+void UFPSRLHealthComponent::ApplyDownedMovement(bool bDowned)
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Movement || bDowned == bDownedMovementApplied)
+	{
+		return;
+	}
+	bDownedMovementApplied = bDowned;
+
+	if (bDowned)
+	{
+		SavedMaxWalkSpeed = Movement->MaxWalkSpeed;
+		SavedJumpZVelocity = Movement->JumpZVelocity;
+		bSavedCanWalkOffLedges = Movement->bCanWalkOffLedges;
+		bSavedCanWalkOffLedgesWhenCrouching = Movement->bCanWalkOffLedgesWhenCrouching;
+
+		Movement->MaxWalkSpeed = SavedMaxWalkSpeed * UFPSRLRunSettings::Get().DownedMoveSpeedMultiplier;
+		Movement->JumpZVelocity = 0.f;				// no jumping while down
+		Movement->bCanWalkOffLedges = false;			// can't crawl off edges
+		Movement->bCanWalkOffLedgesWhenCrouching = false;
+	}
+	else
+	{
+		Movement->MaxWalkSpeed = SavedMaxWalkSpeed;
+		Movement->JumpZVelocity = SavedJumpZVelocity;
+		Movement->bCanWalkOffLedges = bSavedCanWalkOffLedges;
+		Movement->bCanWalkOffLedgesWhenCrouching = bSavedCanWalkOffLedgesWhenCrouching;
+	}
 }

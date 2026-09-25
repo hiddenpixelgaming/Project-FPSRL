@@ -17,7 +17,12 @@
 #include "EngineUtils.h"
 #include "Rooms/FPSRLBoonTerminal.h"
 #include "Rooms/FPSRLExitPortal.h"
+#include "Rooms/FPSRLReviveMarker.h"
 #include "UI/FPSRLPortalWidgets.h"
+#include "UI/FPSRLDeathMenuWidget.h"
+#include "Components/FPSRLHealthComponent.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
 #include "Data/FPSRLBoonSettings.h"
@@ -156,13 +161,129 @@ void AFPSRLPlayerController::FPSRLOfferBoon()
 #endif
 }
 
+// --- Death ---------------------------------------------------------------------------------------------------------
+
+bool AFPSRLPlayerController::IsAnyPlayerAlive(const UWorld* World)
+{
+	const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+	if (!GameState)
+	{
+		return false;
+	}
+	// Downed players are not "alive" here: they can't end or continue the run on their own.
+	for (const APlayerState* Player : GameState->PlayerArray)
+	{
+		const APawn* Pawn = Player && !Player->IsInactive() ? Player->GetPawn() : nullptr;
+		if (UFPSRLHealthComponent::IsPawnUp(Pawn))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void AFPSRLPlayerController::ServerStartRevive_Implementation(AFPSRLReviveMarker* Marker)
+{
+	if (Marker)
+	{
+		Marker->TryStartRevive(this);
+	}
+}
+
+void AFPSRLPlayerController::HandlePawnDied(AController* Killer, AActor* Causer)
+{
+	const bool bPartyDown = !IsAnyPlayerAlive(GetWorld());
+	UE_LOG(LogFPSRL, Log, TEXT("%s died%s"), *GetNameSafe(PlayerState), bPartyDown ? TEXT(": the whole party is down") : TEXT(""));
+	ClientShowDeathScreen(bPartyDown);
+
+	if (bPartyDown)
+	{
+		// Players who died earlier were told to wait for their team; now they may leave too.
+		for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+		{
+			AFPSRLPlayerController* Other = Cast<AFPSRLPlayerController>(It->Get());
+			if (Other && Other != this)
+			{
+				Other->ClientPartyDown();
+			}
+		}
+	}
+}
+
+void AFPSRLPlayerController::ClientShowDeathScreen_Implementation(bool bCanReturnToLobby)
+{
+	bDeathCanReturn = bCanReturnToLobby;
+
+	// Nothing else stays up over the death screen.
+	ClosePauseMenu();
+	ClosePortalMenu();
+	bBoonSelectionOpen = false;
+	HideSelectionWidget(BoonSelectionWidget);
+
+	if (PlayerCameraManager)
+	{
+		PlayerCameraManager->StartCameraFade(0.f, 1.f, DeathFadeSeconds, FLinearColor::Black, false, /*bHoldWhenFinished*/ true);
+	}
+	if (DeathFadeSeconds > 0.f)
+	{
+		GetWorldTimerManager().SetTimer(DeathFadeTimer, this, &ThisClass::ShowDeathMenu, DeathFadeSeconds, false);
+	}
+	else
+	{
+		ShowDeathMenu();
+	}
+}
+
+void AFPSRLPlayerController::ShowDeathMenu()
+{
+	if (!DeathMenu)
+	{
+		DeathMenu = CreateWidget<UFPSRLDeathMenuWidget>(this, DeathMenuClass ? DeathMenuClass : TSubclassOf<UFPSRLDeathMenuWidget>(UFPSRLDeathMenuWidget::StaticClass()));
+		DeathMenu->OnReturnToLobby.BindWeakLambda(this, [this]() { ServerReturnToLobbyAfterDeath(); });
+		DeathMenu->OnQuitGame.BindWeakLambda(this, [this]() { UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, false); });
+	}
+	DeathMenu->SetCanReturn(bDeathCanReturn);
+	if (!DeathMenu->IsInViewport())
+	{
+		DeathMenu->AddToViewport(60);
+		FInputModeUIOnly InputMode;
+		InputMode.SetWidgetToFocus(DeathMenu->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+		SetShowMouseCursor(true);
+	}
+}
+
+void AFPSRLPlayerController::ClientPartyDown_Implementation()
+{
+	bDeathCanReturn = true;
+	if (DeathMenu)
+	{
+		DeathMenu->SetCanReturn(true);
+	}
+}
+
+void AFPSRLPlayerController::ServerReturnToLobbyAfterDeath_Implementation()
+{
+	if (IsAnyPlayerAlive(GetWorld()))
+	{
+		UE_LOG(LogFPSRL, Warning, TEXT("Return to Lobby ignored: a teammate is still alive"));
+		return;
+	}
+	if (UFPSRLRunSubsystem* RunSubsystem = GetGameInstance() ? GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr)
+	{
+		RunSubsystem->EndRun(GetWorld(), false);
+	}
+}
+
 // --- Exit portal ---------------------------------------------------------------------------------------------------
 
 bool AFPSRLPlayerController::IsAnyModalOpen() const
 {
 	return (AspectSelectionWidget && AspectSelectionWidget->IsInViewport())
 		|| (BoonSelectionWidget && BoonSelectionWidget->IsInViewport())
-		|| (PortalMenu && PortalMenu->IsInViewport());
+		|| (PortalMenu && PortalMenu->IsInViewport())
+		|| (DeathMenu && DeathMenu->IsInViewport());
 }
 
 void AFPSRLPlayerController::OpenPortalMenu(AFPSRLExitPortal* Portal)
@@ -324,6 +445,11 @@ void AFPSRLPlayerController::OnPossess(APawn* InPawn)
 	Super::OnPossess(InPawn);
 
 	// Server-only (OnPossess never runs on clients).
+	if (UFPSRLHealthComponent* Health = InPawn ? InPawn->FindComponentByClass<UFPSRLHealthComponent>() : nullptr)
+	{
+		Health->OnDeath.AddUniqueDynamic(this, &ThisClass::HandlePawnDied);	// OnDeath is server-only too
+	}
+
 	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
 	if (IsInLobby())
 	{
@@ -692,7 +818,7 @@ void AFPSRLPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		PauseMenu->RemoveFromParent();
 		PauseMenu = nullptr;
 	}
-	for (UUserWidget* Widget : std::initializer_list<UUserWidget*>{ AspectSelectionWidget.Get(), BoonSelectionWidget.Get(), PortalMenu.Get(), PortalStatus.Get() })
+	for (UUserWidget* Widget : std::initializer_list<UUserWidget*>{ AspectSelectionWidget.Get(), BoonSelectionWidget.Get(), PortalMenu.Get(), PortalStatus.Get(), DeathMenu.Get() })
 	{
 		if (Widget)
 		{

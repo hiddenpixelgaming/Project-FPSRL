@@ -15,6 +15,7 @@ struct FOnAttributeChangeData;
 // so existing Blueprint handlers bound to these keep a matching signature.
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FFPSRLHealthChangedEvent, double, CurrentHealth, double, MaxHealth);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FFPSRLDeathEvent, AController*, Instigator, AActor*, Causer);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FFPSRLDownedEvent, bool, bIsDowned);
 
 /**
  * Health for any damageable pawn, backed by GAS. BP_HealthComponent derives from this.
@@ -79,6 +80,27 @@ public:
 	void InitializeWithAbilitySystem(UAbilitySystemComponent* InASC);
 	void UninitializeFromAbilitySystem();
 
+	// --- Downed (players in a run) ----------------------------------------------------------------------------
+	// Lethal damage on a Status.Downable player downs them instead (health held at 1, damage ignored, crawling at
+	// reduced speed, can't leave ledges) while a teammate is still up to revive them. Otherwise they die. If every
+	// player ends up down, all of them die (party wipe). State = the replicated Status.Downed tag on the ASC.
+
+	/** Fires on server and clients when this pawn goes down or gets back up. */
+	UPROPERTY(BlueprintAssignable, Category = "Health")
+	FFPSRLDownedEvent OnDownedChanged;
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	bool IsDowned() const;
+
+	/** Server: a teammate revived this player. Back up with Fraction of max health. */
+	void Revive(float HealthFraction);
+
+	/** Server: finish a downed (or living) player off: health 0, OnDeath. */
+	void Kill();
+
+	/** Alive and not downed: can fight, revive teammates, vote at the portal. */
+	static bool IsPawnUp(const APawn* Pawn);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -87,6 +109,10 @@ private:
 	const UFPSRLHealthSet* GetHealthSet() const;
 	void HandleHealthAttributeChanged(const FOnAttributeChangeData& ChangeData);
 	void HandleOutOfHealth(AActor* DamageInstigator, AActor* DamageCauser);
+	void HandleDowned(AActor* DamageInstigator, AActor* DamageCauser);
+	void HandleDownedTagChanged(const struct FGameplayTag Tag, int32 NewCount);
+	void ApplyDownedMovement(bool bDowned);
+	bool IsAnyOtherPlayerUp() const;
 	void ApplyHealthEffect(TSubclassOf<class UGameplayEffect> EffectClass, const struct FGameplayTag& MagnitudeTag, float Magnitude,
 		AController* InstigatedBy, AActor* Causer);
 
@@ -95,4 +121,17 @@ private:
 
 	/** Server: OnDeath has fired. Kept after the ASC is detached (body removed), so IsDead stays true. */
 	bool bDied = false;
+
+	/** Server: the "Press E to Revive" station following this downed pawn. */
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> ReviveMarker;
+
+	FDelegateHandle DownedTagHandle;
+
+	// Movement values replaced while downed (restored on revive).
+	bool bDownedMovementApplied = false;
+	float SavedMaxWalkSpeed = 0.f;
+	float SavedJumpZVelocity = 0.f;
+	bool bSavedCanWalkOffLedges = true;
+	bool bSavedCanWalkOffLedgesWhenCrouching = true;
 };

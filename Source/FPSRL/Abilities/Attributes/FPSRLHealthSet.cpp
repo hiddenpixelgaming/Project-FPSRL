@@ -50,7 +50,19 @@ void UFPSRLHealthSet::PostGameplayEffectExecute(const FGameplayEffectModCallback
 	{
 		const float IncomingDamage = GetDamage();
 		SetDamage(0.f);
-		SetHealth(FMath::Clamp(GetHealth() - IncomingDamage, 0.f, GetMaxHealth()));
+		const float NewHealth = GetHealth() - IncomingDamage;
+
+		// A downable player (in a run) is downed instead of killed: health stays at 1, so nothing anywhere sees
+		// them as dead, and the owner decides what happens next (down, or die if nobody can revive them).
+		if (NewHealth <= 0.f && Data.Target.HasMatchingGameplayTag(FPSRLGameplayTags::Status_Downable)
+			&& !Data.Target.HasMatchingGameplayTag(FPSRLGameplayTags::Status_Downed))
+		{
+			SetHealth(FMath::Min(1.f, GetMaxHealth()));
+			const FGameplayEffectContextHandle& Context = Data.EffectSpec.GetEffectContext();
+			OnDowned.Broadcast(Context.GetOriginalInstigator(), Context.GetEffectCauser());
+			return;
+		}
+		SetHealth(FMath::Clamp(NewHealth, 0.f, GetMaxHealth()));
 	}
 	else if (Data.EvaluatedData.Attribute == GetHealingAttribute())
 	{

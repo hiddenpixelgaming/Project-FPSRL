@@ -11,6 +11,8 @@ class UInputAction;
 class UInputMappingContext;
 class AFPSRLBoonTerminal;
 class AFPSRLExitPortal;
+class AFPSRLReviveMarker;
+class UFPSRLDeathMenuWidget;
 class UFPSRLPortalMenuWidget;
 class UFPSRLPortalStatusWidget;
 class UFPSRLPauseMenuWidget;
@@ -120,6 +122,24 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientBoonAltarRejected();
 
+	// --- Death ---------------------------------------------------------------------------------------------------
+
+	/** Server -> owning client: your pawn died. Fades to black, then shows the death menu. */
+	UFUNCTION(Client, Reliable)
+	void ClientShowDeathScreen(bool bCanReturnToLobby);
+
+	/** Server -> client: the whole party is down, so Return to Lobby now ends the run. */
+	UFUNCTION(Client, Reliable)
+	void ClientPartyDown();
+
+	/** Death menu's Return to Lobby. Ends the run for everyone, but only once every player is down. */
+	UFUNCTION(Server, Reliable)
+	void ServerReturnToLobbyAfterDeath();
+
+	/** Pressed E on a downed teammate. The server validates and runs the revive (AFPSRLReviveMarker). */
+	UFUNCTION(Server, Reliable)
+	void ServerStartRevive(AFPSRLReviveMarker* Marker);
+
 	// --- Exit portal ---------------------------------------------------------------------------------------------
 
 	/** Local: the player interacted with an active exit portal. Shows the Continue / Cancel menu. */
@@ -169,6 +189,14 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Boons")
 	TSubclassOf<UFPSRLSelectionWidget> BoonSelectionClass;
+
+	/** Death screen (default C++ layout; set a Blueprint subclass to restyle). */
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	TSubclassOf<UFPSRLDeathMenuWidget> DeathMenuClass;
+
+	/** Seconds of fade to black before the death menu appears. */
+	UPROPERTY(EditDefaultsOnly, Category = "Death", meta = (ClampMin = "0"))
+	float DeathFadeSeconds = 1.5f;
 
 	/** Exit portal dialog and HUD vote tracker (default C++ layouts; set Blueprint subclasses to restyle). */
 	UPROPERTY(EditDefaultsOnly, Category = "Portal")
@@ -222,6 +250,13 @@ private:
 	void ClosePortalMenu();
 	void HandlePortalChoice(bool bContinue);
 
+	/** Server: this controller's pawn died (bound in OnPossess). */
+	UFUNCTION()
+	void HandlePawnDied(AController* Killer, AActor* Causer);
+
+	void ShowDeathMenu();
+	static bool IsAnyPlayerAlive(const UWorld* World);
+
 	/** Some modal screen (aspect, boon, portal) is up: keep UI input and the cursor. */
 	bool IsAnyModalOpen() const;
 
@@ -247,6 +282,12 @@ private:
 
 	/** Portal the open menu belongs to. */
 	TWeakObjectPtr<AFPSRLExitPortal> MenuPortal;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFPSRLDeathMenuWidget> DeathMenu;
+
+	FTimerHandle DeathFadeTimer;
+	bool bDeathCanReturn = false;
 
 	TWeakObjectPtr<APlayerState> BoundPlayerState;
 	TWeakObjectPtr<APlayerState> ReportedPlayerState;

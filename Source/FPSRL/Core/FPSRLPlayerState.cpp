@@ -103,6 +103,13 @@ void AFPSRLPlayerState::BeginRunState()
 	if (HasAuthority())
 	{
 		bRunStateActive = true;
+
+		// In a run, lethal damage downs this player (revivable by a teammate) instead of killing them outright.
+		if (!AbilitySystemComponent->HasMatchingGameplayTag(FPSRLGameplayTags::Status_Downable))
+		{
+			AbilitySystemComponent->AddLooseGameplayTag(FPSRLGameplayTags::Status_Downable, 1, EGameplayTagReplicationState::TagOnly);
+		}
+
 		AspectComponent->ApplyActiveAspect();
 		BoonComponent->RestoreRunState();	// boons carried from the previous Depth (no-op on the first)
 
@@ -127,6 +134,7 @@ void AFPSRLPlayerState::ClearRunState()
 	}
 	bRunStateActive = false;
 	CarriedHealth = -1.f;	// back in the Lobby: the spawn's full health stands
+	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Downable, 0, EGameplayTagReplicationState::TagOnly);
 
 	BoonComponent->ClearRunState();
 	AspectComponent->ClearRunState();

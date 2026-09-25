@@ -182,13 +182,9 @@ void AFPSRLExitPortal::Interact_Implementation(APlayerController* User)
 
 bool AFPSRLExitPortal::IsLivingPlayer(const APlayerState* Player)
 {
+	// Dead or downed players don't vote and never block the party.
 	const APawn* Pawn = Player ? Player->GetPawn() : nullptr;
-	if (!Pawn || Player->IsInactive())
-	{
-		return false;
-	}
-	const UFPSRLHealthComponent* Health = Pawn->FindComponentByClass<UFPSRLHealthComponent>();
-	return !(Health && Health->IsDead());
+	return Pawn && !Player->IsInactive() && UFPSRLHealthComponent::IsPawnUp(Pawn);
 }
 
 void AFPSRLExitPortal::SetContinueVote(APlayerController* Voter, bool bContinue)
