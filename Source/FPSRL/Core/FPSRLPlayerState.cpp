@@ -62,6 +62,14 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 		NewState->bRunStateActive = bRunStateActive;
 		AspectComponent->CopyChoiceTo(NewState->AspectComponent);
 		BoonComponent->CopyRunStateTo(NewState->BoonComponent);
+
+		// Health is never restored between Depths, only in the Lobby. A value still waiting to be applied (no pawn
+		// yet) is passed on as is.
+		if (bRunStateActive)
+		{
+			NewState->CarriedHealth = CarriedHealth >= 0.f ? CarriedHealth
+				: (AbilitySystemComponent->GetSet<UFPSRLHealthSet>() ? AbilitySystemComponent->GetNumericAttribute(UFPSRLHealthSet::GetHealthAttribute()) : -1.f);
+		}
 	}
 }
 
@@ -97,6 +105,17 @@ void AFPSRLPlayerState::BeginRunState()
 		bRunStateActive = true;
 		AspectComponent->ApplyActiveAspect();
 		BoonComponent->RestoreRunState();	// boons carried from the previous Depth (no-op on the first)
+
+		// Spawning reset health to full; put back what the player had when they left the previous Depth (after the
+		// boons, so a raised MaxHealth is in place). Never below 1, so nobody arrives dead.
+		if (CarriedHealth >= 0.f && AbilitySystemComponent->GetSet<UFPSRLHealthSet>())
+		{
+			const float MaxHealth = AbilitySystemComponent->GetNumericAttribute(UFPSRLHealthSet::GetMaxHealthAttribute());
+			const float Health = FMath::Clamp(CarriedHealth, 1.f, MaxHealth);
+			AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), Health);
+			UE_LOG(LogFPSRL, Log, TEXT("%s: health carried over (%.0f / %.0f)"), *GetPlayerName(), Health, MaxHealth);
+			CarriedHealth = -1.f;
+		}
 	}
 }
 
@@ -107,6 +126,7 @@ void AFPSRLPlayerState::ClearRunState()
 		return;	// nothing to clear, or already cleared
 	}
 	bRunStateActive = false;
+	CarriedHealth = -1.f;	// back in the Lobby: the spawn's full health stands
 
 	BoonComponent->ClearRunState();
 	AspectComponent->ClearRunState();

@@ -105,3 +105,12 @@ void AFPSRLGameState::OnRep_DepthComplete()
 		OnDepthCompleted.Broadcast();
 	}
 }
+
+void AFPSRLGameState::RemovePlayerState(APlayerState* PlayerState)
+{
+	Super::RemovePlayerState(PlayerState);
+	if (HasAuthority())
+	{
+		OnPlayerLeft.Broadcast();
+	}
+}

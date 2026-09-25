@@ -3,32 +3,33 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Actor.h"
+#include "Rooms/FPSRLInteractionStation.h"
 #include "Types/FPSRLTypes.h"
 #include "FPSRLExitPortal.generated.h"
 
+class APlayerController;
 class APlayerState;
-class UBoxComponent;
-class UPrimitiveComponent;
+class USphereComponent;
 class UStaticMeshComponent;
 
 /**
- * The Depth's exit. BP_ExitPortal derives from this (mesh, VFX/SFX on state change).
+ * The Depth's exit. BP_ExitPortal derives from this (mesh, prompt hookup, VFX/SFX on state change).
  *
  * State machine (server-driven, replicated): Hidden/Locked until the Depth's required encounters are done
- * (AFPSRLGameState::OnDepthCompleted) -> Activating for PortalActivationDelay -> Active -> Used (travel) .
+ * (AFPSRLGameState::OnDepthCompleted) -> Activating for PortalActivationDelay -> Active -> Used (travel).
  * The portal never ends the Depth by itself: the party decides when to leave, after looting, altars, merchants.
  *
- * Multiplayer: standing in the portal = ready. When every living player is ready, the party travels at once.
- * Otherwise the first ready player starts a countdown (PortalCountdownSeconds, 0 = wait for all); when it ends the
- * whole party travels (seamless travel takes everyone along). If everyone steps back out, the countdown stops,
- * so one player can't end the Depth for teammates who are still exploring. Dead players never block it.
+ * Leaving is a vote. Interacting while Active opens a Continue / Cancel menu (AFPSRLPlayerController). Continue
+ * registers the player, Cancel withdraws. Every living player continuing -> the party travels at once (solo: at once).
+ * At PortalVoteThreshold (50%) or more of the living players, a PortalCountdownSeconds (35 s) countdown starts; when it
+ * ends the whole party travels together (seamless travel takes everyone along). Dropping below the threshold stops it.
+ * Dead players are not counted, so they never block the vote.
  *
  * Travel goes forward only (UFPSRLRunSubsystem::AdvanceRun): the next Depth, the next Area, or back to the Lobby
  * after the last Depth. Event-driven, no Tick.
  */
 UCLASS()
-class FPSRL_API AFPSRLExitPortal : public AActor
+class FPSRL_API AFPSRLExitPortal : public AFPSRLInteractionStation
 {
 	GENERATED_BODY()
 
@@ -45,17 +46,26 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Portal")
 	EPortalDestination Destination = EPortalDestination::RunComplete;
 
-	/** Players currently standing in the portal. */
-	UPROPERTY(ReplicatedUsing = OnRep_ReadyPlayers, BlueprintReadOnly, Category = "Portal")
-	TArray<TObjectPtr<APlayerState>> ReadyPlayers;
+	/** Players who chose Continue. */
+	UPROPERTY(ReplicatedUsing = OnRep_Votes, BlueprintReadOnly, Category = "Portal")
+	TArray<TObjectPtr<APlayerState>> ContinueVotes;
 
-	/** Living players the portal is waiting for (ready or not). */
-	UPROPERTY(ReplicatedUsing = OnRep_ReadyPlayers, BlueprintReadOnly, Category = "Portal")
+	/** Living players the vote counts. */
+	UPROPERTY(ReplicatedUsing = OnRep_Votes, BlueprintReadOnly, Category = "Portal")
 	int32 LivingPlayers = 0;
 
 	/** Server world time the countdown ends; 0 = no countdown running. */
-	UPROPERTY(ReplicatedUsing = OnRep_ReadyPlayers, BlueprintReadOnly, Category = "Portal")
+	UPROPERTY(ReplicatedUsing = OnRep_Votes, BlueprintReadOnly, Category = "Portal")
 	double CountdownEndTime = 0.0;
+
+	virtual bool CanInteract() const override { return PortalState == EPortalState::Active; }
+	virtual void Interact_Implementation(APlayerController* User) override;
+
+	UFUNCTION(BlueprintPure, Category = "Portal")
+	bool HasVotedToContinue(const APlayerState* Player) const { return Player && ContinueVotes.Contains(Player); }
+
+	/** Server: a player chose Continue (true) or Cancel (false). Ignored unless Active; Continue requires range. */
+	void SetContinueVote(APlayerController* Voter, bool bContinue);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -67,44 +77,39 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Portal", meta = (DisplayName = "On Portal State Changed"))
 	void K2_OnPortalStateChanged(EPortalState NewState);
 
-	/** Ready count or countdown changed (server and clients). */
-	UFUNCTION(BlueprintImplementableEvent, Category = "Portal", meta = (DisplayName = "On Ready Players Changed"))
-	void K2_OnReadyPlayersChanged(int32 ReadyCount, int32 LivingCount);
+	/** Vote count or countdown changed (server and clients). */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Portal", meta = (DisplayName = "On Votes Changed"))
+	void K2_OnVotesChanged(int32 ContinueCount, int32 LivingCount);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Portal")
 	TObjectPtr<UStaticMeshComponent> Mesh;
 
-	/** Step in here to be ready. Only collides with pawns, and only while Active. */
+	/** Walk-in range for the interact prompt. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Portal")
-	TObjectPtr<UBoxComponent> EntryZone;
+	TObjectPtr<USphereComponent> InteractionRange;
 
 private:
 	UFUNCTION()
 	void HandleDepthCompleted();
 
 	UFUNCTION()
-	void OnEntryBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp,
-		int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
-
-	UFUNCTION()
-	void OnEntryEndOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp,
-		int32 OtherBodyIndex);
-
-	UFUNCTION()
 	void OnRep_PortalState();
 
 	UFUNCTION()
-	void OnRep_ReadyPlayers();
+	void OnRep_Votes();
+
+	void HandlePlayerLeft();
 
 	void SetPortalState(EPortalState NewState);
 	void ApplyPortalState();
 	void Activate();
-	void RefreshReadyPlayers();
-	void EvaluateReady();
+	void EvaluateVotes();
 	void Travel();
+	void NotifyLocalPlayer();
 
-	static APlayerState* GetLivingPlayerState(AActor* Actor);
+	static bool IsLivingPlayer(const APlayerState* Player);
 
 	FTimerHandle ActivationTimer;
 	FTimerHandle CountdownTimer;
+	FDelegateHandle PlayerLeftHandle;
 };

@@ -31,12 +31,16 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0"))
 	float PortalActivationDelay = 1.f;
 
+	/** Share of living players choosing Continue that starts the countdown (0.5 = half or more). */
+	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0.01", ClampMax = "1"))
+	float PortalVoteThreshold = 0.5f;
+
 	/**
-	 * Once the first player is in the portal, the rest of the living party has this long before everyone travels.
-	 * 0 = wait until every living player is in.
+	 * Once the threshold is met, the rest of the living party has this long before everyone is moved together.
+	 * 0 = no countdown: wait until every living player chooses Continue.
 	 */
 	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0"))
-	float PortalCountdownSeconds = 10.f;
+	float PortalCountdownSeconds = 35.f;
 
 	virtual FName GetCategoryName() const override { return TEXT("Game"); }
 };

@@ -10,6 +10,9 @@
 class UInputAction;
 class UInputMappingContext;
 class AFPSRLBoonTerminal;
+class AFPSRLExitPortal;
+class UFPSRLPortalMenuWidget;
+class UFPSRLPortalStatusWidget;
 class UFPSRLPauseMenuWidget;
 class UFPSRLSelectionWidget;
 
@@ -117,6 +120,17 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientBoonAltarRejected();
 
+	// --- Exit portal ---------------------------------------------------------------------------------------------
+
+	/** Local: the player interacted with an active exit portal. Shows the Continue / Cancel menu. */
+	void OpenPortalMenu(AFPSRLExitPortal* Portal);
+
+	/** Local: the portal's votes or state changed. Updates the open menu and the HUD tracker. */
+	void RefreshPortalUI(AFPSRLExitPortal* Portal);
+
+	UFUNCTION(Server, Reliable)
+	void ServerPortalVote(AFPSRLExitPortal* Portal, bool bContinue);
+
 	/** Dev cheats (host). Console: FPSRLGiveBoon /Game/.../DA_Boon_X.DA_Boon_X  |  FPSRLOfferBoon (a choice without an altar) */
 	UFUNCTION(Exec)
 	void FPSRLGiveBoon(const FString& BoonAssetPath);
@@ -155,6 +169,13 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Boons")
 	TSubclassOf<UFPSRLSelectionWidget> BoonSelectionClass;
+
+	/** Exit portal dialog and HUD vote tracker (default C++ layouts; set Blueprint subclasses to restyle). */
+	UPROPERTY(EditDefaultsOnly, Category = "Portal")
+	TSubclassOf<UFPSRLPortalMenuWidget> PortalMenuClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Portal")
+	TSubclassOf<UFPSRLPortalStatusWidget> PortalStatusClass;
 
 	/** Weapons the lobby station offers. First entry is the fallback if a tag is unknown. */
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
@@ -198,6 +219,12 @@ private:
 	void HandleBoonReroll();
 	void HandleBoonClose();
 
+	void ClosePortalMenu();
+	void HandlePortalChoice(bool bContinue);
+
+	/** Some modal screen (aspect, boon, portal) is up: keep UI input and the cursor. */
+	bool IsAnyModalOpen() const;
+
 	/** Local: the player opened the Boon screen at a terminal (cleared when they close it or the choice resolves). */
 	bool bBoonSelectionOpen = false;
 
@@ -211,6 +238,15 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UFPSRLSelectionWidget> BoonSelectionWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFPSRLPortalMenuWidget> PortalMenu;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFPSRLPortalStatusWidget> PortalStatus;
+
+	/** Portal the open menu belongs to. */
+	TWeakObjectPtr<AFPSRLExitPortal> MenuPortal;
 
 	TWeakObjectPtr<APlayerState> BoundPlayerState;
 	TWeakObjectPtr<APlayerState> ReportedPlayerState;

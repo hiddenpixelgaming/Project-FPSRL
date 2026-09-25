@@ -62,6 +62,11 @@ public:
 	/** Server: a room finished its encounter. */
 	void NotifyRoomCompleted(AFPSRLRoom* Room);
 
+	/** Server: a player left the game (after their PlayerState is removed). */
+	FSimpleMulticastDelegate OnPlayerLeft;
+
+	virtual void RemovePlayerState(APlayerState* PlayerState) override;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

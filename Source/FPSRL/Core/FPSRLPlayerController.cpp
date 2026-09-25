@@ -16,6 +16,8 @@
 #include "Core/FPSRLRunSubsystem.h"
 #include "EngineUtils.h"
 #include "Rooms/FPSRLBoonTerminal.h"
+#include "Rooms/FPSRLExitPortal.h"
+#include "UI/FPSRLPortalWidgets.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
 #include "Data/FPSRLBoonSettings.h"
@@ -152,6 +154,112 @@ void AFPSRLPlayerController::FPSRLOfferBoon()
 		UE_LOG(LogFPSRL, Warning, TEXT("FPSRLOfferBoon: host only"));
 	}
 #endif
+}
+
+// --- Exit portal ---------------------------------------------------------------------------------------------------
+
+bool AFPSRLPlayerController::IsAnyModalOpen() const
+{
+	return (AspectSelectionWidget && AspectSelectionWidget->IsInViewport())
+		|| (BoonSelectionWidget && BoonSelectionWidget->IsInViewport())
+		|| (PortalMenu && PortalMenu->IsInViewport());
+}
+
+void AFPSRLPlayerController::OpenPortalMenu(AFPSRLExitPortal* Portal)
+{
+	if (!IsLocalController() || !Portal)
+	{
+		return;
+	}
+	if (!PortalMenu)
+	{
+		PortalMenu = CreateWidget<UFPSRLPortalMenuWidget>(this, PortalMenuClass ? PortalMenuClass : TSubclassOf<UFPSRLPortalMenuWidget>(UFPSRLPortalMenuWidget::StaticClass()));
+		PortalMenu->OnContinue.BindUObject(this, &ThisClass::HandlePortalChoice, true);
+		PortalMenu->OnCancel.BindUObject(this, &ThisClass::HandlePortalChoice, false);
+	}
+	MenuPortal = Portal;
+	PortalMenu->ShowPortal(Portal, Portal->HasVotedToContinue(PlayerState));
+	if (!PortalMenu->IsInViewport())
+	{
+		PortalMenu->AddToViewport(50);
+		FInputModeUIOnly InputMode;
+		InputMode.SetWidgetToFocus(PortalMenu->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		SetInputMode(InputMode);
+		SetShowMouseCursor(true);
+	}
+}
+
+void AFPSRLPlayerController::ClosePortalMenu()
+{
+	MenuPortal.Reset();
+	if (PortalMenu && PortalMenu->IsInViewport())
+	{
+		PortalMenu->RemoveFromParent();
+		if (!IsAnyModalOpen() && !IsPauseMenuOpen())
+		{
+			SetInputMode(FInputModeGameOnly());
+			SetShowMouseCursor(false);
+		}
+	}
+}
+
+void AFPSRLPlayerController::HandlePortalChoice(bool bContinue)
+{
+	// Continue: vote and get back to the game (the HUD tracker shows the group). Cancel: withdraw and close.
+	if (AFPSRLExitPortal* Portal = MenuPortal.Get())
+	{
+		ServerPortalVote(Portal, bContinue);
+	}
+	ClosePortalMenu();
+}
+
+void AFPSRLPlayerController::ServerPortalVote_Implementation(AFPSRLExitPortal* Portal, bool bContinue)
+{
+	if (Portal)
+	{
+		Portal->SetContinueVote(this, bContinue);
+	}
+}
+
+void AFPSRLPlayerController::RefreshPortalUI(AFPSRLExitPortal* Portal)
+{
+	if (!IsLocalController() || !Portal)
+	{
+		return;
+	}
+
+	const bool bActive = Portal->PortalState == EPortalState::Active;
+	if (MenuPortal.Get() == Portal)
+	{
+		if (bActive)
+		{
+			PortalMenu->ShowPortal(Portal, Portal->HasVotedToContinue(PlayerState));
+		}
+		else
+		{
+			ClosePortalMenu();	// travelling, or no longer usable
+		}
+	}
+
+	// HUD tracker for everyone while at least one player has chosen Continue.
+	if (bActive && !Portal->ContinueVotes.IsEmpty())
+	{
+		if (!PortalStatus)
+		{
+			PortalStatus = CreateWidget<UFPSRLPortalStatusWidget>(this, PortalStatusClass ? PortalStatusClass : TSubclassOf<UFPSRLPortalStatusWidget>(UFPSRLPortalStatusWidget::StaticClass()));
+		}
+		if (!PortalStatus->IsInViewport())
+		{
+			PortalStatus->AddToViewport(10);
+		}
+		PortalStatus->ShowPortal(Portal);
+	}
+	else if (PortalStatus && PortalStatus->IsInViewport())
+	{
+		PortalStatus->ShowPortal(nullptr);
+		PortalStatus->RemoveFromParent();
+	}
 }
 
 // --- Boon altars ---------------------------------------------------------------------------------------------------
@@ -379,9 +487,7 @@ void AFPSRLPlayerController::HideSelectionWidget(TObjectPtr<UFPSRLSelectionWidge
 	if (Widget && Widget->IsInViewport())
 	{
 		Widget->RemoveFromParent();
-		const bool bOtherSelectionOpen = (AspectSelectionWidget && AspectSelectionWidget->IsInViewport())
-			|| (BoonSelectionWidget && BoonSelectionWidget->IsInViewport());
-		if (!bOtherSelectionOpen && !IsPauseMenuOpen())
+		if (!IsAnyModalOpen() && !IsPauseMenuOpen())
 		{
 			SetInputMode(FInputModeGameOnly());
 			SetShowMouseCursor(false);
@@ -586,7 +692,7 @@ void AFPSRLPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		PauseMenu->RemoveFromParent();
 		PauseMenu = nullptr;
 	}
-	for (UFPSRLSelectionWidget* Widget : { AspectSelectionWidget.Get(), BoonSelectionWidget.Get() })
+	for (UUserWidget* Widget : std::initializer_list<UUserWidget*>{ AspectSelectionWidget.Get(), BoonSelectionWidget.Get(), PortalMenu.Get(), PortalStatus.Get() })
 	{
 		if (Widget)
 		{
