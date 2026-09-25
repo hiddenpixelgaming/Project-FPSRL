@@ -13,6 +13,65 @@ void AFPSRLInteractionStation::Interact_Implementation(APlayerController* User)
 {
 }
 
+namespace
+{
+	/**
+	 * Calls a Blueprint function on the character by name, filling its parameters by type: object parameters get the
+	 * station (when compatible), string/text parameters get the prompt. Bridge until the character is C++ (Step F).
+	 */
+	void CallInteractorFunction(ACharacter* Interactor, const FName FunctionName, AFPSRLInteractionStation* Station)
+	{
+		UFunction* Function = Interactor ? Interactor->FindFunction(FunctionName) : nullptr;
+		if (!Function)
+		{
+			UE_LOG(LogFPSRL, Warning, TEXT("[Station %s] %s has no '%s'; no interact prompt"), *Station->GetActorNameOrLabel(),
+				*GetNameSafe(Interactor), *FunctionName.ToString());
+			return;
+		}
+
+		uint8* Params = static_cast<uint8*>(FMemory_Alloca(Function->ParmsSize));
+		FMemory::Memzero(Params, Function->ParmsSize);
+		for (TFieldIterator<FProperty> It(Function); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		{
+			It->InitializeValue_InContainer(Params);
+			if (It->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm) && !It->HasAnyPropertyFlags(CPF_ReferenceParm))
+			{
+				continue;
+			}
+			if (const FObjectPropertyBase* ObjectParam = CastField<FObjectPropertyBase>(*It))
+			{
+				if (Station->IsA(ObjectParam->PropertyClass))
+				{
+					ObjectParam->SetObjectPropertyValue_InContainer(Params, Station);
+				}
+			}
+			else if (const FStrProperty* StringParam = CastField<FStrProperty>(*It))
+			{
+				StringParam->SetPropertyValue_InContainer(Params, Station->PromptText);
+			}
+			else if (const FTextProperty* TextParam = CastField<FTextProperty>(*It))
+			{
+				TextParam->SetPropertyValue_InContainer(Params, FText::FromString(Station->PromptText));
+			}
+		}
+		Interactor->ProcessEvent(Function, Params);
+		for (TFieldIterator<FProperty> It(Function); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		{
+			It->DestroyValue_InContainer(Params);
+		}
+	}
+}
+
+void AFPSRLInteractionStation::K2_OnInteractorEntered_Implementation(ACharacter* Interactor)
+{
+	CallInteractorFunction(Interactor, TEXT("SetCurrentInteractable"), this);
+}
+
+void AFPSRLInteractionStation::K2_OnInteractorLeft_Implementation(ACharacter* Interactor)
+{
+	CallInteractorFunction(Interactor, TEXT("ClearCurrentInteractable"), this);
+}
+
 ACharacter* AFPSRLInteractionStation::AsLocalPlayerCharacter(AActor* Actor)
 {
 	ACharacter* Character = Cast<ACharacter>(Actor);

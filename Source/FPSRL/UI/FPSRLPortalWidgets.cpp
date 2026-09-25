@@ -16,7 +16,7 @@
 
 namespace
 {
-	UTextBlock* MakeText(UWidgetTree* Tree, const FName& Name, int32 Size, const FLinearColor& Color)
+	UTextBlock* MakePortalText(UWidgetTree* Tree, const FName& Name, int32 Size, const FLinearColor& Color)
 	{
 		UTextBlock* Text = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
 		FSlateFontInfo Font = Text->GetFont();
@@ -27,10 +27,10 @@ namespace
 		return Text;
 	}
 
-	UButton* MakeButton(UWidgetTree* Tree, const FName& Name, const FText& Label)
+	UButton* MakePortalButton(UWidgetTree* Tree, const FName& Name, const FText& Label)
 	{
 		UButton* Button = Tree->ConstructWidget<UButton>(UButton::StaticClass(), Name);
-		UTextBlock* Text = MakeText(Tree, NAME_None, 20, FLinearColor::Black);
+		UTextBlock* Text = MakePortalText(Tree, NAME_None, 20, FLinearColor::Black);
 		Text->SetText(Label);
 		Button->SetContent(Text);
 		return Button;
@@ -110,19 +110,19 @@ void UFPSRLPortalMenuWidget::BuildDefaultLayout()
 		ChildSlot->SetHorizontalAlignment(HAlign_Center);
 	};
 
-	Title = MakeText(WidgetTree, TEXT("Title"), 36, FLinearColor::White);
+	Title = MakePortalText(WidgetTree, TEXT("Title"), 36, FLinearColor::White);
 	Title->SetText(NSLOCTEXT("FPSRL", "PortalTitle", "EXIT PORTAL"));
 	Add(Title, 8.f);
 
-	Body = MakeText(WidgetTree, TEXT("Body"), 22, FLinearColor::White);
+	Body = MakePortalText(WidgetTree, TEXT("Body"), 22, FLinearColor::White);
 	Add(Body, 6.f);
 
-	Tracker = MakeText(WidgetTree, TEXT("Tracker"), 18, FLinearColor(1.f, 0.85f, 0.3f));
+	Tracker = MakePortalText(WidgetTree, TEXT("Tracker"), 18, FLinearColor(1.f, 0.85f, 0.3f));
 	Add(Tracker, 6.f);
 
 	UHorizontalBox* Buttons = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Buttons"));
-	ContinueButton = MakeButton(WidgetTree, TEXT("ContinueButton"), NSLOCTEXT("FPSRL", "PortalContinue", "Continue"));
-	CancelButton = MakeButton(WidgetTree, TEXT("CancelButton"), NSLOCTEXT("FPSRL", "PortalCancel", "Cancel"));
+	ContinueButton = MakePortalButton(WidgetTree, TEXT("ContinueButton"), NSLOCTEXT("FPSRL", "PortalContinue", "Continue"));
+	CancelButton = MakePortalButton(WidgetTree, TEXT("CancelButton"), NSLOCTEXT("FPSRL", "PortalCancel", "Cancel"));
 	Buttons->AddChildToHorizontalBox(ContinueButton)->SetPadding(FMargin(12.f, 0.f));
 	Buttons->AddChildToHorizontalBox(CancelButton)->SetPadding(FMargin(12.f, 0.f));
 	Add(Buttons, 16.f);
@@ -161,7 +161,7 @@ void UFPSRLPortalStatusWidget::NativeOnInitialized()
 		UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
 		WidgetTree->RootWidget = Column;
 
-		StatusText = MakeText(WidgetTree, TEXT("StatusText"), 20, FLinearColor(1.f, 0.85f, 0.3f));
+		StatusText = MakePortalText(WidgetTree, TEXT("StatusText"), 20, FLinearColor(1.f, 0.85f, 0.3f));
 		StatusText->SetShadowOffset(FVector2D(1.f, 1.f));
 		UVerticalBoxSlot* TextSlot = Column->AddChildToVerticalBox(StatusText);
 		TextSlot->SetHorizontalAlignment(HAlign_Center);

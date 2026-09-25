@@ -13,8 +13,10 @@ class ACharacter;
  * derive from this.
  *
  * C++ decides WHEN: it watches actor-level overlap from whatever collision the station has (e.g. a proximity sphere)
- * and tells the Blueprint when the local player walks in and out. Blueprint decides WHAT: show/hide the
- * "Press E" prompt, open a menu. Event-driven, no Tick.
+ * and raises On Interactor Entered / Left when the local player walks in and out. By default those show and clear
+ * the character's "Press E" prompt (a bridge to BP_ShooterCharacter's SetCurrentInteractable /
+ * ClearCurrentInteractable until the character moves to C++ in Step F), so a new station needs no Blueprint graph;
+ * a Blueprint may override them. Pressing E calls Interact on the station. Event-driven, no Tick.
  *
  * Local-only: prompts are UI for the player on this machine, so only the locally controlled player character
  * raises the events. Each player tracks their own station, so several players can stand at the same station.
@@ -46,12 +48,15 @@ public:
 	void RefreshLocalInteractor();
 
 protected:
-	/** The local player entered interaction range. */
-	UFUNCTION(BlueprintImplementableEvent, Category = "Interaction", meta = (DisplayName = "On Interactor Entered"))
+	/**
+	 * The local player entered interaction range. Default: show PromptText on the character's interact prompt.
+	 * A Blueprint override replaces the default.
+	 */
+	UFUNCTION(BlueprintNativeEvent, Category = "Interaction", meta = (DisplayName = "On Interactor Entered"))
 	void K2_OnInteractorEntered(ACharacter* Interactor);
 
-	/** The local player left interaction range. */
-	UFUNCTION(BlueprintImplementableEvent, Category = "Interaction", meta = (DisplayName = "On Interactor Left"))
+	/** The local player left interaction range. Default: clear the character's interact prompt. */
+	UFUNCTION(BlueprintNativeEvent, Category = "Interaction", meta = (DisplayName = "On Interactor Left"))
 	void K2_OnInteractorLeft(ACharacter* Interactor);
 
 	virtual void NotifyActorBeginOverlap(AActor* OtherActor) override;
