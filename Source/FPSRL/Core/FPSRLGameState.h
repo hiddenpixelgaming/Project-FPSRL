@@ -7,6 +7,7 @@
 #include "FPSRLGameState.generated.h"
 
 class AFPSRLRoom;
+class UFPSRLDepthLayoutComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLDepthEvent);
 
@@ -16,7 +17,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLDepthEvent);
  * Room / Depth / Area / Run completion are separate states:
  *  - Room: an AFPSRLRoom's required enemies are dead (the room reports it here).
  *  - Depth: every REQUIRED room of this Depth is complete -> OnDepthCompleted fires exactly once -> exit portals open.
- *    A Depth with no required rooms (merchant / preparation) completes as soon as play begins.
+ *    A Depth with no required rooms (merchant / preparation) completes as soon as play begins, or, for a generated
+ *    Depth, as soon as all of its rooms have streamed in.
  *  - Area / Run: advanced by UFPSRLRunSubsystem when the party takes the portal.
  *
  * Server-authoritative; clients see the replicated counters and get OnDepthCompleted through OnRep.
@@ -29,6 +31,12 @@ class FPSRL_API AFPSRLGameState : public AGameStateBase
 	GENERATED_BODY()
 
 public:
+	AFPSRLGameState();
+
+	/** Rolls and streams this Depth's rooms when its definition has room pools (Phase 2 sequencing). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Depth")
+	TObjectPtr<UFPSRLDepthLayoutComponent> DepthLayout;
+
 	/** 1-based, for display. 0 when no run is active (PIE started directly in this map). */
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Depth")
 	int32 AreaNumber = 0;
@@ -79,6 +87,7 @@ protected:
 
 private:
 	void RecountRooms();
+	void EvaluateEmptyDepth();
 	void CompleteDepth();
 
 	TArray<TWeakObjectPtr<AFPSRLRoom>> RequiredRoomList;

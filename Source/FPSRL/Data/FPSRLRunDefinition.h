@@ -7,12 +7,16 @@
 #include "Types/FPSRLTypes.h"
 #include "FPSRLRunDefinition.generated.h"
 
+class UFPSRLRoomDefinition;
+
 /**
  * One Depth of a run: a small set of handcrafted rooms fought through before the exit portal opens.
  *
- * Phase 1: a Depth is one map (Map) whose placed AFPSRLRoom actors decide what is required.
- * The room-count fields describe how Phase 2's generator will assemble the Depth from room pools; they are data
- * only for now, so Depths can be authored ahead of the generator.
+ * Map is the Depth's entry room (player spawn + an AFPSRLRoomConnector at its exit). If the room pools below are
+ * filled, the server rolls a room sequence from them each time the Depth is entered and streams those rooms in
+ * behind the entry (UFPSRLDepthLayoutComponent):
+ *   Entry -> combat rooms (Min..Max, at least Guaranteed) with optional rooms mixed in -> Elite -> Boss -> Exit room.
+ * With empty pools the Map alone is the Depth (a fully handcrafted Depth).
  */
 UCLASS(BlueprintType)
 class FPSRL_API UFPSRLDepthDefinition : public UPrimaryDataAsset
@@ -66,6 +70,30 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation", meta = (ClampMin = "0", ClampMax = "1"))
 	float UpgradeStationChance = 0.f;
+
+	// --- Room pools (handcrafted room library) ----------------------------------------------------------------
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> CombatRooms;
+
+	/** Used when bHasElite. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> EliteRooms;
+
+	/** Reward / Boon / Merchant / Upgrade rooms; picked by their RoomType and the chances above. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> OptionalRooms;
+
+	/** Used when bHasBoss: the last room before the exit. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> BossRooms;
+
+	/** The final room; normally holds the exit portal. Picked at random if several. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> ExitRooms;
+
+	/** True if the Depth is assembled from pools (otherwise Map alone is the Depth). */
+	bool UsesRoomPools() const { return !CombatRooms.IsEmpty() || !ExitRooms.IsEmpty(); }
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override { return FPrimaryAssetId(TEXT("Depth"), GetFName()); }
 };

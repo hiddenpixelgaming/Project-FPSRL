@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Core/FPSRLGameState.h"
+#include "Core/FPSRLDepthLayoutComponent.h"
 #include "Core/FPSRLRunSubsystem.h"
 #include "Engine/GameInstance.h"
 #include "Rooms/FPSRLRoom.h"
@@ -28,22 +29,42 @@ void AFPSRLGameState::BeginPlay()
 		return;
 	}
 
+	const UFPSRLDepthDefinition* Depth = nullptr;
 	if (const UFPSRLRunSubsystem* RunSubsystem = GetGameInstance() ? GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr)
 	{
 		AreaNumber = RunSubsystem->GetAreaNumber();
 		DepthNumber = RunSubsystem->GetDepthNumber();
+		Depth = RunSubsystem->GetCurrentDepth();
 	}
 
-	// Rooms register in their own BeginPlay (same frame). Check on the next tick so a Depth without required rooms
-	// (merchant / preparation) completes immediately, and one with rooms waits for them.
-	GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+	// Generated Depth: its rooms register as they stream in, so evaluate once they all have.
+	DepthLayout->OnLayoutReady.AddUObject(this, &ThisClass::EvaluateEmptyDepth);
+	if (DepthLayout->BuildLayout(Depth))
 	{
-		UE_LOG(LogFPSRL, Log, TEXT("[Depth] Area %d Depth %d: %d required room(s)"), AreaNumber, DepthNumber, RequiredRooms);
-		if (RequiredRooms == 0)
-		{
-			CompleteDepth();
-		}
-	}));
+		return;
+	}
+
+	// Handcrafted Depth: rooms register in their own BeginPlay (same frame). Check on the next tick so a Depth
+	// without required rooms (merchant / preparation) completes immediately, and one with rooms waits for them.
+	GetWorldTimerManager().SetTimerForNextTick(this, &ThisClass::EvaluateEmptyDepth);
+}
+
+AFPSRLGameState::AFPSRLGameState()
+{
+	DepthLayout = CreateDefaultSubobject<UFPSRLDepthLayoutComponent>(TEXT("DepthLayout"));
+}
+
+void AFPSRLGameState::EvaluateEmptyDepth()
+{
+	UE_LOG(LogFPSRL, Log, TEXT("[Depth] Area %d Depth %d: %d required room(s)"), AreaNumber, DepthNumber, RequiredRooms);
+	if (RequiredRooms == 0)
+	{
+		CompleteDepth();
+	}
+	else if (CompletedRooms >= RequiredRooms)
+	{
+		CompleteDepth();	// every room was already cleared (e.g. empty encounters) while streaming in
+	}
 }
 
 void AFPSRLGameState::RegisterRequiredRoom(AFPSRLRoom* Room)
@@ -62,7 +83,8 @@ void AFPSRLGameState::NotifyRoomCompleted(AFPSRLRoom* Room)
 		return;
 	}
 	RecountRooms();
-	if (RequiredRooms > 0 && CompletedRooms >= RequiredRooms)
+	// While the layout streams in, more required rooms may still be on their way.
+	if (!DepthLayout->IsLayoutPending() && RequiredRooms > 0 && CompletedRooms >= RequiredRooms)
 	{
 		CompleteDepth();
 	}
