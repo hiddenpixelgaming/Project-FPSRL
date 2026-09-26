@@ -9,7 +9,9 @@
 #include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
 #include "Types/FPSRLGameplayTags.h"
 #include "FPSRL.h"
@@ -244,6 +246,27 @@ void AFPSRLPlayerState::PostInitializeComponents()
 	OnPawnSet.AddDynamic(this, &ThisClass::HandlePawnSet);
 }
 
+void AFPSRLPlayerState::StopFirstPersonAnimationIfRemote(APawn* InPawn) const
+{
+	// Someone else's pawn on this machine. On a client its controller never replicates, so the template's
+	// ABP_FP_Weapon (on the first-person arms) failed GetController every frame: 1.5 million "Accessed None" log lines
+	// (150 MB) in one session. Those arms are drawn only for their own player, so nobody here needs them animated.
+	const UWorld* World = GetWorld();
+	const APlayerController* LocalPC = World ? World->GetFirstPlayerController() : nullptr;
+	if (!InPawn || InPawn->IsLocallyControlled() || !LocalPC || !LocalPC->PlayerState || LocalPC->PlayerState == this)
+	{
+		return;
+	}
+	TInlineComponentArray<USkeletalMeshComponent*> Meshes(InPawn);
+	for (USkeletalMeshComponent* Mesh : Meshes)
+	{
+		if (Mesh->GetFName() == TEXT("FirstPersonMesh"))
+		{
+			Mesh->SetComponentTickEnabled(false);
+		}
+	}
+}
+
 void AFPSRLPlayerState::HandlePawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn)
 {
 	if (OldPawn)
@@ -265,6 +288,7 @@ void AFPSRLPlayerState::HandlePawnSet(APlayerState* Player, APawn* NewPawn, APaw
 		}
 
 		EquipWeaponLocally();	// client: the pawn may arrive after EquippedWeapon did
+		StopFirstPersonAnimationIfRemote(NewPawn);
 	}
 	else if (AbilitySystemComponent->GetAvatarActor() == OldPawn)
 	{
