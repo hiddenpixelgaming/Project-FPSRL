@@ -112,6 +112,30 @@ private:
 	void HandleDowned(AActor* DamageInstigator, AActor* DamageCauser);
 	void HandleDownedTagChanged(const struct FGameplayTag Tag, int32 NewCount);
 	void ApplyDownedMovement(bool bDowned);
+
+	/** Dead: stop the body from blocking projectiles. */
+	void MakeBodyIgnoreProjectiles();
+
+	/** Object channel projectiles fly on (the project's "Projectile" channel). Dead bodies ignore it. */
+	UPROPERTY(EditDefaultsOnly, Category = "Health")
+	TEnumAsByte<ECollisionChannel> ProjectileChannel = ECC_GameTraceChannel1;
+
+	bool bBodyIgnoresProjectiles = false;
+
+	/** Server: downed players are ignored by enemy AI (tag removed, perception forgotten); revived ones are fair game again. */
+	void SetTargetableByAI(bool bTargetable);
+
+	/** Actor tag the enemy AI senses as a target (the shooter template's "Player"). Removed while downed. */
+	UPROPERTY(EditDefaultsOnly, Category = "Health|Downed")
+	FName AITargetTag = TEXT("Player");
+
+	bool bRemovedAITargetTag = false;
+
+	/** Damage filter: no friendly fire (player vs player, enemy vs enemy, self) and nothing from downed attackers. */
+	bool ShouldAcceptDamageFrom(const AController* InstigatedBy, const AActor* DamageCauser) const;
+
+	/** Player side (a human player's controller or pawn) vs enemy side. */
+	static bool IsPlayerSide(const AController* Controller, const AActor* Actor);
 	bool IsAnyOtherPlayerUp() const;
 	void ApplyHealthEffect(TSubclassOf<class UGameplayEffect> EffectClass, const struct FGameplayTag& MagnitudeTag, float Magnitude,
 		AController* InstigatedBy, AActor* Causer);

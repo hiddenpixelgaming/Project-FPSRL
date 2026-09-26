@@ -65,4 +65,7 @@ private:
 	double ReviveEndTime = 0.0;
 
 	FTimerHandle ReviveTimer;
+
+	/** Local: this machine's player is shown the revive bar for this marker. */
+	bool bLocalProgressShown = false;
 };

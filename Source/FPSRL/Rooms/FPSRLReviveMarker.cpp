@@ -57,6 +57,16 @@ void AFPSRLReviveMarker::HandleTargetDestroyed(AActor* DestroyedActor)
 void AFPSRLReviveMarker::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	GetWorldTimerManager().ClearTimer(ReviveTimer);
+
+	// Revive finished (the marker goes with it), or the downed player died: take the bar down.
+	if (bLocalProgressShown)
+	{
+		if (AFPSRLPlayerController* LocalPC = GetWorld() ? Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr)
+		{
+			LocalPC->HideReviveProgress();
+		}
+		bLocalProgressShown = false;
+	}
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -141,24 +151,26 @@ void AFPSRLReviveMarker::OnRep_Revive()
 {
 	RefreshLocalInteractor();	// the prompt hides for others while someone revives
 
-#if !UE_BUILD_SHIPPING
-	// Stand-in feedback until a HUD exists: the reviver and the downed player see the progress.
-	const APlayerController* LocalPC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
-	if (!GEngine || !LocalPC)
+	// Progress bar for the reviver and the downed player (replicated times, so both see the same fill).
+	AFPSRLPlayerController* LocalPC = GetWorld() ? Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	if (!LocalPC || !LocalPC->IsLocalController())
 	{
 		return;
 	}
 	const bool bLocalIsReviver = Reviver && Reviver == LocalPC->PlayerState;
 	const bool bLocalIsTarget = Target && Target == LocalPC->GetPawn();
-	if (Reviver && (bLocalIsReviver || bLocalIsTarget))
+	if (Reviver && ReviveEndTime > 0.0 && (bLocalIsReviver || bLocalIsTarget))
 	{
-		GEngine->AddOnScreenDebugMessage(7300, UFPSRLRunSettings::Get().ReviveSeconds, FColor::Green,
-			bLocalIsReviver ? FString::Printf(TEXT("Reviving %s... stay close"), Target ? *Target->GetActorNameOrLabel() : TEXT(""))
-				: FString::Printf(TEXT("%s is reviving you"), *Reviver->GetPlayerName()));
+		const APlayerState* TargetState = Target ? Target->GetPlayerState() : nullptr;
+		const FText Label = bLocalIsReviver
+			? FText::Format(NSLOCTEXT("FPSRL", "Reviving", "Reviving {0}... stay close"), FText::FromString(TargetState ? TargetState->GetPlayerName() : FString()))
+			: FText::Format(NSLOCTEXT("FPSRL", "BeingRevived", "{0} is reviving you"), FText::FromString(Reviver->GetPlayerName()));
+		LocalPC->ShowReviveProgress(Label, ReviveEndTime - UFPSRLRunSettings::Get().ReviveSeconds, ReviveEndTime);
+		bLocalProgressShown = true;
 	}
-	else if (!Reviver && (bLocalIsTarget || bLocalIsReviver))
+	else if (bLocalProgressShown)
 	{
-		GEngine->AddOnScreenDebugMessage(7300, 2.f, FColor::Orange, TEXT("Revive interrupted"));
+		LocalPC->HideReviveProgress(NSLOCTEXT("FPSRL", "ReviveInterrupted", "Revive interrupted"));
+		bLocalProgressShown = false;
 	}
-#endif
 }

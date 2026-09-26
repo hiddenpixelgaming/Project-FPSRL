@@ -19,8 +19,11 @@
 #include "Rooms/FPSRLExitPortal.h"
 #include "Rooms/FPSRLReviveMarker.h"
 #include "UI/FPSRLPortalWidgets.h"
+#include "UI/FPSRLReviveWidget.h"
 #include "UI/FPSRLDeathMenuWidget.h"
 #include "Components/FPSRLHealthComponent.h"
+#include "Combat/FPSRLProjectile.h"
+#include "InputMappingContext.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Data/FPSRLAspectDefinition.h"
@@ -187,6 +190,30 @@ void AFPSRLPlayerController::ServerStartRevive_Implementation(AFPSRLReviveMarker
 	if (Marker)
 	{
 		Marker->TryStartRevive(this);
+	}
+}
+
+void AFPSRLPlayerController::ShowReviveProgress(const FText& Label, double StartTime, double EndTime)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+	if (!ReviveWidget)
+	{
+		ReviveWidget = CreateWidget<UFPSRLReviveWidget>(this, ReviveWidgetClass ? ReviveWidgetClass : TSubclassOf<UFPSRLReviveWidget>(UFPSRLReviveWidget::StaticClass()));
+	}
+	if (ReviveWidget)
+	{
+		ReviveWidget->ShowRevive(Label, StartTime, EndTime);
+	}
+}
+
+void AFPSRLPlayerController::HideReviveProgress(const FText& Message)
+{
+	if (ReviveWidget)
+	{
+		ReviveWidget->HideRevive(Message);
 	}
 }
 
@@ -458,6 +485,7 @@ void AFPSRLPlayerController::OnPossess(APawn* InPawn)
 		if (PS)
 		{
 			PS->ClearRunState();
+			PS->SetEquippedWeapon(FGameplayTag());
 		}
 	}
 	else
@@ -735,9 +763,26 @@ void AFPSRLPlayerController::EquipSelectedWeapon(APawn* InPawn)
 	{
 		Option = &WeaponOptions[0];
 	}
-	if (!Option->WeaponClass)
+	if (!Option->WeaponClass || !GiveWeaponToPawn(InPawn, Option->WeaponClass))
 	{
 		return;
+	}
+
+	// Weapons are local actors: clients see this and give the pawn the same weapon themselves.
+	if (AFPSRLPlayerState* MutablePS = GetPlayerState<AFPSRLPlayerState>())
+	{
+		MutablePS->SetEquippedWeapon(Option->WeaponTag);
+	}
+
+	UE_LOG(LogFPSRL, Log, TEXT("Equipped %s on %s (%s)"), *Option->WeaponTag.ToString(), *InPawn->GetName(),
+		PS ? *PS->GetPlayerName() : TEXT("no PlayerState"));
+}
+
+bool AFPSRLPlayerController::GiveWeaponToPawn(APawn* InPawn, UClass* WeaponClass)
+{
+	if (!InPawn || !WeaponClass)
+	{
+		return false;
 	}
 
 	// Bridge until the character moves to C++ (Step F): the character receives weapons through the Blueprint
@@ -750,8 +795,8 @@ void AFPSRLPlayerController::EquipSelectedWeapon(APawn* InPawn)
 	}
 	if (!AddWeaponFunction)
 	{
-		UE_LOG(LogFPSRL, Warning, TEXT("%s has no AddWeaponClass; cannot equip %s"), *InPawn->GetName(), *Option->WeaponTag.ToString());
-		return;
+		UE_LOG(LogFPSRL, Warning, TEXT("%s has no AddWeaponClass; cannot equip %s"), *InPawn->GetName(), *WeaponClass->GetName());
+		return false;
 	}
 
 	uint8* Params = static_cast<uint8*>(FMemory_Alloca(AddWeaponFunction->ParmsSize));
@@ -761,9 +806,9 @@ void AFPSRLPlayerController::EquipSelectedWeapon(APawn* InPawn)
 	{
 		if (const FClassProperty* ClassParam = CastField<FClassProperty>(*It))
 		{
-			if (Option->WeaponClass->IsChildOf(ClassParam->MetaClass))
+			if (WeaponClass->IsChildOf(ClassParam->MetaClass))
 			{
-				ClassParam->SetObjectPropertyValue_InContainer(Params, Option->WeaponClass);
+				ClassParam->SetObjectPropertyValue_InContainer(Params, WeaponClass);
 				bParamSet = true;
 			}
 			break;
@@ -771,13 +816,83 @@ void AFPSRLPlayerController::EquipSelectedWeapon(APawn* InPawn)
 	}
 	if (!bParamSet)
 	{
-		UE_LOG(LogFPSRL, Warning, TEXT("AddWeaponClass on %s does not accept %s"), *InPawn->GetName(), *GetNameSafe(Option->WeaponClass));
-		return;
+		UE_LOG(LogFPSRL, Warning, TEXT("AddWeaponClass on %s does not accept %s"), *InPawn->GetName(), *WeaponClass->GetName());
+		return false;
 	}
 	InPawn->ProcessEvent(AddWeaponFunction, Params);
+	return true;
+}
 
-	UE_LOG(LogFPSRL, Log, TEXT("Equipped %s on %s (%s)"), *Option->WeaponTag.ToString(), *InPawn->GetName(),
-		PS ? *PS->GetPlayerName() : TEXT("no PlayerState"));
+// --- Combat ----------------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerController::ServerFireProjectile_Implementation(TSubclassOf<AFPSRLProjectile> ProjectileClass, FVector_NetQuantize10 Location,
+	FRotator Rotation, const TArray<FString>& SpawnSettings)
+{
+	APawn* Shooter = GetPawn();
+	UWorld* World = GetWorld();
+	if (!World || !Shooter || !ProjectileClass || ProjectileClass->HasAnyClassFlags(CLASS_Abstract) || !AFPSRLProjectile::CanPawnShoot(Shooter))
+	{
+		return;	// downed, dead, or nothing to fire
+	}
+
+	const double Now = World->GetTimeSeconds();
+	if (LastServerShotTime >= 0.0 && Now - LastServerShotTime < MinClientShotInterval)
+	{
+		return;	// faster than any weapon fires
+	}
+	if (FVector::Dist(Location, Shooter->GetActorLocation()) > MaxClientShotOriginDistance)
+	{
+		return;	// not from where this player stands
+	}
+	LastServerShotTime = Now;
+
+	AFPSRLProjectile* Projectile = World->SpawnActorDeferred<AFPSRLProjectile>(ProjectileClass, FTransform(Rotation, Location),
+		Shooter, Shooter, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (Projectile)
+	{
+		Projectile->ImportSpawnSettings(SpawnSettings);
+		Projectile->bHiddenFromInstigator = true;	// that client already shows its own copy
+		Projectile->FinishSpawning(FTransform(Rotation, Location));
+	}
+}
+
+void AFPSRLPlayerController::SetWeaponInputBlocked(bool bBlocked)
+{
+	if (!IsLocalController() || bBlocked == bWeaponInputBlocked)
+	{
+		return;
+	}
+	UInputMappingContext* Context = WeaponMappingContext.LoadSynchronous();
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+	if (!Context || !Subsystem)
+	{
+		return;
+	}
+
+	if (bBlocked)
+	{
+		int32 Priority = 0;
+		if (!Subsystem->HasMappingContext(Context, Priority))
+		{
+			return;	// not active, nothing to remove
+		}
+		BlockedWeaponContextPriority = Priority;
+		// Held buttons end with the mapping, so a held trigger stops firing.
+		FModifyContextOptions Options;
+		Options.bIgnoreAllPressedKeysUntilRelease = true;
+		Subsystem->RemoveMappingContext(Context, Options);
+	}
+	else if (!Subsystem->HasMappingContext(Context))
+	{
+		Subsystem->AddMappingContext(Context, BlockedWeaponContextPriority);
+	}
+	bWeaponInputBlocked = bBlocked;
+}
+
+void AFPSRLPlayerController::AcknowledgePossession(APawn* InPawn)
+{
+	Super::AcknowledgePossession(InPawn);
+	SetWeaponInputBlocked(false);	// a fresh pawn is never downed
 }
 
 void AFPSRLPlayerController::BeginPlay()

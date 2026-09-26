@@ -45,6 +45,7 @@ void AFPSRLPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 
 	DOREPLIFETIME(AFPSRLPlayerState, bIsReady);
 	DOREPLIFETIME(AFPSRLPlayerState, SelectedWeapon);
+	DOREPLIFETIME(AFPSRLPlayerState, EquippedWeapon);
 	DOREPLIFETIME_CONDITION(AFPSRLPlayerState, TalentEssence, COND_OwnerOnly);
 }
 
@@ -88,6 +89,55 @@ void AFPSRLPlayerState::SetSelectedWeapon(const FGameplayTag& NewWeapon)
 	{
 		SelectedWeapon = NewWeapon;
 		ForceNetUpdate();
+	}
+}
+
+void AFPSRLPlayerState::SetEquippedWeapon(const FGameplayTag& NewWeapon)
+{
+	if (HasAuthority())
+	{
+		EquippedWeapon = NewWeapon;
+		ForceNetUpdate();
+	}
+}
+
+void AFPSRLPlayerState::OnRep_EquippedWeapon()
+{
+	EquipWeaponLocally();
+}
+
+void AFPSRLPlayerState::EquipWeaponLocally()
+{
+	UWorld* World = GetWorld();
+	APawn* CurrentPawn = GetPawn();
+	if (HasAuthority() || !World || !CurrentPawn || !EquippedWeapon.IsValid())
+	{
+		return;	// the server equips through AFPSRLPlayerController::EquipSelectedWeapon
+	}
+	if (LocallyEquippedPawn == CurrentPawn && LocallyEquippedWeapon == EquippedWeapon)
+	{
+		return;	// already done
+	}
+	if (!CurrentPawn->HasActorBegunPlay())
+	{
+		// Pawn replicated but not initialized yet: its BeginPlay sets up the meshes the weapon attaches to.
+		World->GetTimerManager().SetTimerForNextTick(this, &ThisClass::EquipWeaponLocally);
+		return;
+	}
+
+	// The weapon list lives on the controller class (same on every machine); use this machine's own controller.
+	const AFPSRLPlayerController* LocalPC = Cast<AFPSRLPlayerController>(World->GetFirstPlayerController());
+	const FFPSRLWeaponOption* Option = LocalPC ? LocalPC->FindWeaponOption(EquippedWeapon) : nullptr;
+	if (!Option || !Option->WeaponClass)
+	{
+		UE_LOG(LogFPSRL, Warning, TEXT("[Client] no weapon class for %s (%s)"), *EquippedWeapon.ToString(), *GetPlayerName());
+		return;
+	}
+	if (AFPSRLPlayerController::GiveWeaponToPawn(CurrentPawn, Option->WeaponClass))
+	{
+		LocallyEquippedPawn = CurrentPawn;
+		LocallyEquippedWeapon = EquippedWeapon;
+		UE_LOG(LogFPSRL, Log, TEXT("[Client] equipped %s on %s (%s)"), *EquippedWeapon.ToString(), *CurrentPawn->GetName(), *GetPlayerName());
 	}
 }
 
@@ -213,6 +263,8 @@ void AFPSRLPlayerState::HandlePawnSet(APlayerState* Player, APawn* NewPawn, APaw
 		{
 			NewHealth->InitializeWithAbilitySystem(AbilitySystemComponent);
 		}
+
+		EquipWeaponLocally();	// client: the pawn may arrive after EquippedWeapon did
 	}
 	else if (AbilitySystemComponent->GetAvatarActor() == OldPawn)
 	{

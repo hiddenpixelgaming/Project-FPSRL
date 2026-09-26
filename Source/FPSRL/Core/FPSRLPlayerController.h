@@ -15,6 +15,8 @@ class AFPSRLReviveMarker;
 class UFPSRLDeathMenuWidget;
 class UFPSRLPortalMenuWidget;
 class UFPSRLPortalStatusWidget;
+class UFPSRLReviveWidget;
+class AFPSRLProjectile;
 class UFPSRLPauseMenuWidget;
 class UFPSRLSelectionWidget;
 
@@ -80,6 +82,25 @@ public:
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Lobby")
 	void ServerSelectWeapon(FGameplayTag WeaponTag);
 
+	/** The lobby weapon option for a tag (null if unknown). */
+	const FFPSRLWeaponOption* FindWeaponOption(const FGameplayTag& WeaponTag) const;
+
+	/** Give a pawn a weapon through the character's BPI_WeaponHolder "Add Weapon Class" (any machine; weapons are local actors). */
+	static bool GiveWeaponToPawn(APawn* InPawn, UClass* WeaponClass);
+
+	// --- Combat ------------------------------------------------------------------------------------------------
+
+	/**
+	 * Client -> server: this player's weapon fired (AFPSRLProjectile's local copy asks). The server validates (shooter
+	 * up, sane position and rate) and spawns the replicated projectile for everyone else.
+	 */
+	UFUNCTION(Server, Reliable)
+	void ServerFireProjectile(TSubclassOf<AFPSRLProjectile> ProjectileClass, FVector_NetQuantize10 Location, FRotator Rotation,
+		const TArray<FString>& SpawnSettings);
+
+	/** Local: while downed (or dead) the weapon inputs (shoot, aim, reload, melee, dash) are removed. */
+	void SetWeaponInputBlocked(bool bBlocked);
+
 	/** True when there is at least one player and every player is ready with a complete loadout (weapon + aspect).
 	 *  Exec node to match the old BP function. */
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "Lobby")
@@ -140,6 +161,12 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerStartRevive(AFPSRLReviveMarker* Marker);
 
+	/** Local: show the revive bar (you are reviving someone, or someone is reviving you). Server world times. */
+	void ShowReviveProgress(const FText& Label, double StartTime, double EndTime);
+
+	/** Local: hide the revive bar, optionally flashing a short message first ("Revive interrupted"). */
+	void HideReviveProgress(const FText& Message = FText::GetEmpty());
+
 	// --- Exit portal ---------------------------------------------------------------------------------------------
 
 	/** Local: the player interacted with an active exit portal. Shows the Continue / Cancel menu. */
@@ -181,6 +208,7 @@ protected:
 	virtual void SetupInputComponent() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnPossess(APawn* InPawn) override;
+	virtual void AcknowledgePossession(APawn* InPawn) override;
 	virtual void OnRep_PlayerState() override;
 
 	/** Selection screens (default C++ layout; set a Blueprint subclass to restyle). */
@@ -205,6 +233,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Portal")
 	TSubclassOf<UFPSRLPortalStatusWidget> PortalStatusClass;
 
+	/** Revive progress bar (default C++ layout; set a Blueprint subclass to restyle). */
+	UPROPERTY(EditDefaultsOnly, Category = "Revive")
+	TSubclassOf<UFPSRLReviveWidget> ReviveWidgetClass;
+
 	/** Weapons the lobby station offers. First entry is the fallback if a tag is unknown. */
 	UPROPERTY(EditDefaultsOnly, Category = "Lobby")
 	TArray<FFPSRLWeaponOption> WeaponOptions;
@@ -223,6 +255,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Pause")
 	TObjectPtr<UInputMappingContext> PauseMappingContext;
 
+	/** Removed while the player is downed: shoot, aim, reload, melee, dash (the template's IMC_Weapons). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat")
+	TSoftObjectPtr<UInputMappingContext> WeaponMappingContext = TSoftObjectPtr<UInputMappingContext>(FSoftObjectPath(TEXT("/Game/Variant_Shooter/Input/IMC_Weapons.IMC_Weapons")));
+
+	/** Server: fastest a client may fire (seconds between projectiles); requests faster than this are dropped. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "0"))
+	float MinClientShotInterval = 0.04f;
+
+	/** Server: how far from the shooter a client-fired projectile may start (cm). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat", meta = (ClampMin = "0"))
+	float MaxClientShotOriginDistance = 400.f;
+
 	/** Widget to show. Defaults to the C++ class, which builds its own layout; set a Blueprint subclass to restyle. */
 	UPROPERTY(EditDefaultsOnly, Category = "Pause")
 	TSubclassOf<UFPSRLPauseMenuWidget> PauseMenuClass;
@@ -230,7 +274,13 @@ protected:
 private:
 	/** Server: give the pawn the weapon from this player's PlayerState. */
 	void EquipSelectedWeapon(APawn* InPawn);
-	const FFPSRLWeaponOption* FindWeaponOption(const FGameplayTag& WeaponTag) const;
+
+	/** Server: time of the last projectile fired for this client (rate sanity check). */
+	double LastServerShotTime = -1.0;
+
+	/** Local: weapon inputs are currently removed (downed); priority to restore them at. */
+	bool bWeaponInputBlocked = false;
+	int32 BlockedWeaponContextPriority = 0;
 
 	void HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful);
 
@@ -279,6 +329,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UFPSRLPortalStatusWidget> PortalStatus;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UFPSRLReviveWidget> ReviveWidget;
 
 	/** Portal the open menu belongs to. */
 	TWeakObjectPtr<AFPSRLExitPortal> MenuPortal;

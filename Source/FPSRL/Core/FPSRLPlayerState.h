@@ -62,6 +62,13 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Lobby")
 	FGameplayTag SelectedWeapon;
 
+	/**
+	 * Weapon the server has put in this player's current pawn's hands (empty = none yet, e.g. a fresh Lobby pawn).
+	 * Weapons are local actors, so every client gives the pawn the same weapon itself when this replicates.
+	 */
+	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon, BlueprintReadOnly, Category = "Lobby")
+	FGameplayTag EquippedWeapon;
+
 	/** Soul Fragments / Talent Essence: persistent currency (owner only). */
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Currency")
 	int32 TalentEssence = 0;
@@ -69,6 +76,7 @@ public:
 	/** Server-only setters (called by AFPSRLPlayerController's RPCs). */
 	void SetIsReady(bool bNewReady);
 	void SetSelectedWeapon(const FGameplayTag& NewWeapon);
+	void SetEquippedWeapon(const FGameplayTag& NewWeapon);
 
 	/** Server: accepts the owning client's saved balance once per PlayerState. */
 	void ReceiveReportedTalentEssence(int32 Amount);
@@ -106,6 +114,15 @@ private:
 	void HandlePawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn);
 
 	void PersistTalentEssence();
+
+	UFUNCTION()
+	void OnRep_EquippedWeapon();
+
+	/** Client: give the current pawn EquippedWeapon locally (once per pawn and weapon; waits for the pawn's BeginPlay). */
+	void EquipWeaponLocally();
+
+	TWeakObjectPtr<APawn> LocallyEquippedPawn;
+	FGameplayTag LocallyEquippedWeapon;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Abilities", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UFPSRLAbilitySystemComponent> AbilitySystemComponent;

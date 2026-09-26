@@ -2,6 +2,10 @@
 
 #include "Components/FPSRLHealthComponent.h"
 #include "AbilitySystemComponent.h"
+#include "AIController.h"
+#include "Components/PrimitiveComponent.h"
+#include "EngineUtils.h"
+#include "Perception/AIPerceptionComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Abilities/Attributes/FPSRLHealthSet.h"
 #include "Abilities/Effects/FPSRLHealthEffects.h"
@@ -16,6 +20,7 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
 #include "Rooms/FPSRLReviveMarker.h"
+#include "Core/FPSRLPlayerController.h"
 #include "FPSRL.h"
 
 namespace FPSRLHealthDebug
@@ -137,7 +142,11 @@ const UFPSRLHealthSet* UFPSRLHealthComponent::GetHealthSet() const
 
 void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser)
 {
-	if (Damage <= 0.f || !GetOwner()->HasAuthority())
+	if (Damage <= 0.f || !GetOwner()->HasAuthority() || bDied)
+	{
+		return;	// nothing to do, or a corpse being shot
+	}
+	if (!ShouldAcceptDamageFrom(InstigatedBy, DamageCauser))
 	{
 		return;
 	}
@@ -146,6 +155,51 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 
 	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s took %.0f damage. HP now %.0f"),
 		*GetOwner()->GetActorNameOrLabel(), Damage, GetCurrentHealth()), FColor::Cyan);
+}
+
+bool UFPSRLHealthComponent::IsPlayerSide(const AController* Controller, const AActor* Actor)
+{
+	if (Controller)
+	{
+		return Controller->IsPlayerController();
+	}
+	const APawn* Pawn = Cast<APawn>(Actor);
+	const APlayerState* PlayerState = Pawn ? Pawn->GetPlayerState() : nullptr;
+	return PlayerState && !PlayerState->IsABot();
+}
+
+bool UFPSRLHealthComponent::ShouldAcceptDamageFrom(const AController* InstigatedBy, const AActor* DamageCauser) const
+{
+	// Who is attacking: the instigating controller's pawn, else the causer (a pawn, or a projectile / explosion whose
+	// instigator is the pawn that fired it).
+	const APawn* Attacker = InstigatedBy ? InstigatedBy->GetPawn() : nullptr;
+	if (!Attacker && DamageCauser)
+	{
+		Attacker = Cast<APawn>(DamageCauser);
+		if (!Attacker)
+		{
+			Attacker = DamageCauser->GetInstigator();
+		}
+	}
+	const AController* AttackerController = InstigatedBy ? InstigatedBy : (Attacker ? Attacker->GetController() : nullptr);
+	if (!AttackerController && !Attacker)
+	{
+		return true;	// environment (fall damage, hazards): no side to compare
+	}
+
+	// Downed players deal no damage at all.
+	if (Attacker)
+	{
+		const UFPSRLHealthComponent* AttackerHealth = Attacker->FindComponentByClass<UFPSRLHealthComponent>();
+		if (AttackerHealth && AttackerHealth->IsDowned())
+		{
+			return false;
+		}
+	}
+
+	// No friendly fire: players never hurt players (themselves included), enemies never hurt enemies.
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	return IsPlayerSide(AttackerController, Attacker) != IsPlayerSide(OwnerPawn ? OwnerPawn->GetController() : nullptr, GetOwner());
 }
 
 void UFPSRLHealthComponent::Heal(float Amount)
@@ -185,6 +239,23 @@ void UFPSRLHealthComponent::ApplyHealthEffect(TSubclassOf<UGameplayEffect> Effec
 void UFPSRLHealthComponent::HandleHealthAttributeChanged(const FOnAttributeChangeData& ChangeData)
 {
 	OnHealthChanged.Broadcast(GetCurrentHealth(), GetMaxHealth());
+
+	// After the broadcast, so the character's own death handling (ragdoll profile) has already run.
+	if (!bBodyIgnoresProjectiles && GetHealthSet() && GetCurrentHealth() <= 0.f)
+	{
+		MakeBodyIgnoreProjectiles();
+	}
+}
+
+void UFPSRLHealthComponent::MakeBodyIgnoreProjectiles()
+{
+	// Dead bodies no longer stop bullets (every machine: health replicates, and clients fly their own copies).
+	bBodyIgnoresProjectiles = true;
+	TInlineComponentArray<UPrimitiveComponent*> Primitives(GetOwner());
+	for (UPrimitiveComponent* Primitive : Primitives)
+	{
+		Primitive->SetCollisionResponseToChannel(ProjectileChannel, ECR_Ignore);
+	}
 }
 
 void UFPSRLHealthComponent::HandleOutOfHealth(AActor* DamageInstigator, AActor* DamageCauser)
@@ -348,6 +419,10 @@ void UFPSRLHealthComponent::Kill()
 		return;
 	}
 
+	// OnDeath first (death screen etc.; also marks bDied so clearing Downed below doesn't make the body an AI target
+	// again), then health 0 so the character's own death handling (ragdoll) runs.
+	HandleOutOfHealth(nullptr, nullptr);
+
 	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Downed, 0, EGameplayTagReplicationState::TagOnly);
 	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Invulnerable, 0, EGameplayTagReplicationState::TagOnly);
 	if (ReviveMarker)
@@ -356,18 +431,58 @@ void UFPSRLHealthComponent::Kill()
 		ReviveMarker = nullptr;
 	}
 
-	// OnDeath first (death screen etc.), then health 0 so the character's own death handling (ragdoll) runs.
-	HandleOutOfHealth(nullptr, nullptr);
 	AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), 0.f);
+}
+
+void UFPSRLHealthComponent::SetTargetableByAI(bool bTargetable)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !OwnerPawn->HasAuthority() || AITargetTag.IsNone())
+	{
+		return;
+	}
+
+	// The shooter AI only acquires actors carrying its sense tag ("Player").
+	if (bTargetable)
+	{
+		if (bRemovedAITargetTag)
+		{
+			OwnerPawn->Tags.AddUnique(AITargetTag);
+			bRemovedAITargetTag = false;
+		}
+	}
+	else if (OwnerPawn->Tags.Remove(AITargetTag) > 0)
+	{
+		bRemovedAITargetTag = true;
+	}
+
+	// Every enemy drops this pawn now: forgetting clears the AI's current target (its StateTree listens to
+	// OnTargetPerceptionForgotten) and resets sight, so after a revive they re-acquire as soon as they see the player.
+	for (TActorIterator<AAIController> It(GetWorld()); It; ++It)
+	{
+		if (UAIPerceptionComponent* Perception = It->GetPerceptionComponent())
+		{
+			Perception->ForgetActor(OwnerPawn);
+			if (!bTargetable)
+			{
+				Perception->OnTargetPerceptionForgotten.Broadcast(OwnerPawn);
+			}
+		}
+	}
 }
 
 void UFPSRLHealthComponent::HandleDownedTagChanged(const FGameplayTag Tag, int32 NewCount)
 {
 	const bool bDowned = NewCount > 0;
+	SetTargetableByAI(!bDowned && !bDied);	// a downed player who dies stays untargetable
 	ApplyDownedMovement(bDowned);
 	OnDownedChanged.Broadcast(bDowned);
 
 	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (AFPSRLPlayerController* PC = OwnerPawn && OwnerPawn->IsLocallyControlled() ? Cast<AFPSRLPlayerController>(OwnerPawn->GetController()) : nullptr)
+	{
+		PC->SetWeaponInputBlocked(bDowned);	// downed players can't shoot, aim, reload, melee or dash
+	}
 	if (bDowned && OwnerPawn && OwnerPawn->IsLocallyControlled())
 	{
 		FPSRLHealthDebug::Show(TEXT("You are DOWN - crawl to safety, a teammate can revive you (E)"), FColor::Orange);
