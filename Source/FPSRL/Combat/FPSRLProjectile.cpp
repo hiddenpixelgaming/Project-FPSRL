@@ -3,6 +3,7 @@
 #include "Combat/FPSRLProjectile.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Engine/Level.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/UnrealType.h"
@@ -68,12 +69,31 @@ bool AFPSRLProjectile::IsNetRelevantFor(const AActor* RealViewer, const AActor* 
 	return Super::IsNetRelevantFor(RealViewer, ViewTarget, SrcLocation);
 }
 
+bool AFPSRLProjectile::IsMachineLocalReference(const FProperty* Property) const
+{
+	// Instigator is Expose on Spawn too. Sent as text it named the client's copy of the shooter, which on the server
+	// resolved to nothing (or another actor): the server's projectile then hit its own shooter, was replicated back to
+	// them (the "dropping" duplicate), and its damage counted as environment damage (friendly fire, cannon splash).
+	// The server sets the instigator itself; asset references (classes, soft paths) are the same on every machine.
+	if (Property->GetFName() == TEXT("Instigator") || Property->GetFName() == TEXT("Owner"))
+	{
+		return true;
+	}
+	const FObjectPropertyBase* ObjectProperty = CastField<FObjectPropertyBase>(Property);
+	if (!ObjectProperty || ObjectProperty->IsA<FClassProperty>() || ObjectProperty->IsA<FSoftObjectProperty>())
+	{
+		return false;
+	}
+	const UObject* Value = ObjectProperty->GetObjectPropertyValue_InContainer(this);
+	return Value && (Value->IsA<AActor>() || Value->GetTypedOuter<AActor>() || Value->GetTypedOuter<ULevel>());
+}
+
 TArray<FString> AFPSRLProjectile::ExportSpawnSettings() const
 {
 	TArray<FString> Settings;
 	for (TFieldIterator<FProperty> It(GetClass()); It; ++It)
 	{
-		if (It->HasAnyPropertyFlags(CPF_ExposeOnSpawn))
+		if (It->HasAnyPropertyFlags(CPF_ExposeOnSpawn) && !IsMachineLocalReference(*It))
 		{
 			FString Value;
 			It->ExportText_InContainer(0, Value, this, nullptr, nullptr, PPF_None);
@@ -93,9 +113,14 @@ void AFPSRLProjectile::ImportSpawnSettings(const TArray<FString>& Settings)
 			continue;
 		}
 		FProperty* Property = GetClass()->FindPropertyByName(FName(*Name));
-		if (Property && Property->HasAnyPropertyFlags(CPF_ExposeOnSpawn))
+		if (!Property || !Property->HasAnyPropertyFlags(CPF_ExposeOnSpawn) || IsMachineLocalReference(Property))
 		{
-			Property->ImportText_InContainer(*Value, this, this, PPF_None);
+			continue;	// keeps the server's own Instigator / Owner
+		}
+		Property->ImportText_InContainer(*Value, this, this, PPF_None);
+		if (IsMachineLocalReference(Property))
+		{
+			Property->ClearValue_InContainer(this);	// a client can't point the projectile at a world object
 		}
 	}
 }

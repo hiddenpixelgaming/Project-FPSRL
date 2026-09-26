@@ -40,4 +40,8 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+
+private:
+	/** A property pointing at a world object (actor, component): can't be sent as text, each machine names its copies differently. */
+	bool IsMachineLocalReference(const FProperty* Property) const;
 };

@@ -122,6 +122,12 @@ private:
 
 	bool bBodyIgnoresProjectiles = false;
 
+	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies are painted this solid colour on every machine. */
+	void ApplyEnemyTestTint();
+
+	UPROPERTY(EditDefaultsOnly, Category = "Health|Testing")
+	FLinearColor EnemyTestTintColor = FLinearColor(1.f, 0.85f, 0.f);
+
 	/** Server: downed players are ignored by enemy AI (tag removed, perception forgotten); revived ones are fair game again. */
 	void SetTargetableByAI(bool bTargetable);
 

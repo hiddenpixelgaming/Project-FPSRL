@@ -877,10 +877,28 @@ void AFPSRLPlayerController::SetWeaponInputBlocked(bool bBlocked)
 			return;	// not active, nothing to remove
 		}
 		BlockedWeaponContextPriority = Priority;
-		// Held buttons end with the mapping, so a held trigger stops firing.
 		FModifyContextOptions Options;
 		Options.bIgnoreAllPressedKeysUntilRelease = true;
 		Subsystem->RemoveMappingContext(Context, Options);
+
+		// Removing the mapping swallows the button release, so the weapon never hears "stop aiming" / "stop firing"
+		// (downed while aiming stayed zoomed in for good). Tell it directly.
+		if (APawn* CurrentPawn = GetPawn())
+		{
+			TArray<AActor*> Held;
+			CurrentPawn->GetAttachedActors(Held, true, true);
+			for (AActor* Weapon : Held)
+			{
+				for (const TCHAR* FunctionName : { TEXT("StopAiming"), TEXT("Stop Firing") })
+				{
+					UFunction* Function = Weapon ? Weapon->FindFunction(FunctionName) : nullptr;
+					if (Function && Function->ParmsSize == 0)
+					{
+						Weapon->ProcessEvent(Function, nullptr);
+					}
+				}
+			}
+		}
 	}
 	else if (!Subsystem->HasMappingContext(Context))
 	{

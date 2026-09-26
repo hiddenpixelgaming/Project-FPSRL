@@ -21,6 +21,10 @@
 #include "GameFramework/PlayerState.h"
 #include "Rooms/FPSRLReviveMarker.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Combat/FPSRLProjectile.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "HAL/IConsoleManager.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "FPSRL.h"
 
 namespace FPSRLHealthDebug
@@ -58,6 +62,38 @@ void UFPSRLHealthComponent::BeginPlay()
 		if (UAbilitySystemComponent* OwnerASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(GetOwner()))
 		{
 			InitializeWithAbilitySystem(OwnerASC);
+			ApplyEnemyTestTint();
+		}
+	}
+}
+
+namespace FPSRLHealthDebug
+{
+	static TAutoConsoleVariable<bool> CVarTintEnemies(TEXT("fpsrl.TintEnemies"), true,
+		TEXT("Testing: paint enemies solid yellow so they stand out from players (applies to enemies spawned afterwards)."));
+}
+
+void UFPSRLHealthComponent::ApplyEnemyTestTint()
+{
+	if (!FPSRLHealthDebug::CVarTintEnemies.GetValueOnGameThread() || GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	// Engine basic-shape material (cooked: the debug MIs derive from it), whose "Color" parameter tints the whole mesh.
+	UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (!BaseMaterial)
+	{
+		return;
+	}
+	UMaterialInstanceDynamic* Tint = UMaterialInstanceDynamic::Create(BaseMaterial, this);
+	Tint->SetVectorParameterValue(TEXT("Color"), EnemyTestTintColor);
+
+	TInlineComponentArray<USkeletalMeshComponent*> Meshes(GetOwner());
+	for (USkeletalMeshComponent* Mesh : Meshes)
+	{
+		for (int32 Index = 0; Index < Mesh->GetNumMaterials(); ++Index)
+		{
+			Mesh->SetMaterial(Index, Tint);
 		}
 	}
 }
@@ -184,6 +220,12 @@ bool UFPSRLHealthComponent::ShouldAcceptDamageFrom(const AController* Instigated
 	const AController* AttackerController = InstigatedBy ? InstigatedBy : (Attacker ? Attacker->GetController() : nullptr);
 	if (!AttackerController && !Attacker)
 	{
+		// A projectile / explosion that lost its shooter never hurts players (splash from a player's cannon included).
+		const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+		if (Cast<AFPSRLProjectile>(DamageCauser) && IsPlayerSide(OwnerPawn ? OwnerPawn->GetController() : nullptr, GetOwner()))
+		{
+			return false;
+		}
 		return true;	// environment (fall damage, hazards): no side to compare
 	}
 
