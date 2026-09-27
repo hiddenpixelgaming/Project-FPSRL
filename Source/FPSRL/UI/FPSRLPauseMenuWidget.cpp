@@ -193,6 +193,13 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 		}
 		Text += FString::Printf(TEXT("   %s Aspect%s  -  %d / %d Blessings\n"), *NameOf(Track.Aspect->DisplayName, Track.Aspect),
 			Track.AspectUpgradeLevel > 0 ? *Star : TEXT(""), Track.Count, Settings.MaxBoonsPerChannel);
+		if (Track.Count < Settings.MaxBoonsPerChannel)
+		{
+			// Makes the milestones visible: position 3 is always the Minor, 6 the Major.
+			const EFPSRLBoonType Next = Settings.GetBoonTypeForPosition(Track.Count + 1);
+			Text += FString::Printf(TEXT("   Next: Blessing %d%s\n"), Track.Count + 1,
+				Next == EFPSRLBoonType::Minor ? TEXT(" = MINOR BLESSING") : Next == EFPSRLBoonType::Major ? TEXT(" = MAJOR BLESSING") : TEXT(""));
+		}
 		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
 		{
 			if (!Owned.Boon)

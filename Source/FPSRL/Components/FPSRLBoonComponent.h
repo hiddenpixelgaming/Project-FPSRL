@@ -104,7 +104,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
  * Progression per channel: the first Blessing sets the channel's Aspect and is position 1. Later Blessings for the
  * channel come only from that Aspect. Position MinorPosition (3) is always the Aspect's Minor, MajorPosition (6) its
  * Major: at those positions the channel offers only its milestone, and every offer includes it. Up to
- * MaxBoonsPerChannel (11). The same Aspect may sit on several channels, each counted separately.
+ * MaxBoonsPerChannel (11). An Aspect can be on only one channel: once Fire is on Primary it is never offered
+ * for Secondary or Ability.
  *
  * Server-authoritative: the server rolls this player's options, validates the pick, applies it through GAS and
  * replicates the result. Clients only request (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons).

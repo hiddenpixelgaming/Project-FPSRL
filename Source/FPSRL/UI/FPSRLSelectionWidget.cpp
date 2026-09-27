@@ -12,6 +12,12 @@
 
 namespace
 {
+	// Dark theme: near-black buttons, white text. Upgrades use a dark gold instead of the dark grey.
+	const FLinearColor ButtonColor(0.07f, 0.07f, 0.09f);
+	const FLinearColor GoldButtonColor(0.42f, 0.3f, 0.05f);
+	const FLinearColor TextColor = FLinearColor::White;
+	const FLinearColor DescriptionColor(0.78f, 0.78f, 0.8f);
+
 	UTextBlock* MakeText(UWidgetTree* Tree, const FName& Name, int32 Size, const FLinearColor& Color)
 	{
 		UTextBlock* Text = Tree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
@@ -56,7 +62,7 @@ void UFPSRLSelectionWidget::NativeOnInitialized()
 void UFPSRLSelectionWidget::BuildDefaultLayout()
 {
 	UBorder* Backdrop = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Backdrop"));
-	Backdrop->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.75f));
+	Backdrop->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.9f));
 	Backdrop->SetHorizontalAlignment(HAlign_Center);
 	Backdrop->SetVerticalAlignment(VAlign_Center);
 	WidgetTree->RootWidget = Backdrop;
@@ -74,23 +80,26 @@ void UFPSRLSelectionWidget::BuildDefaultLayout()
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), *FString::Printf(TEXT("Choice%d"), Index));
 		UVerticalBox* Content = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
-		UTextBlock* Header = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceHeader%d"), Index), 13, FLinearColor::Black);
-		UTextBlock* Name = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceName%d"), Index), 22, FLinearColor::Black);
-		UTextBlock* Desc = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceDesc%d"), Index), 14, FLinearColor(0.15f, 0.15f, 0.15f));
+		UTextBlock* Header = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceHeader%d"), Index), 13, TextColor);
+		UTextBlock* Name = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceName%d"), Index), 22, TextColor);
+		UTextBlock* Desc = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceDesc%d"), Index), 14, DescriptionColor);
 		Content->AddChildToVerticalBox(Header);
 		Content->AddChildToVerticalBox(Name);
 		Content->AddChildToVerticalBox(Desc);
+		Button->SetBackgroundColor(ButtonColor);
 		Button->SetContent(Content);
 		AddTo(Column, Button, 6.f);
 	}
 
 	RerollButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("RerollButton"));
-	RerollLabel = MakeText(WidgetTree, TEXT("RerollLabel"), 18, FLinearColor::Black);
+	RerollLabel = MakeText(WidgetTree, TEXT("RerollLabel"), 18, TextColor);
+	RerollButton->SetBackgroundColor(ButtonColor);
 	RerollButton->SetContent(RerollLabel);
 	AddTo(Column, RerollButton, 14.f)->SetHorizontalAlignment(HAlign_Center);
 
 	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
-	UTextBlock* CloseLabel = MakeText(WidgetTree, TEXT("CloseLabel"), 16, FLinearColor::Black);
+	UTextBlock* CloseLabel = MakeText(WidgetTree, TEXT("CloseLabel"), 16, TextColor);
+	CloseButton->SetBackgroundColor(ButtonColor);
 	CloseLabel->SetText(NSLOCTEXT("FPSRL", "SelectionClose", "Close (decide later)"));
 	CloseButton->SetContent(CloseLabel);
 	AddTo(Column, CloseButton, 6.f)->SetHorizontalAlignment(HAlign_Center);
@@ -138,21 +147,19 @@ void UFPSRLSelectionWidget::SetTitle(const FText& InTitle)
 
 void UFPSRLSelectionWidget::SetChoices(const TArray<FChoice>& Choices)
 {
-	static const FLinearColor Gold(1.f, 0.78f, 0.2f);
 	for (int32 Index = 0; Index < MaxChoices; ++Index)
 	{
 		const FChoice* Choice = Choices.IsValidIndex(Index) ? &Choices[Index] : nullptr;
 		if (UButton* Button = ChoiceButtons.IsValidIndex(Index) ? ChoiceButtons[Index].Get() : nullptr)
 		{
 			Button->SetVisibility(Choice ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
-			Button->SetBackgroundColor(Choice && Choice->bGold ? Gold : FLinearColor::White);
+			Button->SetBackgroundColor(Choice && Choice->bGold ? GoldButtonColor : ButtonColor);
 		}
 		if (UTextBlock* Header = ChoiceHeaders.IsValidIndex(Index) ? ChoiceHeaders[Index].Get() : nullptr)
 		{
 			Header->SetText(Choice ? Choice->Header : FText::GetEmpty());
-			// Darkened Aspect colour, so light colours stay readable on the light button.
-			const FLinearColor Color = Choice ? Choice->HeaderColor * 0.55f : FLinearColor::Black;
-			Header->SetColorAndOpacity(FSlateColor(FLinearColor(Color.R, Color.G, Color.B, 1.f)));
+			// The Aspect's own colour reads well on the dark button.
+			Header->SetColorAndOpacity(FSlateColor(Choice ? FLinearColor(Choice->HeaderColor.R, Choice->HeaderColor.G, Choice->HeaderColor.B, 1.f) : TextColor));
 		}
 		if (UTextBlock* Name = ChoiceNames.IsValidIndex(Index) ? ChoiceNames[Index].Get() : nullptr)
 		{

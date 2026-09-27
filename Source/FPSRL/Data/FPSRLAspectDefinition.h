@@ -34,8 +34,8 @@ struct FPSRL_API FFPSRLAspectChannelGrants
  * (Primary Asset "Aspect"); Blessings name their Aspect (UFPSRLBoonDefinition::Aspect).
  *
  * A player's channels (Primary / Secondary / Ability) each hold at most one Aspect, set by the channel's first
- * Blessing. The same Aspect may sit on several channels; each one is a separate progression with its own count,
- * milestones and upgrade level (see UFPSRLBoonComponent).
+ * Blessing, with its own count, milestones and upgrade level (see UFPSRLBoonComponent). An Aspect can be on only one
+ * of a player's channels at a time.
  */
 UCLASS(BlueprintType, Const)
 class FPSRL_API UFPSRLAspectDefinition : public UPrimaryDataAsset

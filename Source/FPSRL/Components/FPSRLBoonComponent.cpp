@@ -157,11 +157,23 @@ bool UFPSRLBoonComponent::IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoo
 		return false;
 	}
 
-	// The channel's Aspect decides the family; an empty channel takes any Aspect (that pick establishes it).
+	// The channel's Aspect decides the family. An empty channel takes any Aspect the player doesn't already have on
+	// another channel: one Aspect per channel and each Aspect on one channel only (Fire on Primary rules out Fire on
+	// Secondary and Ability).
 	const FFPSRLBoonTrack& Track = GetTrack(Channel);
 	if ((Track.Aspect && Boon->Aspect != Track.Aspect) || Track.Count < Boon->RequiredChannelCount)
 	{
 		return false;
+	}
+	if (!Track.Aspect)
+	{
+		for (const FFPSRLBoonTrack& Other : Tracks)
+		{
+			if (Other.Channel != Channel && Other.Aspect == Boon->Aspect)
+			{
+				return false;
+			}
+		}
 	}
 	if (GetStacks(Channel, Boon) >= Boon->GetMaxStacks())
 	{
@@ -553,7 +565,7 @@ void UFPSRLBoonComponent::GiveAspect(EFPSRLBoonChannel Channel)
 	}
 	if (Track.Aspect->AspectTag.IsValid())
 	{
-		ToGrant.GrantedTags.AddTag(Track.Aspect->AspectTag);	// counted: two channels on one Aspect add it twice
+		ToGrant.GrantedTags.AddTag(Track.Aspect->AspectTag);	// identity tag while a channel holds it
 	}
 	Handles[static_cast<int32>(Channel)].Aspect = FPSRLGrants::Give(ToGrant, ASC, Track.Aspect, FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run));
 }
