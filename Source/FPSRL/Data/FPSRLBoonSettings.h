@@ -47,13 +47,13 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
 	int32 MaxBoonsPerChannel = 11;
 
-	/** Chance each Blessing choice is the Aspect's Minor Blessing instead (once per slot). */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0", ClampMax = "1"))
-	float MinorChance = 0.2f;
+	/** Relative chance each Blessing choice is a Minor (Minors are the common category). */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
+	float MinorWeight = 4.f;
 
-	/** Chance each Blessing choice is the Aspect's Major Blessing instead (once per slot; rarer than the Minor). */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0", ClampMax = "1"))
-	float MajorChance = 0.05f;
+	/** Relative chance each Blessing choice is a Major (4 : 1 = 80% Minor, 20% Major). */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
+	float MajorWeight = 1.f;
 
 	/** Blessings a slot must already have before its Major can be offered. */
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))

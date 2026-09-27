@@ -19,7 +19,8 @@ class UTexture2D;
  * Where it can be offered (all data, nothing hardcoded in the altar):
  *  - Aspect + AllowedChannels: only on a channel whose Aspect is this one (or an empty channel, as its first
  *    Blessing), and only on the channels listed (empty = any channel the Aspect allows).
- *  - BoonType: Normal, or the channel's Minor (position 3) / Major (position 6) milestone.
+ *  - BoonType: Minor or Major (the only two categories). Majors are offered less often and only once the slot has
+ *    MajorMinBlessings.
  *  - RequiredItemTags: the channel's equipped item must carry one of them (e.g. Weapon.Cannon, Secondary.Melee,
  *    a future Ability.*). Empty = any item. This is how "needs a projectile weapon" / "needs melee" is expressed.
  *  - BlockedTags, RequiredBoons (prerequisites on the same channel), RequiredChannelCount.
@@ -58,7 +59,7 @@ public:
 	TObjectPtr<UFPSRLAspectDefinition> Aspect;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
-	EFPSRLBoonType BoonType = EFPSRLBoonType::Normal;
+	EFPSRLBoonType BoonType = EFPSRLBoonType::Minor;
 
 	/** Channels it can attach to. Empty = any channel its Aspect allows. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")

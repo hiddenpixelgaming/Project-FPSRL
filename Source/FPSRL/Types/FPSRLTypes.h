@@ -104,11 +104,10 @@ enum class EFPSRLBoonChannel : uint8
 };
 ENUM_RANGE_BY_COUNT(EFPSRLBoonChannel, EFPSRLBoonChannel::MAX);
 
-/** A Blessing's place in its channel's progression: position 3 is the Minor, position 6 the Major. */
+/** Every Blessing is one of two categories: Minor (common) or Major (rarer, stronger). There is no other kind. */
 UENUM(BlueprintType)
 enum class EFPSRLBoonType : uint8
 {
-	Normal,
 	Minor,
 	Major
 };

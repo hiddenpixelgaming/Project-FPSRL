@@ -347,59 +347,40 @@ TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateBlessingOptions(UFPSRLAspec
 		return Options;
 	}
 
-	// This Aspect's Blessings the channel can take, by type. The Major needs MajorMinBlessings on the slot first;
-	// Minor and Major are one-time (MaxStacks 1), so each can only be won once per slot.
+	// This Aspect's Blessings the channel can take, split into the only two categories. Majors need MajorMinBlessings
+	// on the slot first.
 	const FFPSRLBoonTrack& Track = GetTrack(Channel);
-	TArray<UFPSRLBoonDefinition*> Normal, Minor, Major;
+	TArray<UFPSRLBoonDefinition*> Minor, Major;
 	for (UFPSRLBoonDefinition* Boon : Pool->Boons)
 	{
 		if (!Boon || Boon->Aspect != Aspect || !IsEligible(Boon, Channel, false))
 		{
 			continue;
 		}
-		switch (Boon->BoonType)
+		if (Boon->BoonType == EFPSRLBoonType::Major)
 		{
-		case EFPSRLBoonType::Minor:	Minor.Add(Boon); break;
-		case EFPSRLBoonType::Major:	if (Track.Count >= Settings.MajorMinBlessings) { Major.Add(Boon); } break;
-		default:					Normal.Add(Boon); break;
+			if (Track.Count >= Settings.MajorMinBlessings)
+			{
+				Major.Add(Boon);
+			}
+		}
+		else
+		{
+			Minor.Add(Boon);
 		}
 	}
 
-	auto TakeFrom = [&Options, Channel, &Track](TArray<UFPSRLBoonDefinition*>& From, bool bOnlyOne)
+	// Each choice is a Minor or a Major by weight (Minors commoner), then a Blessing of that category by its own weight.
+	// If the rolled category has nothing left, the other one fills in; no Blessing appears twice in one set.
+	while (Options.Num() < Settings.BoonOptionsPerSelection && !(Minor.IsEmpty() && Major.IsEmpty()))
 	{
+		const float MinorShare = Minor.IsEmpty() ? 0.f : Settings.MinorWeight;
+		const float MajorShare = Major.IsEmpty() ? 0.f : Settings.MajorWeight;
+		const bool bMajor = MajorShare > 0.f && (MinorShare <= 0.f || FMath::FRandRange(0.f, MinorShare + MajorShare) >= MinorShare);
+		TArray<UFPSRLBoonDefinition*>& From = bMajor ? Major : Minor;
 		const int32 Pick = FPSRLBoons::PickWeighted(From, [](const UFPSRLBoonDefinition* Boon) { return Boon->SelectionWeight; });
 		Options.Add({ From[Pick], Channel, Track.Aspect == nullptr });
-		if (bOnlyOne)
-		{
-			From.Reset();	// one Minor / Major per set
-		}
-		else
-		{
-			From.RemoveAtSwap(Pick);
-		}
-	};
-
-	// Each choice rolls: Major (rarest), else Minor, else a normal Blessing. If the rolled kind has nothing left,
-	// fall back to whatever remains, so the set is as full as the content allows.
-	while (Options.Num() < Settings.BoonOptionsPerSelection && !(Normal.IsEmpty() && Minor.IsEmpty() && Major.IsEmpty()))
-	{
-		const float Roll = FMath::FRand();
-		if (Roll < Settings.MajorChance && !Major.IsEmpty())
-		{
-			TakeFrom(Major, true);
-		}
-		else if (Roll < Settings.MajorChance + Settings.MinorChance && !Minor.IsEmpty())
-		{
-			TakeFrom(Minor, true);
-		}
-		else if (!Normal.IsEmpty())
-		{
-			TakeFrom(Normal, false);
-		}
-		else
-		{
-			TakeFrom(!Minor.IsEmpty() ? Minor : Major, true);
-		}
+		From.RemoveAtSwap(Pick);
 	}
 	return Options;
 }

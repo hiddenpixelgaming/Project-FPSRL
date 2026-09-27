@@ -109,8 +109,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
  *
  * Progression per channel: the first Blessing sets the channel's Aspect; later Blessings for the channel come only from
  * that Aspect, up to MaxBoonsPerChannel (11). An Aspect can be on only one channel (once Fire is on Primary it is never
- * offered for Secondary or Ability), and slots may stay empty. Minor and Major Blessings are a chance on each Blessing
- * choice (MinorChance / MajorChance, the Major only once the slot has MajorMinBlessings), each at most once per slot.
+ * offered for Secondary or Ability), and slots may stay empty. Every Blessing is a Minor or a Major; each Blessing choice
+ * is a Minor or a Major by weight (MinorWeight : MajorWeight, Minors commoner), Majors only once the slot has
+ * MajorMinBlessings.
  *
  * Server-authoritative: the server rolls this player's options, validates the pick, applies it through GAS and
  * replicates the result. Clients only request (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons).
