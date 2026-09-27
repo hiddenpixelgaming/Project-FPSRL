@@ -109,7 +109,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
  * One selection at a time, Blessing or Upgrade; every request carries the SelectionEventId, and the first valid
  * resolution wins, so double clicks and stale requests can't grant twice. Nobody waits for it and there is no timer.
  *
- *  Blessing altar: BeginSelection -> TrySelect / TryReroll (3 free, then Soul Fragments). Rerolls only replace the
+ *  Blessing altar: BeginSelection -> TrySelect / TryReroll (3 free per RUN, shared by every altar and refilled only when
+ *    the run ends; then Soul Fragments). Rerolls only replace the
  *    current options with a fresh set (avoiding the ones just shown when there are enough others); they never touch
  *    owned Blessings, Aspects or counts.
  *  Upgrade Altar: BeginUpgradeSelection -> TrySelectUpgrade. Offers up to UpgradeOptionsPerSelection of the
@@ -146,6 +147,7 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	int32 SelectionEventId = 0;
 
+	/** Free rerolls left THIS RUN (all altars share them); refilled only when the run ends (ClearRunState). */
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	int32 FreeRerollsRemaining = 0;
 

@@ -55,10 +55,11 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (Categories = "Ability"))
 	FGameplayTag DefaultAbilityItem;
 
+	/** Free rerolls per player per RUN (not per altar): once used they only come back when the run ends. */
 	UPROPERTY(Config, EditAnywhere, Category = "Rerolls", meta = (ClampMin = "0"))
-	int32 FreeRerollsPerSelection = 3;
+	int32 FreeRerollsPerRun = 3;
 
-	/** Soul Fragments (Talent Essence) per reroll once the free ones are used. */
+	/** Soul Fragments (Talent Essence) per reroll once the run's free ones are used. */
 	UPROPERTY(Config, EditAnywhere, Category = "Rerolls", meta = (ClampMin = "0"))
 	int32 RerollCost = 2;
 

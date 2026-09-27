@@ -60,6 +60,7 @@ UFPSRLBoonComponent::UFPSRLBoonComponent(const FObjectInitializer& ObjectInitial
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
+	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerRun;
 
 	Tracks.SetNum(FPSRLBoons::NumChannels);
 	for (int32 Index = 0; Index < FPSRLBoons::NumChannels; ++Index)
@@ -406,7 +407,6 @@ bool UFPSRLBoonComponent::BeginSelection()
 	}
 	++SelectionEventId;
 	PendingKind = EFPSRLBoonSelectionKind::Blessing;
-	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerSelection;
 	CurrentOptions = MoveTemp(Options);
 
 	LogOptions(TEXT("selection opened"));
@@ -529,7 +529,6 @@ void UFPSRLBoonComponent::EndSelection()
 	PendingKind = EFPSRLBoonSelectionKind::None;
 	CurrentOptions.Reset();
 	UpgradeOptions.Reset();
-	FreeRerollsRemaining = 0;
 }
 
 // --- Granting ----------------------------------------------------------------------------------------------------
@@ -673,6 +672,7 @@ void UFPSRLBoonComponent::ClearRunState()
 	}
 	PendingRestore.Reset();
 	EndSelection();
+	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerRun;	// the run is over: free rerolls come back
 	BroadcastChanged();
 }
 
@@ -683,6 +683,7 @@ void UFPSRLBoonComponent::CopyRunStateTo(UFPSRLBoonComponent* Other) const
 	if (Other)
 	{
 		Other->PendingRestore = PendingRestore.IsEmpty() ? Tracks : PendingRestore;
+		Other->FreeRerollsRemaining = FreeRerollsRemaining;	// free rerolls are per run, not per Depth
 	}
 }
 

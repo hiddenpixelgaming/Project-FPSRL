@@ -678,7 +678,7 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 
 		const int32 Cost = Boons->GetNextRerollCost();
 		const FText RerollLabel = Cost == 0
-			? FText::Format(NSLOCTEXT("FPSRL", "RerollFree", "Reroll ({0} free)"), Boons->FreeRerollsRemaining)
+			? FText::Format(NSLOCTEXT("FPSRL", "RerollFree", "Reroll ({0} free left this run)"), Boons->FreeRerollsRemaining)
 			: FText::Format(NSLOCTEXT("FPSRL", "RerollCost", "Reroll ({0} Soul Fragments, have {1})"), Cost, PS->TalentEssence);
 		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseBlessing", "CHOOSE A BLESSING"));
 		BoonSelectionWidget->SetReroll(true, RerollLabel, Cost == 0 || PS->TalentEssence >= Cost);

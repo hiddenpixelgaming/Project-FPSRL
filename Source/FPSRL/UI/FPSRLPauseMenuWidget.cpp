@@ -176,6 +176,7 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 	const FString Star = TEXT(" ★");
 
 	FString Text = TEXT("YOUR BUILD\n");
+	Text += FString::Printf(TEXT("Free rerolls left this run: %d / %d\n"), Boons->FreeRerollsRemaining, Settings.FreeRerollsPerRun);
 	for (const FFPSRLBoonTrack& Track : Boons->Tracks)
 	{
 		const FGameplayTag Item = Boons->GetChannelItem(Track.Channel);
