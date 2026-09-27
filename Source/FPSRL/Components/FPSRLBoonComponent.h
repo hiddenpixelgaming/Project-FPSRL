@@ -26,7 +26,7 @@ struct FFPSRLOwnedBoon
 	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
 	int32 Stacks = 0;
 
-	/** 0 = base; above 0 = improved at an Upgrade Altar (UI shows it in gold). */
+	/** 0 = base; each Upgrade Altar pick adds 1 (upgrades stack up to the Blessing's MaxUpgradeLevel; UI shows gold). */
 	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
 	int32 UpgradeLevel = 0;
 };
@@ -43,9 +43,6 @@ struct FFPSRLBoonTrack
 	/** Set by the channel's first Blessing; null until then. */
 	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
 	TObjectPtr<UFPSRLAspectDefinition> Aspect;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
-	int32 AspectUpgradeLevel = 0;
 
 	/** Blessings taken on this channel (every stack counts). Position of the next one = Count + 1. */
 	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
@@ -73,7 +70,7 @@ struct FFPSRLBoonOffer
 	bool bNewAspect = false;
 };
 
-/** One Upgrade Altar choice: a channel's Aspect (Boon null) or one owned Blessing on it. */
+/** One Upgrade Altar choice: an owned Blessing on a channel (Aspects are never upgraded). */
 USTRUCT(BlueprintType)
 struct FFPSRLUpgradeOffer
 {
@@ -113,9 +110,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
  * resolution wins, so double clicks and stale requests can't grant twice. Nobody waits for it and there is no timer.
  *
  *  Blessing altar: BeginSelection -> TrySelect / TryReroll (3 free, then Soul Fragments). Rerolls only replace the
- *    current options; they never touch owned Blessings, Aspects or counts.
+ *    current options with a fresh set (avoiding the ones just shown when there are enough others); they never touch
+ *    owned Blessings, Aspects or counts.
  *  Upgrade Altar: BeginUpgradeSelection -> TrySelectUpgrade. Offers up to UpgradeOptionsPerSelection of the
- *    player's upgradeable Aspects and Blessings (any channel). An upgrade never changes a count.
+ *    player's owned Blessings below their MaxUpgradeLevel (any channel; Aspects are never upgraded). Upgrades stack
+ *    (a Blessing can be upgraded again at a later altar) and never change a count.
  *
  * Depth travel: the tracks are handed to the next Depth's PlayerState (CopyRunStateTo) and re-granted there
  * (RestoreRunState). Run end: ClearRunState removes exactly what was granted and empties everything.
@@ -184,7 +183,7 @@ public:
 	/** Replaces the current options. Free while free rerolls remain, then costs Soul Fragments. */
 	bool TryReroll(int32 EventId);
 
-	/** Upgrade Altar used: offer upgradeable Aspects / Blessings. False if a selection is open or nothing qualifies. */
+	/** Upgrade Altar used: offer upgradeable owned Blessings. False if a selection is open or nothing qualifies. */
 	bool BeginUpgradeSelection();
 
 	bool TrySelectUpgrade(int32 EventId, int32 OptionIndex);
@@ -231,13 +230,15 @@ private:
 	bool IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel, bool bForReroll) const;
 
 	/** The Blessing pipeline: open channels -> Aspects -> valid pool -> milestones -> weighting -> unique picks. */
-	TArray<FFPSRLBoonOffer> GenerateOptions(bool bForReroll) const;
+	/** Avoid: offers to leave out if enough other choices exist (a reroll passes the set it replaces). */
+	TArray<FFPSRLBoonOffer> GenerateOptions(bool bForReroll, const TArray<FFPSRLBoonOffer>& Avoid = TArray<FFPSRLBoonOffer>()) const;
 	TArray<FFPSRLUpgradeOffer> GenerateUpgradeOptions() const;
 
 	void ApplyBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel);
 	void GiveAspect(EFPSRLBoonChannel Channel);
 	void GiveBoonStack(EFPSRLBoonChannel Channel, int32 OwnedIndex, bool bFirstStack);
-	void UpgradeAspect(EFPSRLBoonChannel Channel);
+	/** One stack's share of one upgrade level. */
+	void GiveBoonUpgrade(EFPSRLBoonChannel Channel, int32 OwnedIndex, bool bFirstStack);
 	void UpgradeBoon(EFPSRLBoonChannel Channel, int32 OwnedIndex);
 
 	void EndSelection();

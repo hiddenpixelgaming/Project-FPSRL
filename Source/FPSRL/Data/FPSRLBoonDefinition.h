@@ -23,7 +23,8 @@ class UTexture2D;
  *  - RequiredItemTags: the channel's equipped item must carry one of them (e.g. Weapon.Cannon, Secondary.Melee,
  *    a future Ability.*). Empty = any item. This is how "needs a projectile weapon" / "needs melee" is expressed.
  *  - BlockedTags, RequiredBoons (prerequisites on the same channel), RequiredChannelCount.
- * Stacking: MaxStacks (1 = one-time). Upgrading (Upgrade Altar): UpgradedGrants replace Grants, up to MaxUpgradeLevel.
+ * Stacking: MaxStacks (1 = one-time). Upgrading (Upgrade Altar): each upgrade level adds UpgradedGrants on top, so
+ * upgrades stack, up to MaxUpgradeLevel.
  */
 UCLASS(BlueprintType, Const)
 class FPSRL_API UFPSRLBoonDefinition : public UPrimaryDataAsset
@@ -38,7 +39,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|UI", meta = (MultiLine = "true"))
 	FText Description;
 
-	/** What the upgrade does, shown on the Upgrade Altar. */
+	/** What one upgrade does, shown on the Upgrade Altar (each level adds it again). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|UI", meta = (MultiLine = "true"))
 	FText UpgradeDescription;
 
@@ -96,16 +97,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Stacking", meta = (ClampMin = "1"))
 	int32 MaxStacks = 1;
 
-	/** Times the Upgrade Altar can improve it (0 = never offered). */
+	/** Times the Upgrade Altar can improve it; upgrades stack (0 = never offered). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Stacking", meta = (ClampMin = "0"))
-	int32 MaxUpgradeLevel = 1;
+	int32 MaxUpgradeLevel = 3;
 
 	// --- Effect ---
 	/** Applied once per stack (abilities, tags and cue only with the first). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
 	FFPSRLGrantSet Grants;
 
-	/** Replaces Grants once upgraded. Empty = the upgrade keeps Grants as they are. */
+	/** Added on top of Grants once per upgrade level (per stack; abilities, tags and cue only with the first). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
 	FFPSRLGrantSet UpgradedGrants;
 
@@ -113,12 +114,6 @@ public:
 
 	/** Can attach to this channel (its own list and its Aspect's). */
 	bool AllowsChannel(EFPSRLBoonChannel Channel) const;
-
-	/** Grants for a stack at an upgrade level. */
-	const FFPSRLGrantSet& GetGrants(int32 UpgradeLevel) const
-	{
-		return (UpgradeLevel > 0 && !FPSRLGrants::IsEmpty(UpgradedGrants)) ? UpgradedGrants : Grants;
-	}
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 };

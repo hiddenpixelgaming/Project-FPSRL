@@ -2,15 +2,11 @@
 
 #include "Data/FPSRLAspectDefinition.h"
 
-const FFPSRLGrantSet* UFPSRLAspectDefinition::GetGrants(EFPSRLBoonChannel Channel, int32 UpgradeLevel) const
+const FFPSRLGrantSet* UFPSRLAspectDefinition::GetGrants(EFPSRLBoonChannel Channel) const
 {
 	const FFPSRLAspectChannelGrants* Entry = ChannelGrants.FindByPredicate(
 		[Channel](const FFPSRLAspectChannelGrants& Candidate) { return Candidate.Channel == Channel; });
-	if (!Entry)
-	{
-		return nullptr;
-	}
-	return (UpgradeLevel > 0 && !FPSRLGrants::IsEmpty(Entry->UpgradedGrants)) ? &Entry->UpgradedGrants : &Entry->Grants;
+	return Entry ? &Entry->Grants : nullptr;
 }
 
 FPrimaryAssetId UFPSRLAspectDefinition::GetPrimaryAssetId() const

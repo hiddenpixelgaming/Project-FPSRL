@@ -629,23 +629,17 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 		{
 			const UFPSRLAspectDefinition* Aspect = Boons->GetTrack(Offer.Channel).Aspect;
 			const FText Channel = UFPSRLBoonComponent::GetChannelName(Offer.Channel);
+			const FFPSRLOwnedBoon* Owned = Boons->GetTrack(Offer.Channel).Boons.FindByPredicate(
+				[&Offer](const FFPSRLOwnedBoon& Entry) { return Entry.Boon == Offer.Boon; });
 			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
 			Choice.bGold = true;	// upgrades are shown in gold, like upgraded Blessings in the build summary
 			Choice.HeaderColor = Aspect ? Aspect->Color : FLinearColor::White;
-			if (!Offer.Boon)
-			{
-				Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "AspectUpgradeHeader", "{0}{1}ASPECT UPGRADE"), Channel, Dot);
-				Choice.Name = FText::Format(NSLOCTEXT("FPSRL", "AspectUpgradeName", "{0} Aspect"), AspectName(Aspect));
-				Choice.Description = Aspect && !Aspect->UpgradeDescription.IsEmpty() ? Aspect->UpgradeDescription
-					: FText::Format(NSLOCTEXT("FPSRL", "AspectUpgradeDefault", "Strengthens the {0} Aspect on your {1}."), AspectName(Aspect), Channel);
-			}
-			else
-			{
-				Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "BlessingUpgradeHeader", "{0}{1}{2}{1}BLESSING UPGRADE"), Channel, Dot, AspectName(Aspect));
-				Choice.Name = BoonName(Offer.Boon);
-				Choice.Description = !Offer.Boon->UpgradeDescription.IsEmpty() ? Offer.Boon->UpgradeDescription
-					: NSLOCTEXT("FPSRL", "BlessingUpgradeDefault", "Upgraded: a stronger version of this Blessing.");
-			}
+			// Upgrades stack, so show the level this pick would reach.
+			Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "BlessingUpgradeHeader", "{0}{1}{2}{1}UPGRADE {3}/{4}"), Channel, Dot, AspectName(Aspect),
+				(Owned ? Owned->UpgradeLevel : 0) + 1, Offer.Boon ? Offer.Boon->MaxUpgradeLevel : 0);
+			Choice.Name = BoonName(Offer.Boon);
+			Choice.Description = Offer.Boon && !Offer.Boon->UpgradeDescription.IsEmpty() ? Offer.Boon->UpgradeDescription
+				: NSLOCTEXT("FPSRL", "BlessingUpgradeDefault", "Upgraded: a stronger version of this Blessing.");
 		}
 		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseUpgrade", "UPGRADE A BLESSING"));
 		BoonSelectionWidget->SetReroll(false, FText::GetEmpty(), false);

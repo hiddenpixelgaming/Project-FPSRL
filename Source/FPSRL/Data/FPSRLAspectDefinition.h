@@ -11,7 +11,7 @@
 
 class UTexture2D;
 
-/** What having this Aspect on one channel gives the player, before and after an Upgrade Altar improves it. */
+/** What having this Aspect on one channel gives the player. */
 USTRUCT(BlueprintType)
 struct FPSRL_API FFPSRLAspectChannelGrants
 {
@@ -23,10 +23,6 @@ struct FPSRL_API FFPSRLAspectChannelGrants
 	/** The Aspect's own mechanic on this channel, granted with the channel's first Blessing. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aspect")
 	FFPSRLGrantSet Grants;
-
-	/** Replaces Grants once the Aspect is upgraded. Empty = the upgrade keeps Grants as they are. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aspect")
-	FFPSRLGrantSet UpgradedGrants;
 };
 
 /**
@@ -34,7 +30,7 @@ struct FPSRL_API FFPSRLAspectChannelGrants
  * (Primary Asset "Aspect"); Blessings name their Aspect (UFPSRLBoonDefinition::Aspect).
  *
  * A player's channels (Primary / Secondary / Ability) each hold at most one Aspect, set by the channel's first
- * Blessing, with its own count, milestones and upgrade level (see UFPSRLBoonComponent). An Aspect can be on only one
+ * Blessing, with its own count and milestones (see UFPSRLBoonComponent). An Aspect can be on only one
  * of a player's channels at a time.
  */
 UCLASS(BlueprintType, Const)
@@ -48,10 +44,6 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI", meta = (MultiLine = "true"))
 	FText Description;
-
-	/** Shown on the Upgrade Altar for this Aspect. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI", meta = (MultiLine = "true"))
-	FText UpgradeDescription;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI")
 	FLinearColor Color = FLinearColor::White;
@@ -75,14 +67,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect")
 	TArray<FFPSRLAspectChannelGrants> ChannelGrants;
 
-	/** Times the Upgrade Altar can improve this Aspect on one channel (0 = never offered). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect", meta = (ClampMin = "0"))
-	int32 MaxUpgradeLevel = 1;
-
 	bool AllowsChannel(EFPSRLBoonChannel Channel) const { return AllowedChannels.IsEmpty() || AllowedChannels.Contains(Channel); }
 
-	/** The grants for a channel at an upgrade level (level > 0 uses UpgradedGrants when they're set). */
-	const FFPSRLGrantSet* GetGrants(EFPSRLBoonChannel Channel, int32 UpgradeLevel) const;
+	/** The grants for a channel (null if the Aspect gives that channel nothing of its own). Aspects are never upgraded;
+	 *  the Upgrade Altar only improves Blessings. */
+	const FFPSRLGrantSet* GetGrants(EFPSRLBoonChannel Channel) const;
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 };

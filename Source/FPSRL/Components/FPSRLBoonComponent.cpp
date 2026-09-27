@@ -222,7 +222,7 @@ bool UFPSRLBoonComponent::IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoo
 
 // --- Offer generation --------------------------------------------------------------------------------------------
 
-TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll) const
+TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll, const TArray<FFPSRLBoonOffer>& Avoid) const
 {
 	struct FCandidate
 	{
@@ -297,6 +297,29 @@ TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll) co
 	}
 
 	const int32 Count = Settings.BoonOptionsPerSelection;
+
+	// A reroll should look like a new set: leave out what was just shown (the same Blessing on the same channel, or the
+	// same new Aspect for the same empty channel), as long as enough other choices remain. Milestones always stay.
+	if (!Avoid.IsEmpty())
+	{
+		auto WasShown = [&Avoid](const FCandidate& Candidate)
+		{
+			return Avoid.ContainsByPredicate([&Candidate](const FFPSRLBoonOffer& Shown)
+			{
+				return Shown.Channel == Candidate.Channel && (Shown.Boon == Candidate.Boon
+					|| (Shown.bNewAspect && Candidate.bNewAspect && Shown.Boon && Shown.Boon->Aspect == Candidate.Boon->Aspect));
+			});
+		};
+		int32 Fresh = 0;
+		for (const FCandidate& Candidate : Candidates)
+		{
+			Fresh += (Candidate.bMilestone || !WasShown(Candidate)) ? 1 : 0;
+		}
+		if (Fresh >= Count)
+		{
+			Candidates.RemoveAll([&WasShown](const FCandidate& Candidate) { return !Candidate.bMilestone && WasShown(Candidate); });
+		}
+	}
 	auto Take = [&Options, &Candidates](int32 Index)
 	{
 		const FCandidate Chosen = Candidates[Index];
@@ -353,10 +376,6 @@ TArray<FFPSRLUpgradeOffer> UFPSRLBoonComponent::GenerateUpgradeOptions() const
 	TArray<FFPSRLUpgradeOffer> Pool;
 	for (const FFPSRLBoonTrack& Track : Tracks)
 	{
-		if (Track.Aspect && Track.AspectUpgradeLevel < Track.Aspect->MaxUpgradeLevel)
-		{
-			Pool.Add({ Track.Channel, nullptr });
-		}
 		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
 		{
 			if (Owned.Boon && Owned.UpgradeLevel < Owned.Boon->MaxUpgradeLevel)
@@ -425,7 +444,7 @@ bool UFPSRLBoonComponent::TryReroll(int32 EventId)
 		return false;
 	}
 
-	TArray<FFPSRLBoonOffer> NewOptions = GenerateOptions(true);
+	TArray<FFPSRLBoonOffer> NewOptions = GenerateOptions(true, CurrentOptions);
 	if (NewOptions.IsEmpty())
 	{
 		return false;	// nothing else to offer; keep the current set and charge nothing
@@ -476,29 +495,16 @@ bool UFPSRLBoonComponent::TrySelectUpgrade(int32 EventId, int32 OptionIndex)
 	}
 	const FFPSRLUpgradeOffer Offer = UpgradeOptions[OptionIndex];
 	const FFPSRLBoonTrack& Track = GetTrack(Offer.Channel);
-
-	if (!Offer.Boon)
+	const int32 OwnedIndex = Offer.Boon ? Track.Boons.IndexOfByPredicate([&Offer](const FFPSRLOwnedBoon& Owned) { return Owned.Boon == Offer.Boon; }) : INDEX_NONE;
+	if (OwnedIndex == INDEX_NONE || Track.Boons[OwnedIndex].UpgradeLevel >= Offer.Boon->MaxUpgradeLevel)
 	{
-		if (!Track.Aspect || Track.AspectUpgradeLevel >= Track.Aspect->MaxUpgradeLevel)
-		{
-			return false;
-		}
-		EndSelection();
-		UpgradeAspect(Offer.Channel);
-	}
-	else
-	{
-		const int32 OwnedIndex = Track.Boons.IndexOfByPredicate([&Offer](const FFPSRLOwnedBoon& Owned) { return Owned.Boon == Offer.Boon; });
-		if (OwnedIndex == INDEX_NONE || Track.Boons[OwnedIndex].UpgradeLevel >= Offer.Boon->MaxUpgradeLevel)
-		{
-			return false;
-		}
-		EndSelection();
-		UpgradeBoon(Offer.Channel, OwnedIndex);
+		return false;	// not owned any more, or already at its maximum
 	}
 
-	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s upgraded %s on %s (event %d)"), *GetNameSafe(GetOwner()),
-		Offer.Boon ? *GetNameSafe(Offer.Boon) : *GetNameSafe(Track.Aspect), *GetChannelName(Offer.Channel).ToString(), EventId);
+	EndSelection();
+	UpgradeBoon(Offer.Channel, OwnedIndex);
+	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s upgraded %s on %s to level %d/%d (event %d)"), *GetNameSafe(GetOwner()), *GetNameSafe(Offer.Boon),
+		*GetChannelName(Offer.Channel).ToString(), Track.Boons[OwnedIndex].UpgradeLevel, Offer.Boon->MaxUpgradeLevel, EventId);
 	BroadcastChanged();
 	return true;
 }
@@ -513,8 +519,7 @@ void UFPSRLBoonComponent::LogOptions(const TCHAR* What) const
 	}
 	for (const FFPSRLUpgradeOffer& Offer : UpgradeOptions)
 	{
-		Parts.Add(FString::Printf(TEXT("%s %s"), *GetChannelName(Offer.Channel).ToString(),
-			Offer.Boon ? *GetNameSafe(Offer.Boon) : *FString::Printf(TEXT("%s Aspect"), *GetNameSafe(GetTrack(Offer.Channel).Aspect))));
+		Parts.Add(FString::Printf(TEXT("%s %s"), *GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Offer.Boon)));
 	}
 	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: %s (event %d): %s"), *GetNameSafe(GetOwner()), What, SelectionEventId, *FString::Join(Parts, TEXT(" | ")));
 }
@@ -571,7 +576,7 @@ void UFPSRLBoonComponent::GiveAspect(EFPSRLBoonChannel Channel)
 		return;
 	}
 	FFPSRLGrantSet ToGrant;
-	if (const FFPSRLGrantSet* Grants = Track.Aspect->GetGrants(Channel, Track.AspectUpgradeLevel))
+	if (const FFPSRLGrantSet* Grants = Track.Aspect->GetGrants(Channel))
 	{
 		ToGrant = *Grants;
 	}
@@ -591,7 +596,32 @@ void UFPSRLBoonComponent::GiveBoonStack(EFPSRLBoonChannel Channel, int32 OwnedIn
 		return;
 	}
 	// First stack: effects, abilities, tags, cue. Extra stacks re-apply only the effects (numeric stacking).
-	FFPSRLGrantSet ToGrant = Owned.Boon->GetGrants(Owned.UpgradeLevel);
+	FFPSRLGrantSet ToGrant = Owned.Boon->Grants;
+	if (!bFirstStack)
+	{
+		ToGrant.Abilities.Reset();
+		ToGrant.GrantedTags.Reset();
+		ToGrant.GrantCue = FGameplayTag();
+	}
+	Handles[static_cast<int32>(Channel)].Boons[OwnedIndex].Add(
+		FPSRLGrants::Give(ToGrant, ASC, Owned.Boon, FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run)));
+
+	// A stack taken (or restored) after upgrades gets them too.
+	for (int32 Level = 0; Level < Owned.UpgradeLevel; ++Level)
+	{
+		GiveBoonUpgrade(Channel, OwnedIndex, bFirstStack);
+	}
+}
+
+void UFPSRLBoonComponent::GiveBoonUpgrade(EFPSRLBoonChannel Channel, int32 OwnedIndex, bool bFirstStack)
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystem();
+	const FFPSRLOwnedBoon& Owned = GetTrack(Channel).Boons[OwnedIndex];
+	if (!ASC || !Owned.Boon || FPSRLGrants::IsEmpty(Owned.Boon->UpgradedGrants))
+	{
+		return;
+	}
+	FFPSRLGrantSet ToGrant = Owned.Boon->UpgradedGrants;
 	if (!bFirstStack)
 	{
 		ToGrant.Abilities.Reset();
@@ -602,29 +632,15 @@ void UFPSRLBoonComponent::GiveBoonStack(EFPSRLBoonChannel Channel, int32 OwnedIn
 		FPSRLGrants::Give(ToGrant, ASC, Owned.Boon, FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run)));
 }
 
-void UFPSRLBoonComponent::UpgradeAspect(EFPSRLBoonChannel Channel)
-{
-	FPSRLGrants::Take(Handles[static_cast<int32>(Channel)].Aspect, GetAbilitySystem());
-	++GetMutableTrack(Channel).AspectUpgradeLevel;
-	GiveAspect(Channel);
-}
-
 void UFPSRLBoonComponent::UpgradeBoon(EFPSRLBoonChannel Channel, int32 OwnedIndex)
 {
-	// Swap every stack's grants for the upgraded ones. The channel's count is untouched.
-	UAbilitySystemComponent* ASC = GetAbilitySystem();
-	TArray<FFPSRLGrantHandles>& StackHandles = Handles[static_cast<int32>(Channel)].Boons[OwnedIndex];
-	for (FFPSRLGrantHandles& Stack : StackHandles)
-	{
-		FPSRLGrants::Take(Stack, ASC);
-	}
-	StackHandles.Reset();
-
+	// Upgrades stack: each level adds UpgradedGrants on top of everything already granted, once per stack.
+	// The channel's count is untouched.
 	FFPSRLOwnedBoon& Owned = GetMutableTrack(Channel).Boons[OwnedIndex];
 	++Owned.UpgradeLevel;
 	for (int32 Stack = 0; Stack < Owned.Stacks; ++Stack)
 	{
-		GiveBoonStack(Channel, OwnedIndex, Stack == 0);
+		GiveBoonUpgrade(Channel, OwnedIndex, Stack == 0);
 	}
 }
 

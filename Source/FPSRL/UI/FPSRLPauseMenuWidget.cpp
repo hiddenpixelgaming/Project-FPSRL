@@ -169,7 +169,7 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 		return;
 	}
 
-	// Placeholder text layout (a star marks upgraded Aspects and Blessings); the UI pass will replace it.
+	// Placeholder text layout (one star per upgrade level on a Blessing); the UI pass will replace it.
 	auto NameOf = [](const FText& DisplayName, const UObject* Asset) { return DisplayName.IsEmpty() ? GetNameSafe(Asset) : DisplayName.ToString(); };
 	const UFPSRLBoonComponent* Boons = PS->GetBoonComponent();
 	const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
@@ -191,8 +191,8 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 			}
 			continue;
 		}
-		Text += FString::Printf(TEXT("   %s Aspect%s  -  %d / %d Blessings\n"), *NameOf(Track.Aspect->DisplayName, Track.Aspect),
-			Track.AspectUpgradeLevel > 0 ? *Star : TEXT(""), Track.Count, Settings.MaxBoonsPerChannel);
+		Text += FString::Printf(TEXT("   %s Aspect  -  %d / %d Blessings\n"), *NameOf(Track.Aspect->DisplayName, Track.Aspect),
+			Track.Count, Settings.MaxBoonsPerChannel);
 		if (Track.Count < Settings.MaxBoonsPerChannel)
 		{
 			// Makes the milestones visible: position 3 is always the Minor, 6 the Major.
@@ -209,8 +209,13 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 			const TCHAR* Kind = Owned.Boon->BoonType == EFPSRLBoonType::Minor ? TEXT("MINOR: ")
 				: Owned.Boon->BoonType == EFPSRLBoonType::Major ? TEXT("MAJOR: ") : TEXT("");
 			const FString Stacks = Owned.Stacks > 1 ? FString::Printf(TEXT(" x%d"), Owned.Stacks) : FString();
-			Text += FString::Printf(TEXT("   - %s%s%s%s\n"), Kind, *NameOf(Owned.Boon->DisplayName, Owned.Boon), *Stacks,
-				Owned.UpgradeLevel > 0 ? *Star : TEXT(""));
+			// Upgrades stack: one star per upgrade level.
+			FString Upgrades;
+			for (int32 Level = 0; Level < Owned.UpgradeLevel; ++Level)
+			{
+				Upgrades += Level == 0 ? Star : Star.TrimStart();
+			}
+			Text += FString::Printf(TEXT("   - %s%s%s%s\n"), Kind, *NameOf(Owned.Boon->DisplayName, Owned.Boon), *Stacks, *Upgrades);
 		}
 	}
 
