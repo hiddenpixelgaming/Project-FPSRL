@@ -74,8 +74,10 @@ void UFPSRLSelectionWidget::BuildDefaultLayout()
 	{
 		UButton* Button = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), *FString::Printf(TEXT("Choice%d"), Index));
 		UVerticalBox* Content = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass());
+		UTextBlock* Header = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceHeader%d"), Index), 13, FLinearColor::Black);
 		UTextBlock* Name = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceName%d"), Index), 22, FLinearColor::Black);
 		UTextBlock* Desc = MakeText(WidgetTree, *FString::Printf(TEXT("ChoiceDesc%d"), Index), 14, FLinearColor(0.15f, 0.15f, 0.15f));
+		Content->AddChildToVerticalBox(Header);
 		Content->AddChildToVerticalBox(Name);
 		Content->AddChildToVerticalBox(Desc);
 		Button->SetContent(Content);
@@ -107,6 +109,7 @@ void UFPSRLSelectionWidget::BindChoiceWidgets()
 	static const FName HandlerNames[MaxChoices] = { TEXT("HandleChoice0"), TEXT("HandleChoice1"), TEXT("HandleChoice2"), TEXT("HandleChoice3"), TEXT("HandleChoice4") };
 
 	ChoiceButtons.Reset();
+	ChoiceHeaders.Reset();
 	ChoiceNames.Reset();
 	ChoiceDescriptions.Reset();
 	for (int32 Index = 0; Index < MaxChoices; ++Index)
@@ -119,6 +122,7 @@ void UFPSRLSelectionWidget::BindChoiceWidgets()
 			Button->OnClicked.AddUnique(Delegate);
 		}
 		ChoiceButtons.Add(Button);
+		ChoiceHeaders.Add(Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ChoiceHeader%d"), Index))));
 		ChoiceNames.Add(Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ChoiceName%d"), Index))));
 		ChoiceDescriptions.Add(Cast<UTextBlock>(GetWidgetFromName(*FString::Printf(TEXT("ChoiceDesc%d"), Index))));
 	}
@@ -132,22 +136,31 @@ void UFPSRLSelectionWidget::SetTitle(const FText& InTitle)
 	}
 }
 
-void UFPSRLSelectionWidget::SetChoices(const TArray<FText>& Names, const TArray<FText>& Descriptions)
+void UFPSRLSelectionWidget::SetChoices(const TArray<FChoice>& Choices)
 {
+	static const FLinearColor Gold(1.f, 0.78f, 0.2f);
 	for (int32 Index = 0; Index < MaxChoices; ++Index)
 	{
-		const bool bUsed = Names.IsValidIndex(Index);
+		const FChoice* Choice = Choices.IsValidIndex(Index) ? &Choices[Index] : nullptr;
 		if (UButton* Button = ChoiceButtons.IsValidIndex(Index) ? ChoiceButtons[Index].Get() : nullptr)
 		{
-			Button->SetVisibility(bUsed ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+			Button->SetVisibility(Choice ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+			Button->SetBackgroundColor(Choice && Choice->bGold ? Gold : FLinearColor::White);
+		}
+		if (UTextBlock* Header = ChoiceHeaders.IsValidIndex(Index) ? ChoiceHeaders[Index].Get() : nullptr)
+		{
+			Header->SetText(Choice ? Choice->Header : FText::GetEmpty());
+			// Darkened Aspect colour, so light colours stay readable on the light button.
+			const FLinearColor Color = Choice ? Choice->HeaderColor * 0.55f : FLinearColor::Black;
+			Header->SetColorAndOpacity(FSlateColor(FLinearColor(Color.R, Color.G, Color.B, 1.f)));
 		}
 		if (UTextBlock* Name = ChoiceNames.IsValidIndex(Index) ? ChoiceNames[Index].Get() : nullptr)
 		{
-			Name->SetText(bUsed ? Names[Index] : FText::GetEmpty());
+			Name->SetText(Choice ? Choice->Name : FText::GetEmpty());
 		}
 		if (UTextBlock* Desc = ChoiceDescriptions.IsValidIndex(Index) ? ChoiceDescriptions[Index].Get() : nullptr)
 		{
-			Desc->SetText(Descriptions.IsValidIndex(Index) ? Descriptions[Index] : FText::GetEmpty());
+			Desc->SetText(Choice ? Choice->Description : FText::GetEmpty());
 		}
 	}
 }

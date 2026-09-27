@@ -25,7 +25,7 @@ struct FFPSRLGrantedAbility
 };
 
 /**
- * What a boon or aspect gives a player through GAS while it is owned. Nothing here is a parallel stat system:
+ * What a blessing, aspect or relic gives a player through GAS while it is owned. Nothing here is a parallel stat system:
  * stat changes are Gameplay Effect assets (e.g. GE_Boon_RapidTrigger modifying CombatSet.FireRateMultiplier),
  * behavior is Gameplay Abilities, and identity is Gameplay Tags.
  */
@@ -42,7 +42,7 @@ struct FPSRL_API FFPSRLGrantSet
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grant")
 	TArray<FFPSRLGrantedAbility> Abilities;
 
-	/** Tags the owner carries while this is owned (replicated), e.g. Aspect.Gunslinger, Build.RapidFire. */
+	/** Tags the owner carries while this is owned (replicated), e.g. Aspect.Fire, Build.RapidFire. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grant")
 	FGameplayTagContainer GrantedTags;
 
@@ -74,4 +74,7 @@ namespace FPSRLGrants
 
 	/** Server-only. Removes exactly what Give added. Handles are reset. */
 	FPSRL_API void Take(FFPSRLGrantHandles& Handles, UAbilitySystemComponent* ASC);
+
+	/** Nothing to give (no effects, abilities, tags or cue). */
+	FPSRL_API bool IsEmpty(const FFPSRLGrantSet& Set);
 }

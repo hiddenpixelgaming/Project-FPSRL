@@ -6,17 +6,36 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 #include "Data/FPSRLGrantSet.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLAspectDefinition.generated.h"
 
 class UTexture2D;
 
+/** What having this Aspect on one channel gives the player, before and after an Upgrade Altar improves it. */
+USTRUCT(BlueprintType)
+struct FPSRL_API FFPSRLAspectChannelGrants
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aspect")
+	EFPSRLBoonChannel Channel = EFPSRLBoonChannel::Primary;
+
+	/** The Aspect's own mechanic on this channel, granted with the channel's first Blessing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aspect")
+	FFPSRLGrantSet Grants;
+
+	/** Replaces Grants once the Aspect is upgraded. Empty = the upgrade keeps Grants as they are. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aspect")
+	FFPSRLGrantSet UpgradedGrants;
+};
+
 /**
- * An Aspect: the player's primary build identity for a run (e.g. Pistol -> Gunslinger). Chosen once, in the Lobby,
- * right after the weapon; locked for the whole run; cleared at run end. NOT rarity-based and not tied 1:1 to a
- * weapon (a weapon offers several aspects). Primary Asset type "Aspect".
+ * An Aspect: a Blessing family (Air, Fire, Water, Earth, Light, Dark). Pure data, one asset per Aspect
+ * (Primary Asset "Aspect"); Blessings name their Aspect (UFPSRLBoonDefinition::Aspect).
  *
- * While active it grants AspectTag + Grants (effects, abilities, tags such as Build.RapidFire) through GAS, and it
- * shapes the boon pool: boons can require its tags (RequiredAspectTags) and it can exclude boons (RestrictedBoonTags).
+ * A player's channels (Primary / Secondary / Ability) each hold at most one Aspect, set by the channel's first
+ * Blessing. The same Aspect may sit on several channels; each one is a separate progression with its own count,
+ * milestones and upgrade level (see UFPSRLBoonComponent).
  */
 UCLASS(BlueprintType, Const)
 class FPSRL_API UFPSRLAspectDefinition : public UPrimaryDataAsset
@@ -30,50 +49,40 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI", meta = (MultiLine = "true"))
 	FText Description;
 
+	/** Shown on the Upgrade Altar for this Aspect. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI", meta = (MultiLine = "true"))
+	FText UpgradeDescription;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI")
+	FLinearColor Color = FLinearColor::White;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect|UI")
 	TSoftObjectPtr<UTexture2D> Icon;
 
-	/** Weapon this aspect is offered for. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect", meta = (Categories = "Weapon"))
-	FGameplayTag AssociatedWeapon;
-
-	/** Extra weapon tags the player must have (usually empty; AssociatedWeapon already gates it). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect", meta = (Categories = "Weapon"))
-	FGameplayTagContainer RequiredWeaponTags;
-
-	/** Identity tag granted while active, e.g. Aspect.Gunslinger. */
+	/** Identity tag, granted while a channel holds this Aspect (Aspect.Fire, ...). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect", meta = (Categories = "Aspect"))
 	FGameplayTag AspectTag;
 
-	/** Elements this aspect is designed around (informational for now; for future synergy). */
+	/** The element this Aspect's damage and statuses belong to. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect", meta = (Categories = "Element"))
-	FGameplayTagContainer ElementCompatibility;
+	FGameplayTag ElementTag;
 
-	/** Boon tags that suit this aspect (stored for future offer biasing; no weighting rule defined yet). */
+	/** Channels this Aspect can be taken on. Empty = all. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect")
-	FGameplayTagContainer CompatibleBoonTags;
+	TArray<EFPSRLBoonChannel> AllowedChannels;
 
-	/** Boons carrying any of these BoonTags are never offered to a player with this aspect. */
+	/** Per-channel mechanic (a channel without an entry simply gets nothing from the Aspect itself). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect")
-	FGameplayTagContainer RestrictedBoonTags;
+	TArray<FFPSRLAspectChannelGrants> ChannelGrants;
 
-	/** Starting effects, abilities, extra tags and grant cue. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect")
-	FFPSRLGrantSet Grants;
+	/** Times the Upgrade Altar can improve this Aspect on one channel (0 = never offered). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspect", meta = (ClampMin = "0"))
+	int32 MaxUpgradeLevel = 1;
 
-	/** True if this aspect can be offered to a player holding WeaponTag. */
-	bool IsCompatibleWithWeapon(const FGameplayTag& WeaponTag) const;
+	bool AllowsChannel(EFPSRLBoonChannel Channel) const { return AllowedChannels.IsEmpty() || AllowedChannels.Contains(Channel); }
+
+	/** The grants for a channel at an upgrade level (level > 0 uses UpgradedGrants when they're set). */
+	const FFPSRLGrantSet* GetGrants(EFPSRLBoonChannel Channel, int32 UpgradeLevel) const;
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
-};
-
-/** The aspects that can be offered. Set in Project Settings > FPSRL Boons. */
-UCLASS(BlueprintType, Const)
-class FPSRL_API UFPSRLAspectPool : public UDataAsset
-{
-	GENERATED_BODY()
-
-public:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Aspects")
-	TArray<TObjectPtr<UFPSRLAspectDefinition>> Aspects;
 };

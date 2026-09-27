@@ -9,7 +9,7 @@
 #include "OnlineSubsystemUtils.h"
 #include "UI/FPSRLPauseMenuWidget.h"
 #include "UI/FPSRLSelectionWidget.h"
-#include "Components/FPSRLAspectComponent.h"
+#include "Components/FPSRLRelicComponent.h"
 #include "Components/FPSRLBoonComponent.h"
 #include "Core/FPSRLGameState.h"
 #include "Core/FPSRLPlayerState.h"
@@ -27,6 +27,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Data/FPSRLAspectDefinition.h"
+#include "Data/FPSRLRelicDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
 #include "Data/FPSRLBoonSettings.h"
 #include "GameFramework/GameStateBase.h"
@@ -86,21 +87,6 @@ void AFPSRLPlayerController::ServerSelectWeapon_Implementation(FGameplayTag Weap
 	{
 		PS->SetSelectedWeapon(WeaponTag);
 		EquipSelectedWeapon(GetPawn());
-
-		// Lobby flow: Choose Weapon -> Choose Aspect. A new weapon gets its own aspect choices.
-		if (IsInLobby())
-		{
-			PS->GetAspectComponent()->OfferAspects(WeaponTag);
-		}
-	}
-}
-
-void AFPSRLPlayerController::ServerSelectAspect_Implementation(int32 EventId, int32 OptionIndex)
-{
-	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
-	if (PS && IsInLobby())
-	{
-		PS->GetAspectComponent()->TrySelectAspect(EventId, OptionIndex, PS->SelectedWeapon);
 	}
 }
 
@@ -120,6 +106,14 @@ void AFPSRLPlayerController::ServerRerollBoons_Implementation(int32 EventId)
 	}
 }
 
+void AFPSRLPlayerController::ServerSelectUpgrade_Implementation(int32 EventId, int32 OptionIndex)
+{
+	if (AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
+	{
+		PS->GetBoonComponent()->TrySelectUpgrade(EventId, OptionIndex);
+	}
+}
+
 void AFPSRLPlayerController::ServerReportTalentEssence_Implementation(int32 Amount)
 {
 	if (AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
@@ -133,34 +127,102 @@ void AFPSRLPlayerController::ClientPersistentCurrencyChanged_Implementation(int3
 	WriteLocalTalentEssence(NewAmount);
 }
 
-void AFPSRLPlayerController::FPSRLGiveBoon(const FString& BoonAssetPath)
+// --- Test commands (development builds) --------------------------------------------------------------------------
+
+void AFPSRLPlayerController::FPSRLGiveBoon(const FString& BoonAsset, const FString& Channel)
 {
-#if !UE_BUILD_SHIPPING
-	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
-	UFPSRLBoonDefinition* Boon = LoadObject<UFPSRLBoonDefinition>(nullptr, *BoonAssetPath);
-	if (!PS || !PS->HasAuthority() || !Boon || !PS->GetBoonComponent()->GrantBoon(Boon))
-	{
-		UE_LOG(LogFPSRL, Warning, TEXT("FPSRLGiveBoon failed (host only; valid boon path; slots/stacks available): %s"), *BoonAssetPath);
-	}
-#endif
+	ServerTestCommand(TEXT("GiveBoon"), BoonAsset, Channel);
 }
 
 void AFPSRLPlayerController::FPSRLOfferBoon()
 {
+	bBoonSelectionOpen = true;	// show the choice as soon as it replicates
+	ServerTestCommand(TEXT("OfferBoon"), FString(), FString());
+}
+
+void AFPSRLPlayerController::FPSRLOfferUpgrade()
+{
+	bBoonSelectionOpen = true;
+	ServerTestCommand(TEXT("OfferUpgrade"), FString(), FString());
+}
+
+void AFPSRLPlayerController::FPSRLGiveRelic(const FString& RelicAsset)
+{
+	ServerTestCommand(TEXT("GiveRelic"), RelicAsset, FString());
+}
+
+void AFPSRLPlayerController::FPSRLPick(int32 OptionIndex)
+{
+	HandleBoonChoice(OptionIndex);	// same request the screen sends
+}
+
+namespace
+{
+	/** A pool entry by asset name (DA_Boon_X), or any asset by full path. */
+	template <typename T>
+	T* FindTestAsset(const FString& NameOrPath, const TArray<TObjectPtr<T>>* Pool)
+	{
+		if (NameOrPath.Contains(TEXT("/")))
+		{
+			return LoadObject<T>(nullptr, *NameOrPath);
+		}
+		if (Pool)
+		{
+			for (T* Asset : *Pool)
+			{
+				if (Asset && Asset->GetName().Equals(NameOrPath, ESearchCase::IgnoreCase))
+				{
+					return Asset;
+				}
+			}
+		}
+		return nullptr;
+	}
+}
+
+void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, const FString& Arg1, const FString& Arg2)
+{
 #if !UE_BUILD_SHIPPING
 	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
-	if (PS && HasAuthority() && IsLocalController())
+	if (!PS)
 	{
-		bBoonSelectionOpen = true;
-		if (!PS->GetBoonComponent()->BeginSelection())
+		return;
+	}
+	UFPSRLBoonComponent* Boons = PS->GetBoonComponent();
+	bool bDone = false;
+	if (Command == TEXT("GiveBoon"))
+	{
+		const UFPSRLBoonPool* Pool = UFPSRLBoonSettings::Get().BoonPool.LoadSynchronous();
+		UFPSRLBoonDefinition* Boon = FindTestAsset<UFPSRLBoonDefinition>(Arg1, Pool ? &Pool->Boons : nullptr);
+		const int64 ChannelValue = StaticEnum<EFPSRLBoonChannel>()->GetValueByNameString(Arg2.IsEmpty() ? TEXT("Primary") : Arg2);
+		bDone = Boon && ChannelValue != INDEX_NONE && Boons->GrantBoon(Boon, static_cast<EFPSRLBoonChannel>(ChannelValue));
+	}
+	else if (Command == TEXT("OfferBoon"))
+	{
+		bDone = Boons->BeginSelection();
+	}
+	else if (Command == TEXT("OfferUpgrade"))
+	{
+		bDone = Boons->BeginUpgradeSelection();
+	}
+	else if (Command == TEXT("GiveRelic"))
+	{
+		UFPSRLRelicComponent* Relics = PS->GetRelicComponent();
+		if (Arg1.IsEmpty())
 		{
-			bBoonSelectionOpen = false;
-			UE_LOG(LogFPSRL, Warning, TEXT("FPSRLOfferBoon: a choice is already open, or nothing is eligible"));
+			bDone = Relics->GrantRandomRelic() != nullptr;
+		}
+		else
+		{
+			const UFPSRLRelicPool* Pool = UFPSRLBoonSettings::Get().RelicPool.LoadSynchronous();
+			bDone = Relics->GrantRelic(FindTestAsset<UFPSRLRelicDefinition>(Arg1, Pool ? &Pool->Relics : nullptr));
 		}
 	}
-	else
+	UE_LOG(LogFPSRL, Log, TEXT("[Test] %s %s %s for %s: %s"), *Command.ToString(), *Arg1, *Arg2, *PS->GetPlayerName(),
+		bDone ? TEXT("done") : TEXT("refused (unknown asset, not eligible, a choice already open, or nothing to offer)"));
+	if (!bDone)
 	{
-		UE_LOG(LogFPSRL, Warning, TEXT("FPSRLOfferBoon: host only"));
+		ClientBoonAltarRejected();
 	}
 #endif
 }
@@ -308,8 +370,7 @@ void AFPSRLPlayerController::ServerReturnToLobbyAfterDeath_Implementation()
 
 bool AFPSRLPlayerController::IsAnyModalOpen() const
 {
-	return (AspectSelectionWidget && AspectSelectionWidget->IsInViewport())
-		|| (BoonSelectionWidget && BoonSelectionWidget->IsInViewport())
+	return (BoonSelectionWidget && BoonSelectionWidget->IsInViewport())
 		|| (PortalMenu && PortalMenu->IsInViewport())
 		|| (DeathMenu && DeathMenu->IsInViewport());
 }
@@ -481,8 +542,8 @@ void AFPSRLPlayerController::OnPossess(APawn* InPawn)
 	AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
 	if (IsInLobby())
 	{
-		// Back from a run (or first arrival): drop temporary Boon/Aspect state. Aspects are offered only once the
-		// player picks a weapon at the station (ServerSelectWeapon); the pawn starts empty-handed here.
+		// Back from a run (or first arrival): drop temporary Blessing / relic state. The pawn starts empty-handed
+		// here; the weapon station equips the pick.
 		if (PS)
 		{
 			PS->ClearRunState();
@@ -493,7 +554,7 @@ void AFPSRLPlayerController::OnPossess(APawn* InPawn)
 	{
 		if (PS)
 		{
-			PS->BeginRunState();	// applies the aspect's GAS grants (once per run)
+			PS->BeginRunState();	// re-grants the carried Blessings and relics
 		}
 		EquipSelectedWeapon(InPawn);
 	}
@@ -517,35 +578,8 @@ void AFPSRLPlayerController::BindToPlayerStateComponents()
 	}
 	BoundPlayerState = PS;
 
-	PS->GetAspectComponent()->OnAspectStateChanged.AddUniqueDynamic(this, &ThisClass::RefreshAspectSelectionUI);
 	PS->GetBoonComponent()->OnBoonStateChanged.AddUniqueDynamic(this, &ThisClass::RefreshBoonSelectionUI);
-	RefreshAspectSelectionUI();
 	RefreshBoonSelectionUI();
-}
-
-void AFPSRLPlayerController::RefreshAspectSelectionUI()
-{
-	const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
-	const UFPSRLAspectComponent* Aspects = PS ? PS->GetAspectComponent() : nullptr;
-	if (!IsLocalController() || !Aspects || Aspects->ActiveAspect || Aspects->AspectOptions.IsEmpty() || !IsInLobby())
-	{
-		HideSelectionWidget(AspectSelectionWidget);
-		return;
-	}
-
-	ShowSelectionWidget(AspectSelectionWidget, AspectSelectionClass);
-	TArray<FText> Names, Descriptions;
-	for (const UFPSRLAspectDefinition* Aspect : Aspects->AspectOptions)
-	{
-		Names.Add(Aspect ? Aspect->DisplayName : FText::GetEmpty());
-		Descriptions.Add(Aspect ? Aspect->Description : FText::GetEmpty());
-	}
-	AspectSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseAspect", "CHOOSE YOUR ASPECT"));
-	AspectSelectionWidget->SetChoices(Names, Descriptions);
-	AspectSelectionWidget->SetReroll(false, FText::GetEmpty(), false);
-	AspectSelectionWidget->SetDeadline(0.0);
-	AspectSelectionWidget->SetCloseVisible(false);
-	AspectSelectionWidget->OnChoice.BindUObject(this, &ThisClass::HandleAspectChoice);
 }
 
 void AFPSRLPlayerController::RefreshBoonSelectionUI()
@@ -560,37 +594,101 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 			It->RefreshLocalInteractor();
 		}
 	}
-	if (!IsLocalController() || !Boons || !Boons->bSelectionPending || Boons->CurrentOptions.IsEmpty())
+	if (!IsLocalController() || !Boons || !HasPendingBoonSelection())
 	{
-		bBoonSelectionOpen = false;	// resolved (picked / timed out): the next selection needs the terminal again
+		bBoonSelectionOpen = false;	// resolved: the next selection needs an altar again
 		HideSelectionWidget(BoonSelectionWidget);
 		return;
 	}
 	if (!bBoonSelectionOpen)
 	{
-		HideSelectionWidget(BoonSelectionWidget);	// pending, but the player hasn't opened it at a terminal
+		HideSelectionWidget(BoonSelectionWidget);	// pending, but the player hasn't opened it at an altar
 		return;
 	}
 
 	ShowSelectionWidget(BoonSelectionWidget, BoonSelectionClass);
-	TArray<FText> Names, Descriptions;
-	for (const UFPSRLBoonDefinition* Boon : Boons->CurrentOptions)
+	TArray<UFPSRLSelectionWidget::FChoice> Choices;
+	const FText Dot = NSLOCTEXT("FPSRL", "Separator", " · ");
+	auto AspectName = [](const UFPSRLAspectDefinition* Aspect)
 	{
-		Names.Add(Boon ? Boon->DisplayName : FText::GetEmpty());
-		Descriptions.Add(Boon ? Boon->Description : FText::GetEmpty());
+		return !Aspect ? FText::GetEmpty() : Aspect->DisplayName.IsEmpty() ? FText::FromString(Aspect->GetName()) : Aspect->DisplayName;
+	};
+	auto BoonName = [](const UFPSRLBoonDefinition* Boon)
+	{
+		return !Boon ? FText::GetEmpty() : Boon->DisplayName.IsEmpty() ? FText::FromString(Boon->GetName()) : Boon->DisplayName;
+	};
+
+	if (Boons->PendingKind == EFPSRLBoonSelectionKind::Upgrade)
+	{
+		for (const FFPSRLUpgradeOffer& Offer : Boons->UpgradeOptions)
+		{
+			const UFPSRLAspectDefinition* Aspect = Boons->GetTrack(Offer.Channel).Aspect;
+			const FText Channel = UFPSRLBoonComponent::GetChannelName(Offer.Channel);
+			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
+			Choice.bGold = true;	// upgrades are shown in gold, like upgraded Blessings in the build summary
+			Choice.HeaderColor = Aspect ? Aspect->Color : FLinearColor::White;
+			if (!Offer.Boon)
+			{
+				Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "AspectUpgradeHeader", "{0}{1}ASPECT UPGRADE"), Channel, Dot);
+				Choice.Name = FText::Format(NSLOCTEXT("FPSRL", "AspectUpgradeName", "{0} Aspect"), AspectName(Aspect));
+				Choice.Description = Aspect && !Aspect->UpgradeDescription.IsEmpty() ? Aspect->UpgradeDescription
+					: FText::Format(NSLOCTEXT("FPSRL", "AspectUpgradeDefault", "Strengthens the {0} Aspect on your {1}."), AspectName(Aspect), Channel);
+			}
+			else
+			{
+				Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "BlessingUpgradeHeader", "{0}{1}{2}{1}BLESSING UPGRADE"), Channel, Dot, AspectName(Aspect));
+				Choice.Name = BoonName(Offer.Boon);
+				Choice.Description = !Offer.Boon->UpgradeDescription.IsEmpty() ? Offer.Boon->UpgradeDescription
+					: NSLOCTEXT("FPSRL", "BlessingUpgradeDefault", "Upgraded: a stronger version of this Blessing.");
+			}
+		}
+		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseUpgrade", "UPGRADE A BLESSING"));
+		BoonSelectionWidget->SetReroll(false, FText::GetEmpty(), false);
+	}
+	else
+	{
+		const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
+		for (const FFPSRLBoonOffer& Offer : Boons->CurrentOptions)
+		{
+			const FFPSRLBoonTrack& Track = Boons->GetTrack(Offer.Channel);
+			const UFPSRLAspectDefinition* Aspect = Offer.Boon ? Offer.Boon->Aspect.Get() : nullptr;
+			FText Kind;
+			if (Offer.bNewAspect)
+			{
+				Kind = NSLOCTEXT("FPSRL", "NewAspect", "NEW ASPECT");
+			}
+			else if (Offer.Boon && Offer.Boon->BoonType == EFPSRLBoonType::Minor)
+			{
+				Kind = NSLOCTEXT("FPSRL", "MinorBlessing", "MINOR BLESSING");
+			}
+			else if (Offer.Boon && Offer.Boon->BoonType == EFPSRLBoonType::Major)
+			{
+				Kind = NSLOCTEXT("FPSRL", "MajorBlessing", "MAJOR BLESSING");
+			}
+			else
+			{
+				Kind = FText::Format(NSLOCTEXT("FPSRL", "BlessingPosition", "BLESSING {0}/{1}"), Track.Count + 1, Settings.MaxBoonsPerChannel);
+			}
+			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
+			Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "BlessingHeader", "{0}{1}{2}{1}{3}"),
+				UFPSRLBoonComponent::GetChannelName(Offer.Channel), Dot, AspectName(Aspect), Kind);
+			Choice.HeaderColor = Aspect ? Aspect->Color : FLinearColor::White;
+			Choice.Name = BoonName(Offer.Boon);
+			Choice.Description = Offer.Boon ? Offer.Boon->Description : FText::GetEmpty();
+		}
+
+		const int32 Cost = Boons->GetNextRerollCost();
+		const FText RerollLabel = Cost == 0
+			? FText::Format(NSLOCTEXT("FPSRL", "RerollFree", "Reroll ({0} free)"), Boons->FreeRerollsRemaining)
+			: FText::Format(NSLOCTEXT("FPSRL", "RerollCost", "Reroll ({0} Soul Fragments, have {1})"), Cost, PS->TalentEssence);
+		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseBlessing", "CHOOSE A BLESSING"));
+		BoonSelectionWidget->SetReroll(true, RerollLabel, Cost == 0 || PS->TalentEssence >= Cost);
+		BoonSelectionWidget->OnReroll.BindUObject(this, &ThisClass::HandleBoonReroll);
 	}
 
-	const int32 Cost = Boons->GetNextRerollCost();
-	const FText RerollLabel = Cost == 0
-		? FText::Format(NSLOCTEXT("FPSRL", "RerollFree", "Reroll ({0} free)"), Boons->FreeRerollsRemaining)
-		: FText::Format(NSLOCTEXT("FPSRL", "RerollCost", "Reroll ({0} Soul Fragments, have {1})"), Cost, PS->TalentEssence);
-
-	BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseBoon", "CHOOSE A BOON"));
-	BoonSelectionWidget->SetChoices(Names, Descriptions);
-	BoonSelectionWidget->SetReroll(true, RerollLabel, Cost == 0 || PS->TalentEssence >= Cost);
+	BoonSelectionWidget->SetChoices(Choices);
 	BoonSelectionWidget->SetDeadline(0.0);	// altars have no timer
 	BoonSelectionWidget->OnChoice.BindUObject(this, &ThisClass::HandleBoonChoice);
-	BoonSelectionWidget->OnReroll.BindUObject(this, &ThisClass::HandleBoonReroll);
 	BoonSelectionWidget->SetCloseVisible(true);
 	BoonSelectionWidget->OnClose.BindUObject(this, &ThisClass::HandleBoonClose);
 }
@@ -599,7 +697,8 @@ bool AFPSRLPlayerController::HasPendingBoonSelection() const
 {
 	const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
 	const UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
-	return Boons && Boons->bSelectionPending && !Boons->CurrentOptions.IsEmpty();
+	return Boons && (Boons->PendingKind == EFPSRLBoonSelectionKind::Upgrade ? !Boons->UpgradeOptions.IsEmpty()
+		: Boons->PendingKind == EFPSRLBoonSelectionKind::Blessing && !Boons->CurrentOptions.IsEmpty());
 }
 
 bool AFPSRLPlayerController::OpenBoonSelection()
@@ -615,7 +714,7 @@ bool AFPSRLPlayerController::OpenBoonSelection()
 
 void AFPSRLPlayerController::HandleBoonClose()
 {
-	// Only hides the screen; the choice stays pending on the server (and still auto-picks on timeout).
+	// Only hides the screen; the choice stays pending on the server until picked.
 	bBoonSelectionOpen = false;
 	RefreshBoonSelectionUI();
 }
@@ -650,19 +749,19 @@ void AFPSRLPlayerController::HideSelectionWidget(TObjectPtr<UFPSRLSelectionWidge
 	}
 }
 
-void AFPSRLPlayerController::HandleAspectChoice(int32 OptionIndex)
-{
-	if (const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
-	{
-		ServerSelectAspect(PS->GetAspectComponent()->AspectEventId, OptionIndex);
-	}
-}
-
 void AFPSRLPlayerController::HandleBoonChoice(int32 OptionIndex)
 {
 	if (const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
 	{
-		ServerSelectBoon(PS->GetBoonComponent()->SelectionEventId, OptionIndex);
+		const UFPSRLBoonComponent* Boons = PS->GetBoonComponent();
+		if (Boons->PendingKind == EFPSRLBoonSelectionKind::Upgrade)
+		{
+			ServerSelectUpgrade(Boons->SelectionEventId, OptionIndex);
+		}
+		else
+		{
+			ServerSelectBoon(Boons->SelectionEventId, OptionIndex);
+		}
 	}
 }
 
@@ -963,7 +1062,7 @@ void AFPSRLPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		PauseMenu->RemoveFromParent();
 		PauseMenu = nullptr;
 	}
-	for (UUserWidget* Widget : std::initializer_list<UUserWidget*>{ AspectSelectionWidget.Get(), BoonSelectionWidget.Get(), PortalMenu.Get(), PortalStatus.Get(), DeathMenu.Get() })
+	for (UUserWidget* Widget : std::initializer_list<UUserWidget*>{ BoonSelectionWidget.Get(), PortalMenu.Get(), PortalStatus.Get(), DeathMenu.Get() })
 	{
 		if (Widget)
 		{

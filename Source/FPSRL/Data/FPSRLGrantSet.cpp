@@ -81,3 +81,8 @@ namespace FPSRLGrants
 		Handles = FFPSRLGrantHandles();
 	}
 }
+
+bool FPSRLGrants::IsEmpty(const FFPSRLGrantSet& Set)
+{
+	return Set.Effects.IsEmpty() && Set.Abilities.IsEmpty() && Set.GrantedTags.IsEmpty() && !Set.GrantCue.IsValid();
+}

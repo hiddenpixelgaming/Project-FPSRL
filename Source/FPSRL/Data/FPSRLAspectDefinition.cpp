@@ -2,13 +2,15 @@
 
 #include "Data/FPSRLAspectDefinition.h"
 
-bool UFPSRLAspectDefinition::IsCompatibleWithWeapon(const FGameplayTag& WeaponTag) const
+const FFPSRLGrantSet* UFPSRLAspectDefinition::GetGrants(EFPSRLBoonChannel Channel, int32 UpgradeLevel) const
 {
-	if (AssociatedWeapon.IsValid() && !WeaponTag.MatchesTagExact(AssociatedWeapon))
+	const FFPSRLAspectChannelGrants* Entry = ChannelGrants.FindByPredicate(
+		[Channel](const FFPSRLAspectChannelGrants& Candidate) { return Candidate.Channel == Channel; });
+	if (!Entry)
 	{
-		return false;
+		return nullptr;
 	}
-	return RequiredWeaponTags.IsEmpty() || RequiredWeaponTags.HasTagExact(WeaponTag);
+	return (UpgradeLevel > 0 && !FPSRLGrants::IsEmpty(Entry->UpgradedGrants)) ? &Entry->UpgradedGrants : &Entry->Grants;
 }
 
 FPrimaryAssetId UFPSRLAspectDefinition::GetPrimaryAssetId() const

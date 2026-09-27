@@ -7,13 +7,14 @@
 #include "FPSRLBoonTerminal.generated.h"
 
 class AFPSRLPlayerController;
+class AFPSRLPlayerState;
 class AFPSRLRoom;
 class APlayerState;
 class USphereComponent;
 class UStaticMeshComponent;
 
 /**
- * Boon altar: an optional walk-up terminal where each player gets ONE personal boon choice.
+ * Blessing altar: an optional walk-up terminal where each player gets ONE personal Blessing choice.
  * BP_BoonTerminal derives from this (mesh, prompt hookup).
  *
  * Locked until its Room's enemies are all dead (a terminal without a Room is open from the start, e.g. in a reward
@@ -48,6 +49,9 @@ public:
 	bool HasBeenUsedBy(const APlayerState* Player) const;
 
 protected:
+	/** Server: open this altar's kind of choice for the player (a Blessing choice here; AFPSRLUpgradeAltar: upgrades). */
+	virtual bool BeginPlayerSelection(AFPSRLPlayerState* Player);
+
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 

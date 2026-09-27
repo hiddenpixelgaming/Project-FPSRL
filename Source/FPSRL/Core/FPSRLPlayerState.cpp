@@ -5,7 +5,8 @@
 #include "Abilities/Attributes/FPSRLCombatSet.h"
 #include "Abilities/Attributes/FPSRLHealthSet.h"
 #include "Abilities/Attributes/FPSRLProgressionSet.h"
-#include "Components/FPSRLAspectComponent.h"
+#include "Components/FPSRLRelicComponent.h"
+#include "Data/FPSRLBoonSettings.h"
 #include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLPlayerController.h"
@@ -28,12 +29,14 @@ AFPSRLPlayerState::AFPSRLPlayerState(const FObjectInitializer& ObjectInitializer
 	ProgressionSet = CreateDefaultSubobject<UFPSRLProgressionSet>(TEXT("ProgressionSet"));
 
 	BoonComponent = CreateDefaultSubobject<UFPSRLBoonComponent>(TEXT("BoonComponent"));
-	AspectComponent = CreateDefaultSubobject<UFPSRLAspectComponent>(TEXT("AspectComponent"));
+	RelicComponent = CreateDefaultSubobject<UFPSRLRelicComponent>(TEXT("RelicComponent"));
 
 	// PlayerStates default to a very low update rate; GAS state (tags, attributes) needs to reach clients promptly.
 	SetNetUpdateFrequency(100.f);
 
 	SelectedWeapon = FPSRLGameplayTags::Weapon_Rifle;
+	SecondaryItem = UFPSRLBoonSettings::Get().DefaultSecondaryItem;
+	AbilityItem = UFPSRLBoonSettings::Get().DefaultAbilityItem;
 }
 
 UAbilitySystemComponent* AFPSRLPlayerState::GetAbilitySystemComponent() const
@@ -48,6 +51,8 @@ void AFPSRLPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AFPSRLPlayerState, bIsReady);
 	DOREPLIFETIME(AFPSRLPlayerState, SelectedWeapon);
 	DOREPLIFETIME(AFPSRLPlayerState, EquippedWeapon);
+	DOREPLIFETIME(AFPSRLPlayerState, SecondaryItem);
+	DOREPLIFETIME(AFPSRLPlayerState, AbilityItem);
 	DOREPLIFETIME_CONDITION(AFPSRLPlayerState, TalentEssence, COND_OwnerOnly);
 }
 
@@ -56,15 +61,17 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 	Super::CopyProperties(PlayerState);
 
 	// Called on the server during seamless travel (old PlayerState -> new one) and on reconnect.
-	// The run build (weapon, aspect, boons) travels Depth to Depth; the Lobby clears it (ClearRunState).
+	// The run build (weapon, Blessings, relics) travels Depth to Depth; the Lobby clears it (ClearRunState).
 	if (AFPSRLPlayerState* NewState = Cast<AFPSRLPlayerState>(PlayerState))
 	{
 		NewState->SelectedWeapon = SelectedWeapon;
+		NewState->SecondaryItem = SecondaryItem;
+		NewState->AbilityItem = AbilityItem;
 		NewState->TalentEssence = TalentEssence;
 		NewState->bTalentEssenceReported = bTalentEssenceReported;
 		NewState->bRunStateActive = bRunStateActive;
-		AspectComponent->CopyChoiceTo(NewState->AspectComponent);
 		BoonComponent->CopyRunStateTo(NewState->BoonComponent);
+		RelicComponent->CopyRunStateTo(NewState->RelicComponent);
 
 		// Health is never restored between Depths, only in the Lobby. A value still waiting to be applied (no pawn
 		// yet) is passed on as is.
@@ -146,7 +153,7 @@ void AFPSRLPlayerState::EquipWeaponLocally()
 
 bool AFPSRLPlayerState::HasCompletedLoadout() const
 {
-	return SelectedWeapon.IsValid() && AspectComponent && AspectComponent->HasCompletedAspectChoice();
+	return SelectedWeapon.IsValid();
 }
 
 // --- Run state ---------------------------------------------------------------------------------------------------
@@ -163,11 +170,11 @@ void AFPSRLPlayerState::BeginRunState()
 			AbilitySystemComponent->AddLooseGameplayTag(FPSRLGameplayTags::Status_Downable, 1, EGameplayTagReplicationState::TagOnly);
 		}
 
-		AspectComponent->ApplyActiveAspect();
-		BoonComponent->RestoreRunState();	// boons carried from the previous Depth (no-op on the first)
+		BoonComponent->RestoreRunState();	// Blessings and relics carried from the previous Depth (no-op on the first)
+		RelicComponent->RestoreRunState();
 
 		// Spawning reset health to full; put back what the player had when they left the previous Depth (after the
-		// boons, so a raised MaxHealth is in place). Never below 1, so nobody arrives dead.
+		// Blessings, so a raised MaxHealth is in place). Never below 1, so nobody arrives dead.
 		if (CarriedHealth >= 0.f && AbilitySystemComponent->GetSet<UFPSRLHealthSet>())
 		{
 			const float MaxHealth = AbilitySystemComponent->GetNumericAttribute(UFPSRLHealthSet::GetMaxHealthAttribute());
@@ -190,7 +197,7 @@ void AFPSRLPlayerState::ClearRunState()
 	AbilitySystemComponent->SetLooseGameplayTagCount(FPSRLGameplayTags::Status_Downable, 0, EGameplayTagReplicationState::TagOnly);
 
 	BoonComponent->ClearRunState();
-	AspectComponent->ClearRunState();
+	RelicComponent->ClearRunState();
 
 	// Safety net for anything a run system granted without a tracked handle. Only temporary run effects.
 	const int32 Swept = AbilitySystemComponent->RemoveActiveEffectsWithTags(FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run));

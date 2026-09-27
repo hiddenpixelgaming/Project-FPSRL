@@ -2,8 +2,6 @@
 
 #include "Components/FPSRLBoonComponent.h"
 #include "AbilitySystemComponent.h"
-#include "Abilities/Attributes/FPSRLProgressionSet.h"
-#include "Components/FPSRLAspectComponent.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
@@ -12,21 +10,73 @@
 #include "Types/FPSRLGameplayTags.h"
 #include "FPSRL.h"
 
+#define LOCTEXT_NAMESPACE "FPSRLBlessings"
+
+namespace FPSRLBoons
+{
+	constexpr int32 NumChannels = static_cast<int32>(EFPSRLBoonChannel::MAX);
+
+	/** Weighted pick; returns INDEX_NONE for an empty list. */
+	template <typename T, typename WeightFn>
+	int32 PickWeighted(const TArray<T>& Items, WeightFn GetWeight)
+	{
+		float Total = 0.f;
+		for (const T& Item : Items)
+		{
+			Total += FMath::Max(0.f, GetWeight(Item));
+		}
+		if (Items.IsEmpty())
+		{
+			return INDEX_NONE;
+		}
+		if (Total <= 0.f)
+		{
+			return FMath::RandRange(0, Items.Num() - 1);
+		}
+		float Roll = FMath::FRandRange(0.f, Total);
+		for (int32 Index = 0; Index < Items.Num(); ++Index)
+		{
+			Roll -= FMath::Max(0.f, GetWeight(Items[Index]));
+			if (Roll <= 0.f)
+			{
+				return Index;
+			}
+		}
+		return Items.Num() - 1;
+	}
+
+	template <typename T>
+	void Shuffle(TArray<T>& Items)
+	{
+		for (int32 Index = Items.Num() - 1; Index > 0; --Index)
+		{
+			Items.Swap(Index, FMath::RandRange(0, Index));
+		}
+	}
+}
+
 UFPSRLBoonComponent::UFPSRLBoonComponent(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
 {
 	PrimaryComponentTick.bCanEverTick = false;
 	SetIsReplicatedByDefault(true);
+
+	Tracks.SetNum(FPSRLBoons::NumChannels);
+	for (int32 Index = 0; Index < FPSRLBoons::NumChannels; ++Index)
+	{
+		Tracks[Index].Channel = static_cast<EFPSRLBoonChannel>(Index);
+	}
 }
 
 void UFPSRLBoonComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
-	DOREPLIFETIME(UFPSRLBoonComponent, OwnedBoons);	// everyone may show a teammate's build
+	DOREPLIFETIME(UFPSRLBoonComponent, Tracks);	// teammates may inspect each other's build
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, PendingKind, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, CurrentOptions, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, UpgradeOptions, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, SelectionEventId, COND_OwnerOnly);
-	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, bSelectionPending, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, FreeRerollsRemaining, COND_OwnerOnly);
 }
 
@@ -57,41 +107,37 @@ UAbilitySystemComponent* UFPSRLBoonComponent::GetAbilitySystem() const
 
 // --- Queries -----------------------------------------------------------------------------------------------------
 
-int32 UFPSRLBoonComponent::GetStacks(const UFPSRLBoonDefinition* Boon) const
+FText UFPSRLBoonComponent::GetChannelName(EFPSRLBoonChannel Channel)
 {
-	const FFPSRLOwnedBoon* Owned = OwnedBoons.FindByPredicate([Boon](const FFPSRLOwnedBoon& Entry) { return Entry.Boon == Boon; });
+	switch (Channel)
+	{
+	case EFPSRLBoonChannel::Primary:	return LOCTEXT("Primary", "Primary");
+	case EFPSRLBoonChannel::Secondary:	return LOCTEXT("Secondary", "Secondary");
+	case EFPSRLBoonChannel::Ability:	return LOCTEXT("Ability", "Ability");
+	default:							return FText::GetEmpty();
+	}
+}
+
+int32 UFPSRLBoonComponent::GetStacks(EFPSRLBoonChannel Channel, const UFPSRLBoonDefinition* Boon) const
+{
+	const FFPSRLOwnedBoon* Owned = GetTrack(Channel).Boons.FindByPredicate([Boon](const FFPSRLOwnedBoon& Entry) { return Entry.Boon == Boon; });
 	return Owned ? Owned->Stacks : 0;
 }
 
-int32 UFPSRLBoonComponent::GetUsedBoonSlots() const
+FGameplayTag UFPSRLBoonComponent::GetChannelItem(EFPSRLBoonChannel Channel) const
 {
-	int32 Used = 0;
-	for (const FFPSRLOwnedBoon& Entry : OwnedBoons)
+	const AFPSRLPlayerState* PS = GetOwningPlayerState();
+	if (!PS)
 	{
-		Used += Entry.Stacks;
+		return FGameplayTag();
 	}
-	return Used;
-}
-
-int32 UFPSRLBoonComponent::GetMaxBoonSlots() const
-{
-	const UAbilitySystemComponent* ASC = GetAbilitySystem();
-	bool bFound = false;
-	const float Value = ASC ? ASC->GetGameplayAttributeValue(UFPSRLProgressionSet::GetMaxBoonSlotsAttribute(), bFound) : 0.f;
-	return bFound ? FMath::RoundToInt(Value) : 20;
-}
-
-FGameplayTagContainer UFPSRLBoonComponent::GetOwnedElements() const
-{
-	FGameplayTagContainer Elements;
-	for (const FFPSRLOwnedBoon& Entry : OwnedBoons)
+	switch (Channel)
 	{
-		if (Entry.Boon)
-		{
-			Elements.AppendTags(Entry.Boon->ElementTags);
-		}
+	case EFPSRLBoonChannel::Primary:	return PS->SelectedWeapon;
+	case EFPSRLBoonChannel::Secondary:	return PS->SecondaryItem;
+	case EFPSRLBoonChannel::Ability:	return PS->AbilityItem;
+	default:							return FGameplayTag();
 	}
-	return Elements;
 }
 
 int32 UFPSRLBoonComponent::GetNextRerollCost() const
@@ -99,202 +145,267 @@ int32 UFPSRLBoonComponent::GetNextRerollCost() const
 	return FreeRerollsRemaining > 0 ? 0 : UFPSRLBoonSettings::Get().RerollCost;
 }
 
-FGameplayTagContainer UFPSRLBoonComponent::GetBuildTags() const
+bool UFPSRLBoonComponent::IsChannelOpen(EFPSRLBoonChannel Channel) const
 {
-	FGameplayTagContainer Tags;
-	if (const AFPSRLPlayerState* PS = GetOwningPlayerState())
-	{
-		if (PS->SelectedWeapon.IsValid())
-		{
-			Tags.AddTag(PS->SelectedWeapon);
-		}
-	}
-	if (const UAbilitySystemComponent* ASC = GetAbilitySystem())
-	{
-		Tags.AppendTags(ASC->GetOwnedGameplayTags());	// aspect + build tags granted through GAS
-	}
-	Tags.AppendTags(GetOwnedElements());
-	return Tags;
+	return GetChannelItem(Channel).IsValid() && GetTrack(Channel).Count < UFPSRLBoonSettings::Get().MaxBoonsPerChannel;
 }
 
-// --- Generation ----------------------------------------------------------------------------------------------------
-
-bool UFPSRLBoonComponent::IsEligible(const UFPSRLBoonDefinition* Boon, bool bForReroll) const
+bool UFPSRLBoonComponent::IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel, bool bForReroll) const
 {
-	if (!Boon || Boon->SelectionWeight <= 0.f || (bForReroll && !Boon->bCanReroll))
+	if (!Boon || !Boon->Aspect || Boon->SelectionWeight <= 0.f || (bForReroll && !Boon->bCanReroll) || !Boon->AllowsChannel(Channel))
 	{
 		return false;
 	}
 
-	// Per-boon stacking rules.
-	const int32 Stacks = GetStacks(Boon);
-	if (Stacks >= Boon->GetMaxStacks() || (Stacks > 0 && !Boon->bCanAppearAfterOwned))
+	// The channel's Aspect decides the family; an empty channel takes any Aspect (that pick establishes it).
+	const FFPSRLBoonTrack& Track = GetTrack(Channel);
+	if ((Track.Aspect && Boon->Aspect != Track.Aspect) || Track.Count < Boon->RequiredChannelCount)
+	{
+		return false;
+	}
+	if (GetStacks(Channel, Boon) >= Boon->GetMaxStacks())
 	{
 		return false;
 	}
 
-	const AFPSRLPlayerState* PS = GetOwningPlayerState();
-	const FGameplayTagContainer BuildTags = GetBuildTags();
-
-	if (!Boon->RequiredWeaponTags.IsEmpty() && !(PS && Boon->RequiredWeaponTags.HasTagExact(PS->SelectedWeapon)))
-	{
-		return false;
-	}
-	if (!Boon->RequiredAspectTags.IsEmpty() && !BuildTags.HasAny(Boon->RequiredAspectTags))
+	// The item in the channel must support it (e.g. a melee-only Blessing needs Secondary.Melee).
+	const FGameplayTag Item = GetChannelItem(Channel);
+	if (!Boon->RequiredItemTags.IsEmpty() && !(Item.IsValid() && Item.MatchesAny(Boon->RequiredItemTags)))
 	{
 		return false;
 	}
 
-	const FGameplayTagContainer OwnedElements = GetOwnedElements();
-	if (!Boon->RequiredElementTags.IsEmpty() && !OwnedElements.HasAnyExact(Boon->RequiredElementTags))
-	{
-		return false;
-	}
-	if (BuildTags.HasAny(Boon->BlockedTags))
-	{
-		return false;
-	}
 	for (const UFPSRLBoonDefinition* Prerequisite : Boon->RequiredBoons)
 	{
-		if (Prerequisite && GetStacks(Prerequisite) == 0)
+		if (Prerequisite && GetStacks(Channel, Prerequisite) == 0)
 		{
 			return false;
 		}
 	}
 
-	// The active aspect can exclude boons by tag.
-	if (const UFPSRLAspectComponent* Aspects = PS ? PS->GetAspectComponent() : nullptr)
+	if (!Boon->BlockedTags.IsEmpty())
 	{
-		if (Aspects->ActiveAspect && Boon->BoonTags.HasAny(Aspects->ActiveAspect->RestrictedBoonTags))
+		FGameplayTagContainer Carried;
+		if (const UAbilitySystemComponent* ASC = GetAbilitySystem())
 		{
-			return false;
+			Carried.AppendTags(ASC->GetOwnedGameplayTags());
 		}
-	}
-
-	// Element cap: taking this boon must not push the player past MaxElementsPerRun distinct elements.
-	int32 NewElements = 0;
-	for (const FGameplayTag& Element : Boon->ElementTags)
-	{
-		if (!OwnedElements.HasTagExact(Element))
+		for (const FFPSRLBoonTrack& AnyTrack : Tracks)
 		{
-			++NewElements;
-		}
-	}
-	return OwnedElements.Num() + NewElements <= UFPSRLBoonSettings::Get().MaxElementsPerRun;
-}
-
-float UFPSRLBoonComponent::GetOfferWeight(const UFPSRLBoonDefinition* Boon) const
-{
-	// Base weight x (1 + bonus per owned boon of each of this boon's elements). No rarity involved.
-	int32 OwnedOfSameElement = 0;
-	for (const FFPSRLOwnedBoon& Entry : OwnedBoons)
-	{
-		if (Entry.Boon && Entry.Boon->ElementTags.HasAnyExact(Boon->ElementTags))
-		{
-			OwnedOfSameElement += Entry.Stacks;
-		}
-	}
-	return Boon->SelectionWeight * (1.f + UFPSRLBoonSettings::Get().ElementWeightBonusPerOwnedBoon * OwnedOfSameElement);
-}
-
-TArray<TObjectPtr<UFPSRLBoonDefinition>> UFPSRLBoonComponent::GenerateOptions(bool bForReroll) const
-{
-	TArray<TObjectPtr<UFPSRLBoonDefinition>> Options;
-	if (GetUsedBoonSlots() >= GetMaxBoonSlots())
-	{
-		return Options;
-	}
-
-	const UFPSRLBoonPool* Pool = UFPSRLBoonSettings::Get().BoonPool.LoadSynchronous();
-	if (!Pool)
-	{
-		UE_LOG(LogFPSRL, Warning, TEXT("No Boon Pool set in Project Settings > FPSRL Boons"));
-		return Options;
-	}
-
-	TArray<UFPSRLBoonDefinition*> Candidates;
-	TArray<float> Weights;
-	for (UFPSRLBoonDefinition* Boon : Pool->Boons)
-	{
-		if (IsEligible(Boon, bForReroll) && !Candidates.Contains(Boon))
-		{
-			Candidates.Add(Boon);
-			Weights.Add(GetOfferWeight(Boon));
-		}
-	}
-
-	// Weighted picks without replacement: the same boon never appears twice in one set.
-	const int32 Count = UFPSRLBoonSettings::Get().BoonOptionsPerSelection;
-	while (Options.Num() < Count && !Candidates.IsEmpty())
-	{
-		float Total = 0.f;
-		for (const float Weight : Weights)
-		{
-			Total += Weight;
-		}
-		float Roll = FMath::FRandRange(0.f, Total);
-		int32 Chosen = Candidates.Num() - 1;
-		for (int32 Index = 0; Index < Candidates.Num(); ++Index)
-		{
-			Roll -= Weights[Index];
-			if (Roll <= 0.f)
+			for (const FFPSRLOwnedBoon& Owned : AnyTrack.Boons)
 			{
-				Chosen = Index;
-				break;
+				if (Owned.Boon)
+				{
+					Carried.AppendTags(Owned.Boon->BoonTags);
+				}
 			}
 		}
-		Options.Add(Candidates[Chosen]);
-		Candidates.RemoveAtSwap(Chosen);
-		Weights.RemoveAtSwap(Chosen);
+		if (Carried.HasAny(Boon->BlockedTags))
+		{
+			return false;
+		}
 	}
+	return true;
+}
+
+// --- Offer generation --------------------------------------------------------------------------------------------
+
+TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll) const
+{
+	struct FCandidate
+	{
+		UFPSRLBoonDefinition* Boon = nullptr;
+		EFPSRLBoonChannel Channel = EFPSRLBoonChannel::Primary;
+		bool bNewAspect = false;
+		bool bMilestone = false;
+		float Weight = 1.f;
+	};
+
+	TArray<FFPSRLBoonOffer> Options;
+	const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
+	const UFPSRLBoonPool* Pool = Settings.BoonPool.LoadSynchronous();
+	if (!Pool)
+	{
+		UE_LOG(LogFPSRL, Warning, TEXT("[Blessings] No Blessing pool set in Project Settings > FPSRL Blessings"));
+		return Options;
+	}
+
+	TArray<FCandidate> Candidates;
+	for (const EFPSRLBoonChannel Channel : TEnumRange<EFPSRLBoonChannel>())
+	{
+		if (!IsChannelOpen(Channel))
+		{
+			continue;	// no item (e.g. no Ability yet) or all positions filled
+		}
+		const FFPSRLBoonTrack& Track = GetTrack(Channel);
+
+		if (!Track.Aspect)
+		{
+			// Empty channel: one "new Aspect" choice per Aspect, shown through one of its first Blessings.
+			TMap<const UFPSRLAspectDefinition*, TArray<UFPSRLBoonDefinition*>> ByAspect;
+			for (UFPSRLBoonDefinition* Boon : Pool->Boons)
+			{
+				if (Boon && Boon->BoonType == EFPSRLBoonType::Normal && IsEligible(Boon, Channel, bForReroll))
+				{
+					ByAspect.FindOrAdd(Boon->Aspect).AddUnique(Boon);
+				}
+			}
+			for (const TPair<const UFPSRLAspectDefinition*, TArray<UFPSRLBoonDefinition*>>& Entry : ByAspect)
+			{
+				const int32 Pick = FPSRLBoons::PickWeighted(Entry.Value, [](const UFPSRLBoonDefinition* Boon) { return Boon->SelectionWeight; });
+				Candidates.Add({ Entry.Value[Pick], Channel, true, false, 1.f });
+			}
+			continue;
+		}
+
+		// Established channel: its Aspect only, and exactly the type its next position calls for.
+		const EFPSRLBoonType Wanted = Settings.GetBoonTypeForPosition(Track.Count + 1);
+		TArray<FCandidate> ChannelCandidates;
+		for (UFPSRLBoonDefinition* Boon : Pool->Boons)
+		{
+			if (Boon && Boon->BoonType == Wanted && IsEligible(Boon, Channel, bForReroll))
+			{
+				ChannelCandidates.Add({ Boon, Channel, false, Wanted != EFPSRLBoonType::Normal, Boon->SelectionWeight });
+			}
+		}
+		if (Wanted != EFPSRLBoonType::Normal && ChannelCandidates.IsEmpty())
+		{
+			// Content gap, not RNG: keep the channel progressing and say so.
+			UE_LOG(LogFPSRL, Warning, TEXT("[Blessings] %s has no %s Blessing for %s at position %d; offering normal ones"),
+				*GetNameSafe(Track.Aspect), *UEnum::GetValueAsString(Wanted), *GetChannelName(Channel).ToString(), Track.Count + 1);
+			for (UFPSRLBoonDefinition* Boon : Pool->Boons)
+			{
+				if (Boon && Boon->BoonType == EFPSRLBoonType::Normal && IsEligible(Boon, Channel, bForReroll))
+				{
+					ChannelCandidates.Add({ Boon, Channel, false, false, Boon->SelectionWeight });
+				}
+			}
+		}
+		Candidates.Append(ChannelCandidates);
+	}
+
+	const int32 Count = Settings.BoonOptionsPerSelection;
+	auto Take = [&Options, &Candidates](int32 Index)
+	{
+		const FCandidate Chosen = Candidates[Index];
+		Options.Add({ Chosen.Boon, Chosen.Channel, Chosen.bNewAspect });
+		// No Blessing twice in one set, and a channel's milestone appears once.
+		Candidates.RemoveAll([&Chosen](const FCandidate& Other)
+		{
+			return Other.Boon == Chosen.Boon || (Chosen.bMilestone && Other.bMilestone && Other.Channel == Chosen.Channel);
+		});
+	};
+
+	// Milestones are guaranteed: every channel at its Minor / Major position gets its milestone into the set.
+	for (const EFPSRLBoonChannel Channel : TEnumRange<EFPSRLBoonChannel>())
+	{
+		TArray<int32> MilestoneIndices;
+		for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+		{
+			if (Candidates[Index].bMilestone && Candidates[Index].Channel == Channel)
+			{
+				MilestoneIndices.Add(Index);
+			}
+		}
+		const int32 Pick = FPSRLBoons::PickWeighted(MilestoneIndices, [&Candidates](int32 Index) { return Candidates[Index].Weight; });
+		if (Pick != INDEX_NONE && Options.Num() < Count)
+		{
+			Take(MilestoneIndices[Pick]);
+		}
+	}
+
+	// The rest: weighted picks without replacement.
+	while (Options.Num() < Count && !Candidates.IsEmpty())
+	{
+		Take(FPSRLBoons::PickWeighted(Candidates, [](const FCandidate& Candidate) { return Candidate.Weight; }));
+	}
+
+	FPSRLBoons::Shuffle(Options);
 	return Options;
 }
 
-// --- Selection -----------------------------------------------------------------------------------------------------
+TArray<FFPSRLUpgradeOffer> UFPSRLBoonComponent::GenerateUpgradeOptions() const
+{
+	TArray<FFPSRLUpgradeOffer> Pool;
+	for (const FFPSRLBoonTrack& Track : Tracks)
+	{
+		if (Track.Aspect && Track.AspectUpgradeLevel < Track.Aspect->MaxUpgradeLevel)
+		{
+			Pool.Add({ Track.Channel, nullptr });
+		}
+		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
+		{
+			if (Owned.Boon && Owned.UpgradeLevel < Owned.Boon->MaxUpgradeLevel)
+			{
+				Pool.Add({ Track.Channel, Owned.Boon });
+			}
+		}
+	}
+	FPSRLBoons::Shuffle(Pool);
+	Pool.SetNum(FMath::Min(Pool.Num(), UFPSRLBoonSettings::Get().UpgradeOptionsPerSelection));
+	return Pool;
+}
+
+// --- Blessing altar ----------------------------------------------------------------------------------------------
 
 bool UFPSRLBoonComponent::BeginSelection()
 {
-	if (!GetOwner()->HasAuthority() || bSelectionPending)
+	if (!GetOwner()->HasAuthority() || HasPendingSelection())
 	{
-		return false;	// one open choice at a time; the pending one stays as it is (no reroll by re-opening)
+		return false;	// one open choice at a time; the pending one stays as it is
 	}
 
-	const int32 EventId = ++SelectionEventId;
+	TArray<FFPSRLBoonOffer> Options = GenerateOptions(false);
+	if (Options.IsEmpty())
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: nothing to offer"), *GetNameSafe(GetOwner()));
+		return false;
+	}
+	++SelectionEventId;
+	PendingKind = EFPSRLBoonSelectionKind::Blessing;
 	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerSelection;
-	CurrentOptions = GenerateOptions(false);
-	bSelectionPending = !CurrentOptions.IsEmpty();
+	CurrentOptions = MoveTemp(Options);
 
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s: selection %d opened with %d option(s)"),
-		*GetNameSafe(GetOwner()), EventId, CurrentOptions.Num());
+	LogOptions(TEXT("selection opened"));
 	BroadcastChanged();
-	return bSelectionPending;
+	return true;
 }
 
 bool UFPSRLBoonComponent::TrySelect(int32 EventId, int32 OptionIndex)
 {
-	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EventId) || !CurrentOptions.IsValidIndex(OptionIndex))
+	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId) || !CurrentOptions.IsValidIndex(OptionIndex))
 	{
 		return false;
 	}
+	const FFPSRLBoonOffer Offer = CurrentOptions[OptionIndex];
+	if (!IsEligible(Offer.Boon, Offer.Channel, false) || (Offer.bNewAspect && GetTrack(Offer.Channel).Aspect))
+	{
+		UE_LOG(LogFPSRL, Warning, TEXT("[Blessings] %s: offer %s is no longer valid"), *GetNameSafe(GetOwner()), *GetNameSafe(Offer.Boon));
+		return false;
+	}
 
-	ResolveSelection(CurrentOptions[OptionIndex], TEXT("picked"));
+	EndSelection();	// resolve first, so nothing re-entrant can resolve this event twice
+	ApplyBoon(Offer.Boon, Offer.Channel);
+	const FFPSRLBoonTrack& Track = GetTrack(Offer.Channel);
+	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s took %s on %s (%s x%d, event %d)"), *GetNameSafe(GetOwner()), *GetNameSafe(Offer.Boon),
+		*GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Track.Aspect), Track.Count, EventId);
+	BroadcastChanged();
 	return true;
 }
 
 bool UFPSRLBoonComponent::TryReroll(int32 EventId)
 {
 	AFPSRLPlayerState* PS = GetOwningPlayerState();
-	if (!PS || !PS->HasAuthority() || !IsSelectionPending(EventId))
+	if (!PS || !PS->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId))
 	{
 		return false;
 	}
 
-	TArray<TObjectPtr<UFPSRLBoonDefinition>> NewOptions = GenerateOptions(true);
+	TArray<FFPSRLBoonOffer> NewOptions = GenerateOptions(true);
 	if (NewOptions.IsEmpty())
 	{
 		return false;	// nothing else to offer; keep the current set and charge nothing
 	}
-
 	if (FreeRerollsRemaining > 0)
 	{
 		--FreeRerollsRemaining;
@@ -305,62 +416,195 @@ bool UFPSRLBoonComponent::TryReroll(int32 EventId)
 	}
 
 	CurrentOptions = MoveTemp(NewOptions);
+	LogOptions(TEXT("rerolled"));
 	BroadcastChanged();
 	return true;
 }
 
-void UFPSRLBoonComponent::ResolveSelection(UFPSRLBoonDefinition* Chosen, const TCHAR* How)
-{
-	// Resolve first, so nothing re-entrant can resolve this event a second time.
-	bSelectionPending = false;
-	CurrentOptions.Reset();
+// --- Upgrade Altar -----------------------------------------------------------------------------------------------
 
-	AddBoonStack(Chosen);
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s %s %s (event %d)"), *GetNameSafe(GetOwner()), How, *GetNameSafe(Chosen), SelectionEventId);
-	BroadcastChanged();
-}
-
-bool UFPSRLBoonComponent::GrantBoon(UFPSRLBoonDefinition* Boon)
+bool UFPSRLBoonComponent::BeginUpgradeSelection()
 {
-	if (!GetOwner()->HasAuthority() || !Boon || GetUsedBoonSlots() >= GetMaxBoonSlots() || GetStacks(Boon) >= Boon->GetMaxStacks())
+	if (!GetOwner()->HasAuthority() || HasPendingSelection())
 	{
 		return false;
 	}
-	const bool bAdded = AddBoonStack(Boon);
+	TArray<FFPSRLUpgradeOffer> Options = GenerateUpgradeOptions();
+	if (Options.IsEmpty())
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: nothing to upgrade"), *GetNameSafe(GetOwner()));
+		return false;
+	}
+	++SelectionEventId;
+	PendingKind = EFPSRLBoonSelectionKind::Upgrade;
+	UpgradeOptions = MoveTemp(Options);
+
+	LogOptions(TEXT("upgrade selection opened"));
 	BroadcastChanged();
-	return bAdded;
+	return true;
 }
 
-bool UFPSRLBoonComponent::AddBoonStack(UFPSRLBoonDefinition* Boon)
+bool UFPSRLBoonComponent::TrySelectUpgrade(int32 EventId, int32 OptionIndex)
+{
+	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Upgrade, EventId) || !UpgradeOptions.IsValidIndex(OptionIndex))
+	{
+		return false;
+	}
+	const FFPSRLUpgradeOffer Offer = UpgradeOptions[OptionIndex];
+	const FFPSRLBoonTrack& Track = GetTrack(Offer.Channel);
+
+	if (!Offer.Boon)
+	{
+		if (!Track.Aspect || Track.AspectUpgradeLevel >= Track.Aspect->MaxUpgradeLevel)
+		{
+			return false;
+		}
+		EndSelection();
+		UpgradeAspect(Offer.Channel);
+	}
+	else
+	{
+		const int32 OwnedIndex = Track.Boons.IndexOfByPredicate([&Offer](const FFPSRLOwnedBoon& Owned) { return Owned.Boon == Offer.Boon; });
+		if (OwnedIndex == INDEX_NONE || Track.Boons[OwnedIndex].UpgradeLevel >= Offer.Boon->MaxUpgradeLevel)
+		{
+			return false;
+		}
+		EndSelection();
+		UpgradeBoon(Offer.Channel, OwnedIndex);
+	}
+
+	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s upgraded %s on %s (event %d)"), *GetNameSafe(GetOwner()),
+		Offer.Boon ? *GetNameSafe(Offer.Boon) : *GetNameSafe(Track.Aspect), *GetChannelName(Offer.Channel).ToString(), EventId);
+	BroadcastChanged();
+	return true;
+}
+
+void UFPSRLBoonComponent::LogOptions(const TCHAR* What) const
+{
+	// One line per event, so a playtest log shows exactly what each player was offered.
+	TArray<FString> Parts;
+	for (const FFPSRLBoonOffer& Offer : CurrentOptions)
+	{
+		Parts.Add(FString::Printf(TEXT("%s %s%s"), *GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Offer.Boon), Offer.bNewAspect ? TEXT(" (new Aspect)") : TEXT("")));
+	}
+	for (const FFPSRLUpgradeOffer& Offer : UpgradeOptions)
+	{
+		Parts.Add(FString::Printf(TEXT("%s %s"), *GetChannelName(Offer.Channel).ToString(),
+			Offer.Boon ? *GetNameSafe(Offer.Boon) : *FString::Printf(TEXT("%s Aspect"), *GetNameSafe(GetTrack(Offer.Channel).Aspect))));
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: %s (event %d): %s"), *GetNameSafe(GetOwner()), What, SelectionEventId, *FString::Join(Parts, TEXT(" | ")));
+}
+
+void UFPSRLBoonComponent::EndSelection()
+{
+	PendingKind = EFPSRLBoonSelectionKind::None;
+	CurrentOptions.Reset();
+	UpgradeOptions.Reset();
+	FreeRerollsRemaining = 0;
+}
+
+// --- Granting ----------------------------------------------------------------------------------------------------
+
+bool UFPSRLBoonComponent::GrantBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel)
+{
+	if (!GetOwner()->HasAuthority() || !IsChannelOpen(Channel) || !IsEligible(Boon, Channel, false))
+	{
+		return false;
+	}
+	ApplyBoon(Boon, Channel);
+	BroadcastChanged();
+	return true;
+}
+
+void UFPSRLBoonComponent::ApplyBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel)
+{
+	FFPSRLBoonTrack& Track = GetMutableTrack(Channel);
+	FChannelHandles& ChannelHandles = Handles[static_cast<int32>(Channel)];
+
+	if (!Track.Aspect)
+	{
+		Track.Aspect = Boon->Aspect;	// the first Blessing establishes the channel's Aspect
+		GiveAspect(Channel);
+	}
+
+	int32 OwnedIndex = Track.Boons.IndexOfByPredicate([Boon](const FFPSRLOwnedBoon& Owned) { return Owned.Boon == Boon; });
+	if (OwnedIndex == INDEX_NONE)
+	{
+		OwnedIndex = Track.Boons.Add({ Boon, 0, 0 });
+		ChannelHandles.Boons.SetNum(Track.Boons.Num());
+	}
+	GiveBoonStack(Channel, OwnedIndex, Track.Boons[OwnedIndex].Stacks == 0);
+	++Track.Boons[OwnedIndex].Stacks;
+	++Track.Count;
+}
+
+void UFPSRLBoonComponent::GiveAspect(EFPSRLBoonChannel Channel)
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystem();
-	if (!Boon || !ASC)
+	const FFPSRLBoonTrack& Track = GetTrack(Channel);
+	if (!ASC || !Track.Aspect)
 	{
-		return false;
+		return;
 	}
-
-	int32 Index = OwnedBoons.IndexOfByPredicate([Boon](const FFPSRLOwnedBoon& Entry) { return Entry.Boon == Boon; });
-	const bool bFirstStack = Index == INDEX_NONE;
-	if (bFirstStack)
+	FFPSRLGrantSet ToGrant;
+	if (const FFPSRLGrantSet* Grants = Track.Aspect->GetGrants(Channel, Track.AspectUpgradeLevel))
 	{
-		Index = OwnedBoons.Add({ Boon, 0 });
-		OwnedBoonHandles.SetNum(OwnedBoons.Num());
+		ToGrant = *Grants;
 	}
+	if (Track.Aspect->AspectTag.IsValid())
+	{
+		ToGrant.GrantedTags.AddTag(Track.Aspect->AspectTag);	// counted: two channels on one Aspect add it twice
+	}
+	Handles[static_cast<int32>(Channel)].Aspect = FPSRLGrants::Give(ToGrant, ASC, Track.Aspect, FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run));
+}
 
-	// First stack: effects, abilities, tags, grant cue. Extra stacks re-apply only the effects (numeric stacking).
-	FFPSRLGrantSet ToGrant = Boon->Grants;
+void UFPSRLBoonComponent::GiveBoonStack(EFPSRLBoonChannel Channel, int32 OwnedIndex, bool bFirstStack)
+{
+	UAbilitySystemComponent* ASC = GetAbilitySystem();
+	const FFPSRLOwnedBoon& Owned = GetTrack(Channel).Boons[OwnedIndex];
+	if (!ASC || !Owned.Boon)
+	{
+		return;
+	}
+	// First stack: effects, abilities, tags, cue. Extra stacks re-apply only the effects (numeric stacking).
+	FFPSRLGrantSet ToGrant = Owned.Boon->GetGrants(Owned.UpgradeLevel);
 	if (!bFirstStack)
 	{
 		ToGrant.Abilities.Reset();
 		ToGrant.GrantedTags.Reset();
 		ToGrant.GrantCue = FGameplayTag();
 	}
-
-	FGameplayTagContainer SpecTags(FPSRLGameplayTags::Effect_Temporary_Run);
-	OwnedBoonHandles[Index].Add(FPSRLGrants::Give(ToGrant, ASC, Boon, SpecTags));
-	++OwnedBoons[Index].Stacks;
-	return true;
+	Handles[static_cast<int32>(Channel)].Boons[OwnedIndex].Add(
+		FPSRLGrants::Give(ToGrant, ASC, Owned.Boon, FGameplayTagContainer(FPSRLGameplayTags::Effect_Temporary_Run)));
 }
+
+void UFPSRLBoonComponent::UpgradeAspect(EFPSRLBoonChannel Channel)
+{
+	FPSRLGrants::Take(Handles[static_cast<int32>(Channel)].Aspect, GetAbilitySystem());
+	++GetMutableTrack(Channel).AspectUpgradeLevel;
+	GiveAspect(Channel);
+}
+
+void UFPSRLBoonComponent::UpgradeBoon(EFPSRLBoonChannel Channel, int32 OwnedIndex)
+{
+	// Swap every stack's grants for the upgraded ones. The channel's count is untouched.
+	UAbilitySystemComponent* ASC = GetAbilitySystem();
+	TArray<FFPSRLGrantHandles>& StackHandles = Handles[static_cast<int32>(Channel)].Boons[OwnedIndex];
+	for (FFPSRLGrantHandles& Stack : StackHandles)
+	{
+		FPSRLGrants::Take(Stack, ASC);
+	}
+	StackHandles.Reset();
+
+	FFPSRLOwnedBoon& Owned = GetMutableTrack(Channel).Boons[OwnedIndex];
+	++Owned.UpgradeLevel;
+	for (int32 Stack = 0; Stack < Owned.Stacks; ++Stack)
+	{
+		GiveBoonStack(Channel, OwnedIndex, Stack == 0);
+	}
+}
+
+// --- Run lifetime ------------------------------------------------------------------------------------------------
 
 void UFPSRLBoonComponent::ClearRunState()
 {
@@ -368,37 +612,37 @@ void UFPSRLBoonComponent::ClearRunState()
 	{
 		return;
 	}
-
 	UAbilitySystemComponent* ASC = GetAbilitySystem();
-	for (TArray<FFPSRLGrantHandles>& Stacks : OwnedBoonHandles)
+	for (FChannelHandles& ChannelHandles : Handles)
 	{
-		for (FFPSRLGrantHandles& Handles : Stacks)
+		FPSRLGrants::Take(ChannelHandles.Aspect, ASC);
+		for (TArray<FFPSRLGrantHandles>& Stacks : ChannelHandles.Boons)
 		{
-			FPSRLGrants::Take(Handles, ASC);
+			for (FFPSRLGrantHandles& Stack : Stacks)
+			{
+				FPSRLGrants::Take(Stack, ASC);
+			}
 		}
+		ChannelHandles = FChannelHandles();
 	}
-	OwnedBoonHandles.Reset();
-	OwnedBoons.Reset();
+	for (FFPSRLBoonTrack& Track : Tracks)
+	{
+		const EFPSRLBoonChannel Channel = Track.Channel;
+		Track = FFPSRLBoonTrack();
+		Track.Channel = Channel;
+	}
 	PendingRestore.Reset();
-	CurrentOptions.Reset();
-	bSelectionPending = false;
-	FreeRerollsRemaining = 0;
+	EndSelection();
 	BroadcastChanged();
 }
 
-// --- Depth-to-Depth carry-over -------------------------------------------------------------------------------------
-
 void UFPSRLBoonComponent::CopyRunStateTo(UFPSRLBoonComponent* Other) const
 {
-	// The new PlayerState has a fresh ASC: hand over the list, and it re-grants on BeginRunState.
-	// An unresolved choice is not carried: leaving the Depth forfeits it.
+	// The new PlayerState has a fresh ASC: hand over the build and it re-grants on BeginRunState. An open choice is
+	// not carried: leaving the Depth forfeits it. A build not yet restored here (two travels in a row) passes on as is.
 	if (Other)
 	{
-		Other->PendingRestore = OwnedBoons;
-		for (const FFPSRLOwnedBoon& Entry : PendingRestore)
-		{
-			Other->PendingRestore.Add(Entry);	// restore not yet run on this component (e.g. two travels before a pawn)
-		}
+		Other->PendingRestore = PendingRestore.IsEmpty() ? Tracks : PendingRestore;
 	}
 }
 
@@ -409,16 +653,29 @@ void UFPSRLBoonComponent::RestoreRunState()
 		return;
 	}
 
-	TArray<FFPSRLOwnedBoon> ToRestore = MoveTemp(PendingRestore);
+	const TArray<FFPSRLBoonTrack> ToRestore = MoveTemp(PendingRestore);
 	PendingRestore.Reset();
 	int32 Restored = 0;
-	for (const FFPSRLOwnedBoon& Entry : ToRestore)
+	for (const FFPSRLBoonTrack& Carried : ToRestore)
 	{
-		for (int32 Stack = 0; Stack < Entry.Stacks; ++Stack)
+		const EFPSRLBoonChannel Channel = Carried.Channel;
+		GetMutableTrack(Channel) = Carried;
+		FChannelHandles& ChannelHandles = Handles[static_cast<int32>(Channel)];
+		ChannelHandles = FChannelHandles();
+		GiveAspect(Channel);
+
+		ChannelHandles.Boons.SetNum(Carried.Boons.Num());
+		for (int32 OwnedIndex = 0; OwnedIndex < Carried.Boons.Num(); ++OwnedIndex)
 		{
-			Restored += AddBoonStack(Entry.Boon) ? 1 : 0;
+			for (int32 Stack = 0; Stack < Carried.Boons[OwnedIndex].Stacks; ++Stack)
+			{
+				GiveBoonStack(Channel, OwnedIndex, Stack == 0);
+				++Restored;
+			}
 		}
 	}
-	UE_LOG(LogFPSRL, Log, TEXT("[Boons] %s: restored %d boon stack(s) after travel"), *GetNameSafe(GetOwner()), Restored);
+	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: restored %d Blessing stack(s) after travel"), *GetNameSafe(GetOwner()), Restored);
 	BroadcastChanged();
 }
+
+#undef LOCTEXT_NAMESPACE

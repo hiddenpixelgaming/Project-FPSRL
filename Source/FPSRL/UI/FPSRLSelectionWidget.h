@@ -13,10 +13,11 @@ class UVerticalBox;
 DECLARE_DELEGATE_OneParam(FFPSRLChoiceDelegate, int32 /*OptionIndex*/);
 
 /**
- * Generic "pick one" screen used for Aspect selection (Lobby) and Boon selection (after an arena).
+ * "Pick one" screen for the Blessing altar and the Upgrade Altar.
  * Presentation only: it shows what AFPSRLPlayerController gives it and reports which button was clicked;
  * the server decides what is valid. Builds a simple default layout in code; a Blueprint subclass can supply its own
- * layout with widgets named Title, Countdown, Choice0..Choice4 (buttons), ChoiceName0..4 / ChoiceDesc0..4 (text),
+ * layout with widgets named Title, Countdown, Choice0..Choice4 (buttons), ChoiceHeader0..4 / ChoiceName0..4 /
+ * ChoiceDesc0..4 (text),
  * RerollButton, RerollLabel and CloseButton (all optional).
  * The countdown refreshes on a 4 Hz timer, not Tick.
  */
@@ -29,7 +30,18 @@ public:
 	static constexpr int32 MaxChoices = 5;
 
 	void SetTitle(const FText& InTitle);
-	void SetChoices(const TArray<FText>& Names, const TArray<FText>& Descriptions);
+	/** One choice: a small header line (channel, Aspect, milestone) above the name and description. */
+	struct FChoice
+	{
+		FText Header;
+		FLinearColor HeaderColor = FLinearColor::White;
+		FText Name;
+		FText Description;
+		/** Upgrade: shown with a gold frame. */
+		bool bGold = false;
+	};
+
+	void SetChoices(const TArray<FChoice>& Choices);
 	void SetReroll(bool bVisible, const FText& Label, bool bEnabled);
 
 	/** Server world time when the selection auto-resolves; 0 hides the countdown. */
@@ -76,6 +88,9 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UButton>> ChoiceButtons;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UTextBlock>> ChoiceHeaders;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UTextBlock>> ChoiceNames;

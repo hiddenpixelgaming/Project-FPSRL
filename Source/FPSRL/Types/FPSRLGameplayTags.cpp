@@ -12,9 +12,11 @@ namespace FPSRLGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Light,	"Element.Light",	"Light: elemental damage, proc upgrades.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Element_Dark,	"Element.Dark",		"Dark: physical damage, defense reduction, penetration.");
 
-	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Aspect,			"Aspect",			"Root for aspect identity tags (Aspect.Gunslinger, ...).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Aspect,			"Aspect",			"Root for Aspects, the blessing families (Aspect.Fire, ...).");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Boon_Category,	"Boon.Category",	"Root for boon categories.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Build,			"Build",			"Root for build-direction tags (Build.RapidFire, ...).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Secondary,		"Secondary",		"Root for secondary-channel items (melee, artifact weapons).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Secondary_Melee,	"Secondary.Melee",	"The built-in melee attack (default secondary).");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Effect_Temporary_Run,	"Effect.Temporary.Run",		"Granted by a temporary run system; removed at run end.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Effect_Permanent_Talent,	"Effect.Permanent.Talent",	"Permanent progression; never removed by run cleanup.");

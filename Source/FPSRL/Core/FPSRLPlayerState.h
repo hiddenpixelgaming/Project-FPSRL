@@ -10,7 +10,7 @@
 
 class UAbilitySystemComponent;
 class UFPSRLAbilitySystemComponent;
-class UFPSRLAspectComponent;
+class UFPSRLRelicComponent;
 class UFPSRLBoonComponent;
 class UFPSRLCombatSet;
 class UFPSRLHealthSet;
@@ -22,7 +22,7 @@ class UFPSRLProgressionSet;
  * Owns the player's Ability System Component (ASC). The ASC lives here rather than on the Character because:
  *  - The PlayerState outlives the pawn, so run-scoped boons and effects survive death and respawn.
  *  - Each Depth is its own map: seamless travel creates a new PlayerState per Depth, and CopyProperties hands the
- *    run build (weapon, aspect, boons) and current health across; BeginRunState re-grants it through the new ASC.
+ *    run build (weapon, Blessings, relics) and current health across; BeginRunState re-grants it through the new ASC.
  *    Health is only restored to full in the Lobby.
  *
  * Replication: the ASC replicates in Mixed mode. The owning client gets full Gameplay Effect data (for its own HUD
@@ -32,7 +32,7 @@ class UFPSRLProgressionSet;
  * only by the server, via AFPSRLPlayerController's Server RPCs. SelectedWeapon is copied to the new PlayerState on
  * the Lobby -> Arena seamless travel (CopyProperties), which is what carries each player's own choice into the run.
  *
- * Run state (temporary): BoonComponent (boons) and AspectComponent (aspect). Cleared by ClearRunState() when the
+ * Run state (temporary): BoonComponent (Blessings on the Primary / Secondary / Ability channels) and RelicComponent. Cleared by ClearRunState() when the
  * player is back in the Lobby after a run; only effects tagged Effect.Temporary.Run are ever removed, so permanent
  * progression (Talent Tree, tagged Effect.Permanent.Talent) is untouched.
  *
@@ -52,7 +52,7 @@ public:
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
 	UFPSRLBoonComponent* GetBoonComponent() const { return BoonComponent; }
-	UFPSRLAspectComponent* GetAspectComponent() const { return AspectComponent; }
+	UFPSRLRelicComponent* GetRelicComponent() const { return RelicComponent; }
 
 	/** Lobby ready flag. Not carried across travel: everyone starts the next lobby visit un-ready. */
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Lobby")
@@ -68,6 +68,14 @@ public:
 	 */
 	UPROPERTY(ReplicatedUsing = OnRep_EquippedWeapon, BlueprintReadOnly, Category = "Lobby")
 	FGameplayTag EquippedWeapon;
+
+	/** Secondary-channel item (Secondary.*; the built-in melee by default). Blessings check it by tag. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Loadout")
+	FGameplayTag SecondaryItem;
+
+	/** Ability-channel item (Ability.*). Empty until a real ability exists, so the channel is never offered. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Loadout")
+	FGameplayTag AbilityItem;
 
 	/** Soul Fragments / Talent Essence: persistent currency (owner only). */
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Currency")
@@ -88,14 +96,14 @@ public:
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Currency")
 	void AddTalentEssence(int32 Amount);
 
-	/** Weapon chosen and (if the weapon has any) an aspect chosen: required before the host can start. */
+	/** Weapon chosen: required before the host can start. */
 	UFUNCTION(BlueprintPure, Category = "Lobby")
 	bool HasCompletedLoadout() const;
 
-	/** Server: entering a Depth. Applies the aspect and re-grants carried boons (idempotent) and marks the run started. */
+	/** Server: entering a Depth. Re-grants the carried Blessings and relics (idempotent) and marks the run started. */
 	void BeginRunState();
 
-	/** Server: run is over. Removes only temporary Boon/Aspect grants and state; safe to call more than once. */
+	/** Server: run is over. Removes only temporary Blessing / relic grants and state; safe to call more than once. */
 	void ClearRunState();
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -133,14 +141,14 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Boons", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UFPSRLBoonComponent> BoonComponent;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Aspect", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UFPSRLAspectComponent> AspectComponent;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Relics", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UFPSRLRelicComponent> RelicComponent;
 
 	/** Player health attributes. Lives here (not on the pawn) so run effects on health survive respawn. */
 	UPROPERTY()
 	TObjectPtr<UFPSRLHealthSet> HealthSet;
 
-	/** Combat stats boons/aspects modify through Gameplay Effects. */
+	/** Combat stats Blessings, Aspects and relics modify through Gameplay Effects. */
 	UPROPERTY()
 	TObjectPtr<UFPSRLCombatSet> CombatSet;
 

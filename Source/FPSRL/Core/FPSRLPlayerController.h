@@ -44,17 +44,16 @@ struct FFPSRLWeaponOption
  *  - The selected weapon is equipped on the server whenever this controller possesses a pawn outside the lobby
  *    (i.e. on arrival in the Arena), and immediately when picked at the weapon station.
  *
- * Aspect / Boon selection (requests only; the server validates everything in the player's components):
- *  - ServerSelectAspect (Lobby, after the weapon), ServerSelectBoon, ServerRerollBoons. Each request carries the
- *    selection event id it was made for, so stale or duplicate requests are rejected.
- *  - The owning client shows a selection screen for pending choices (default C++ layout, restylable with a
- *    Blueprint subclass via AspectSelectionClass / BoonSelectionClass). The Aspect screen opens by itself once
- *    the weapon is picked; the Boon screen opens when the player uses a Boon altar (UseBoonAltar -> the server rolls
- *    their options) and can be closed and reopened until the choice resolves. No timer: altars are optional.
+ * Blessing selection (requests only; the server validates everything in the player's UFPSRLBoonComponent):
+ *  - ServerSelectBoon, ServerRerollBoons (Blessing altar) and ServerSelectUpgrade (Upgrade Altar). Each request carries
+ *    the selection event id it was made for, so stale or duplicate requests are rejected.
+ *  - The owning client shows one selection screen for whichever choice is pending (default C++ layout, restylable
+ *    with a Blueprint subclass via BoonSelectionClass). It opens when the player uses an altar (UseBoonAltar -> the
+ *    server rolls their options) and can be closed and reopened until the choice resolves. No timer: altars are optional.
  *  - Run: the host's Start begins the run set in Project Settings > FPSRL Run (UFPSRLRunSubsystem), or travels to
  *    MatchMap when none is set.
- *  - Run state: arriving in a Depth applies the aspect and re-grants carried boons (BeginRunState); returning to the
- *    Lobby clears only temporary Boon/Aspect state (ClearRunState).
+ *  - Run state: arriving in a Depth re-grants the carried Blessings and relics (BeginRunState); returning to the
+ *    Lobby clears only temporary Blessing / relic state (ClearRunState).
  *  - Currency: the local profile's TalentEssence (Soul Fragments) is reported to the server once per PlayerState and
  *    written back to the save file whenever the server changes it.
  *
@@ -101,21 +100,21 @@ public:
 	/** Local: while downed (or dead) the weapon inputs (shoot, aim, reload, melee, dash) are removed. */
 	void SetWeaponInputBlocked(bool bBlocked);
 
-	/** True when there is at least one player and every player is ready with a complete loadout (weapon + aspect).
+	/** True when there is at least one player and every player is ready with a complete loadout (a weapon).
 	 *  Exec node to match the old BP function. */
 	UFUNCTION(BlueprintCallable, BlueprintPure = false, Category = "Lobby")
 	bool AreAllPlayersReady() const;
 
-	// --- Aspect / Boon selection -------------------------------------------------------------------------------
-
-	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Aspect")
-	void ServerSelectAspect(int32 EventId, int32 OptionIndex);
+	// --- Blessing selection ------------------------------------------------------------------------------------
 
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
 	void ServerSelectBoon(int32 EventId, int32 OptionIndex);
 
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
 	void ServerRerollBoons(int32 EventId);
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
+	void ServerSelectUpgrade(int32 EventId, int32 OptionIndex);
 
 	/** Client: the owning player's saved Soul Fragments balance (sent once per PlayerState). */
 	UFUNCTION(Server, Reliable)
@@ -125,15 +124,15 @@ public:
 	UFUNCTION(Client, Reliable)
 	void ClientPersistentCurrencyChanged(int32 NewAmount);
 
-	/** Local: show this player's pending Boon choice (reopens it after Close). False if nothing is pending. */
+	/** Local: show this player's pending Blessing or Upgrade choice (reopens it after Close). False if nothing is pending. */
 	UFUNCTION(BlueprintCallable, Category = "Boons")
 	bool OpenBoonSelection();
 
-	/** Local: this player has a Boon choice waiting to be made. */
+	/** Local: this player has a Blessing or Upgrade choice waiting to be made. */
 	UFUNCTION(BlueprintPure, Category = "Boons")
 	bool HasPendingBoonSelection() const;
 
-	/** Local: the player used a Boon altar. Reopens an open choice, or asks the server for this altar's choice. */
+	/** Local: the player used a Blessing or Upgrade altar. Reopens an open choice, or asks the server for this altar's. */
 	void UseBoonAltar(AFPSRLBoonTerminal* Altar);
 
 	UFUNCTION(Server, Reliable)
@@ -178,12 +177,32 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerPortalVote(AFPSRLExitPortal* Portal, bool bContinue);
 
-	/** Dev cheats (host). Console: FPSRLGiveBoon /Game/.../DA_Boon_X.DA_Boon_X  |  FPSRLOfferBoon (a choice without an altar) */
+	/**
+	 * Test commands (development builds, any player; the server runs them for the caller). Console:
+	 *  FPSRLGiveBoon DA_Boon_X [Primary|Secondary|Ability]  - grant a Blessing (asset name or path)
+	 *  FPSRLOfferBoon     - open a Blessing altar choice without an altar
+	 *  FPSRLOfferUpgrade  - open an Upgrade Altar choice without an altar
+	 *  FPSRLGiveRelic [DA_Relic_X]  - grant that relic, or roll a random one by rarity
+	 *  FPSRLPick N        - pick option N (0-based) of the open Blessing or Upgrade choice
+	 */
 	UFUNCTION(Exec)
-	void FPSRLGiveBoon(const FString& BoonAssetPath);
+	void FPSRLGiveBoon(const FString& BoonAsset, const FString& Channel);
 
 	UFUNCTION(Exec)
 	void FPSRLOfferBoon();
+
+	UFUNCTION(Exec)
+	void FPSRLOfferUpgrade();
+
+	UFUNCTION(Exec)
+	void FPSRLGiveRelic(const FString& RelicAsset);
+
+	UFUNCTION(Exec)
+	void FPSRLPick(int32 OptionIndex);
+
+	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
+	UFUNCTION(Server, Reliable)
+	void ServerTestCommand(FName Command, const FString& Arg1, const FString& Arg2);
 
 	// --- Pause -------------------------------------------------------------------------------------------------
 
@@ -211,10 +230,7 @@ protected:
 	virtual void AcknowledgePossession(APawn* InPawn) override;
 	virtual void OnRep_PlayerState() override;
 
-	/** Selection screens (default C++ layout; set a Blueprint subclass to restyle). */
-	UPROPERTY(EditDefaultsOnly, Category = "Boons")
-	TSubclassOf<UFPSRLSelectionWidget> AspectSelectionClass;
-
+	/** Blessing / Upgrade selection screen (default C++ layout; set a Blueprint subclass to restyle). */
 	UPROPERTY(EditDefaultsOnly, Category = "Boons")
 	TSubclassOf<UFPSRLSelectionWidget> BoonSelectionClass;
 
@@ -288,11 +304,9 @@ private:
 
 	// Local selection UI
 	void BindToPlayerStateComponents();
-	UFUNCTION() void RefreshAspectSelectionUI();
 	UFUNCTION() void RefreshBoonSelectionUI();
 	void ShowSelectionWidget(TObjectPtr<UFPSRLSelectionWidget>& Widget, TSubclassOf<UFPSRLSelectionWidget> WidgetClass);
 	void HideSelectionWidget(TObjectPtr<UFPSRLSelectionWidget>& Widget);
-	void HandleAspectChoice(int32 OptionIndex);
 	void HandleBoonChoice(int32 OptionIndex);
 	void HandleBoonReroll();
 	void HandleBoonClose();
@@ -307,19 +321,16 @@ private:
 	void ShowDeathMenu();
 	static bool IsAnyPlayerAlive(const UWorld* World);
 
-	/** Some modal screen (aspect, boon, portal) is up: keep UI input and the cursor. */
+	/** Some modal screen (Blessing, portal, death) is up: keep UI input and the cursor. */
 	bool IsAnyModalOpen() const;
 
-	/** Local: the player opened the Boon screen at a terminal (cleared when they close it or the choice resolves). */
+	/** Local: the player opened the Blessing screen at an altar (cleared when they close it or the choice resolves). */
 	bool bBoonSelectionOpen = false;
 
 	// Local profile bridge (BP_GameInstanceBase.CurrentPlayerProfile.TalentEssence) until the save game moves to C++.
 	bool ReadLocalTalentEssence(int32& OutAmount) const;
 	void WriteLocalTalentEssence(int32 Amount) const;
 	void ReportTalentEssenceIfNeeded();
-
-	UPROPERTY(Transient)
-	TObjectPtr<UFPSRLSelectionWidget> AspectSelectionWidget;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UFPSRLSelectionWidget> BoonSelectionWidget;

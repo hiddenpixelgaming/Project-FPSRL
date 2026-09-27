@@ -16,7 +16,7 @@
 AFPSRLBoonTerminal::AFPSRLBoonTerminal()
 {
 	bReplicates = true;
-	PromptText = TEXT("Press E to Choose a Boon");
+	PromptText = TEXT("Press E to Choose a Blessing");
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	Mesh->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
@@ -141,7 +141,7 @@ bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC)
 		return false;
 	}
 
-	if (!PS->GetBoonComponent()->BeginSelection())
+	if (!BeginPlayerSelection(PS))
 	{
 		return false;	// a choice is already open elsewhere, or nothing is eligible
 	}
@@ -149,4 +149,9 @@ bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC)
 	ForceNetUpdate();
 	OnRep_ClaimedBy();
 	return true;
+}
+
+bool AFPSRLBoonTerminal::BeginPlayerSelection(AFPSRLPlayerState* Player)
+{
+	return Player && Player->GetBoonComponent()->BeginSelection();
 }

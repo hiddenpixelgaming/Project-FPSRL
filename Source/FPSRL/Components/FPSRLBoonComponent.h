@@ -6,45 +6,118 @@
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
 #include "Data/FPSRLGrantSet.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLBoonComponent.generated.h"
 
 class UAbilitySystemComponent;
+class UFPSRLAspectDefinition;
 class UFPSRLBoonDefinition;
 class AFPSRLPlayerState;
 
-/** One owned boon and how many times it has been taken. */
+/** One owned Blessing on a channel. */
 USTRUCT(BlueprintType)
 struct FFPSRLOwnedBoon
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, Category = "Boons")
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
 	TObjectPtr<UFPSRLBoonDefinition> Boon;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Boons")
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
 	int32 Stacks = 0;
+
+	/** 0 = base; above 0 = improved at an Upgrade Altar (UI shows it in gold). */
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	int32 UpgradeLevel = 0;
+};
+
+/** One channel's progression: its Aspect, how many Blessings it has, and which. */
+USTRUCT(BlueprintType)
+struct FFPSRLBoonTrack
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	EFPSRLBoonChannel Channel = EFPSRLBoonChannel::Primary;
+
+	/** Set by the channel's first Blessing; null until then. */
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	TObjectPtr<UFPSRLAspectDefinition> Aspect;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	int32 AspectUpgradeLevel = 0;
+
+	/** Blessings taken on this channel (every stack counts). Position of the next one = Count + 1. */
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	int32 Count = 0;
+
+	/** In the order they were first taken. */
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	TArray<FFPSRLOwnedBoon> Boons;
+};
+
+/** One Blessing altar choice. */
+USTRUCT(BlueprintType)
+struct FFPSRLBoonOffer
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	TObjectPtr<UFPSRLBoonDefinition> Boon;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	EFPSRLBoonChannel Channel = EFPSRLBoonChannel::Primary;
+
+	/** Taking it establishes the channel's Aspect (the channel is empty). */
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	bool bNewAspect = false;
+};
+
+/** One Upgrade Altar choice: a channel's Aspect (Boon null) or one owned Blessing on it. */
+USTRUCT(BlueprintType)
+struct FFPSRLUpgradeOffer
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	EFPSRLBoonChannel Channel = EFPSRLBoonChannel::Primary;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Blessings")
+	TObjectPtr<UFPSRLBoonDefinition> Boon;
+};
+
+/** What the player is currently choosing, if anything (one at a time). */
+UENUM(BlueprintType)
+enum class EFPSRLBoonSelectionKind : uint8
+{
+	None,
+	Blessing,	// Blessing altar
+	Upgrade		// Upgrade Altar
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
 
 /**
- * A player's personal, run-scoped boon state. Lives on AFPSRLPlayerState (one per player).
+ * A player's run build of Blessings (boons): three independent channels (Primary / Secondary / Ability), each with
+ * one Aspect and its own count. Lives on AFPSRLPlayerState (one per player; never shared).
  *
- * Server-authoritative: the server generates this player's choices, validates their pick or reroll, applies the boon
- * through GAS, and marks the selection complete. Clients only display the replicated state and send requests
- * (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons). Another player's choices are never touched.
+ * Progression per channel: the first Blessing sets the channel's Aspect and is position 1. Later Blessings for the
+ * channel come only from that Aspect. Position MinorPosition (3) is always the Aspect's Minor, MajorPosition (6) its
+ * Major: at those positions the channel offers only its milestone, and every offer includes it. Up to
+ * MaxBoonsPerChannel (11). The same Aspect may sit on several channels, each counted separately.
  *
- * Selection lifecycle: a Boon altar (AFPSRLBoonTerminal) calls BeginSelection -> TrySelect / TryReroll -> resolved.
- * Personal and optional: nobody waits for it, and no timer runs. Every request carries the SelectionEventId and the
- * first valid resolution wins, so a duplicate click or a stale request after reconnecting can never grant twice.
- * An unresolved choice is forfeited when the party leaves the Depth.
+ * Server-authoritative: the server rolls this player's options, validates the pick, applies it through GAS and
+ * replicates the result. Clients only request (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons).
+ * One selection at a time, Blessing or Upgrade; every request carries the SelectionEventId, and the first valid
+ * resolution wins, so double clicks and stale requests can't grant twice. Nobody waits for it and there is no timer.
  *
- * Depth travel: owned boons are handed to the next Depth's PlayerState (CopyRunStateTo) and re-granted through GAS
- * there (RestoreRunState), so the build persists for the whole run.
+ *  Blessing altar: BeginSelection -> TrySelect / TryReroll (3 free, then Soul Fragments). Rerolls only replace the
+ *    current options; they never touch owned Blessings, Aspects or counts.
+ *  Upgrade Altar: BeginUpgradeSelection -> TrySelectUpgrade. Offers up to UpgradeOptionsPerSelection of the
+ *    player's upgradeable Aspects and Blessings (any channel). An upgrade never changes a count.
  *
- * Rules (all numbers in UFPSRLBoonSettings): 3 options; 3 free rerolls then Soul Fragments; per-boon stacking;
- * at most 3 elements owned; +1% offer weight per owned boon of an element; capacity = ProgressionSet.MaxBoonSlots
- * (each stack uses a slot). No boon rarity. No in-run reset: boons are only ever added, until ClearRunState at run end.
+ * Depth travel: the tracks are handed to the next Depth's PlayerState (CopyRunStateTo) and re-granted there
+ * (RestoreRunState). Run end: ClearRunState removes exactly what was granted and empties everything.
  */
 UCLASS(ClassGroup = (FPSRL), meta = (BlueprintSpawnableComponent))
 class FPSRL_API UFPSRLBoonComponent : public UActorComponent
@@ -56,74 +129,76 @@ public:
 
 	// --- Replicated state ------------------------------------------------------------------------------------
 
-	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
-	TArray<FFPSRLOwnedBoon> OwnedBoons;
+	/** One entry per channel (index = channel). Everyone may see a teammate's build. */
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	TArray<FFPSRLBoonTrack> Tracks;
 
-	/** This player's current choices (owner only). */
-	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
-	TArray<TObjectPtr<UFPSRLBoonDefinition>> CurrentOptions;
+	/** What the owner is choosing right now (owner only, like everything below). */
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	EFPSRLBoonSelectionKind PendingKind = EFPSRLBoonSelectionKind::None;
 
-	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	TArray<FFPSRLBoonOffer> CurrentOptions;
+
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	TArray<FFPSRLUpgradeOffer> UpgradeOptions;
+
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	int32 SelectionEventId = 0;
 
-	/** A selection is open for this player and not yet resolved. */
-	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
-	bool bSelectionPending = false;
-
-	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Boons")
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	int32 FreeRerollsRemaining = 0;
 
 	/** Fires on server and owning client whenever any of the above changes (bind UI here). */
-	UPROPERTY(BlueprintAssignable, Category = "Boons")
+	UPROPERTY(BlueprintAssignable, Category = "Blessings")
 	FFPSRLBoonStateChanged OnBoonStateChanged;
 
 	// --- Queries ---------------------------------------------------------------------------------------------
 
-	UFUNCTION(BlueprintPure, Category = "Boons")
-	int32 GetStacks(const UFPSRLBoonDefinition* Boon) const;
+	const FFPSRLBoonTrack& GetTrack(EFPSRLBoonChannel Channel) const { return Tracks[static_cast<int32>(Channel)]; }
 
-	/** Slots used: every stack of every boon counts. */
-	UFUNCTION(BlueprintPure, Category = "Boons")
-	int32 GetUsedBoonSlots() const;
+	UFUNCTION(BlueprintPure, Category = "Blessings")
+	int32 GetStacks(EFPSRLBoonChannel Channel, const UFPSRLBoonDefinition* Boon) const;
 
-	UFUNCTION(BlueprintPure, Category = "Boons")
-	int32 GetMaxBoonSlots() const;
-
-	/** Distinct elements this player owns boons of. */
-	UFUNCTION(BlueprintPure, Category = "Boons")
-	FGameplayTagContainer GetOwnedElements() const;
+	/** The item the channel holds (Weapon.* / Secondary.* / Ability.*); empty = channel has nothing to bless. */
+	FGameplayTag GetChannelItem(EFPSRLBoonChannel Channel) const;
 
 	/** Cost of the next reroll in Soul Fragments (0 while free rerolls remain). */
-	UFUNCTION(BlueprintPure, Category = "Boons")
+	UFUNCTION(BlueprintPure, Category = "Blessings")
 	int32 GetNextRerollCost() const;
 
-	bool IsSelectionPending(int32 EventId) const { return bSelectionPending && EventId == SelectionEventId; }
+	bool IsSelectionPending(EFPSRLBoonSelectionKind Kind, int32 EventId) const { return PendingKind == Kind && EventId == SelectionEventId; }
+	bool HasPendingSelection() const { return PendingKind != EFPSRLBoonSelectionKind::None; }
 
-	// --- Server API (called by AFPSRLBoonTerminal / AFPSRLPlayerController) -----------------------------------
+	/** "Primary" / "Secondary" / "Ability", for UI. */
+	static FText GetChannelName(EFPSRLBoonChannel Channel);
 
-	/**
-	 * Opens a new choice for this player (a Boon altar was used). False if one is already open, or if nothing can be
-	 * offered (e.g. slots are full). Each call gets a new SelectionEventId, so stale requests for an older one fail.
-	 */
+	// --- Server API (altars / AFPSRLPlayerController) -------------------------------------------------------------
+
+	/** Blessing altar used: roll this player's options. False if a selection is already open or nothing is eligible. */
 	bool BeginSelection();
 
-	/** Player's manual pick. Returns true if it resolved the selection. */
 	bool TrySelect(int32 EventId, int32 OptionIndex);
 
 	/** Replaces the current options. Free while free rerolls remain, then costs Soul Fragments. */
 	bool TryReroll(int32 EventId);
 
-	/** Adds a boon outside a selection (rewards, dev cheat). Respects stacking and capacity. */
-	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Boons")
-	bool GrantBoon(UFPSRLBoonDefinition* Boon);
+	/** Upgrade Altar used: offer upgradeable Aspects / Blessings. False if a selection is open or nothing qualifies. */
+	bool BeginUpgradeSelection();
 
-	/** Run end: removes exactly the effects this component granted and clears all temporary boon state. */
+	bool TrySelectUpgrade(int32 EventId, int32 OptionIndex);
+
+	/** Grants a Blessing outside an altar (rewards, test command), with the same rules as an altar pick. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Blessings")
+	bool GrantBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel);
+
+	/** Run end: removes exactly what this component granted and clears all Blessing state. */
 	void ClearRunState();
 
-	/** Server, seamless travel: hands this player's owned boons to the next Depth's component. */
+	/** Server, seamless travel: hands the build to the next Depth's component. */
 	void CopyRunStateTo(UFPSRLBoonComponent* Other) const;
 
-	/** Server: re-grants boons carried over from the previous Depth (called from BeginRunState). */
+	/** Server: re-grants the build carried over from the previous Depth (called from BeginRunState). */
 	void RestoreRunState();
 
 protected:
@@ -133,23 +208,38 @@ protected:
 	void OnRep_BoonState();
 
 private:
-	/** Server: per OwnedBoons entry (same index), the grants of each stack. */
-	TArray<TArray<FFPSRLGrantHandles>> OwnedBoonHandles;
+	/** Server-only record of what was granted per channel, parallel to Tracks[Channel].Boons. */
+	struct FChannelHandles
+	{
+		FFPSRLGrantHandles Aspect;
+		TArray<TArray<FFPSRLGrantHandles>> Boons;	// [owned boon][stack]
+	};
+	FChannelHandles Handles[static_cast<int32>(EFPSRLBoonChannel::MAX)];
 
-	/** Server: boons carried from the previous Depth, waiting for BeginRunState to re-grant them. */
-	TArray<FFPSRLOwnedBoon> PendingRestore;
+	/** Server: build carried from the previous Depth, waiting for BeginRunState. */
+	TArray<FFPSRLBoonTrack> PendingRestore;
 
 	AFPSRLPlayerState* GetOwningPlayerState() const;
 	UAbilitySystemComponent* GetAbilitySystem() const;
+	FFPSRLBoonTrack& GetMutableTrack(EFPSRLBoonChannel Channel) { return Tracks[static_cast<int32>(Channel)]; }
 
-	/** Tags describing this player's build: weapon, aspect/build tags on the ASC, owned elements. */
-	FGameplayTagContainer GetBuildTags() const;
+	/** Can take Blessings at all: holds an item and isn't full. */
+	bool IsChannelOpen(EFPSRLBoonChannel Channel) const;
 
-	bool IsEligible(const UFPSRLBoonDefinition* Boon, bool bForReroll) const;
-	float GetOfferWeight(const UFPSRLBoonDefinition* Boon) const;
-	TArray<TObjectPtr<UFPSRLBoonDefinition>> GenerateOptions(bool bForReroll) const;
+	/** Can this Blessing be taken on this channel right now (as the channel's next position)? */
+	bool IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel, bool bForReroll) const;
 
-	bool AddBoonStack(UFPSRLBoonDefinition* Boon);
-	void ResolveSelection(UFPSRLBoonDefinition* Chosen, const TCHAR* How);
+	/** The Blessing pipeline: open channels -> Aspects -> valid pool -> milestones -> weighting -> unique picks. */
+	TArray<FFPSRLBoonOffer> GenerateOptions(bool bForReroll) const;
+	TArray<FFPSRLUpgradeOffer> GenerateUpgradeOptions() const;
+
+	void ApplyBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel);
+	void GiveAspect(EFPSRLBoonChannel Channel);
+	void GiveBoonStack(EFPSRLBoonChannel Channel, int32 OwnedIndex, bool bFirstStack);
+	void UpgradeAspect(EFPSRLBoonChannel Channel);
+	void UpgradeBoon(EFPSRLBoonChannel Channel, int32 OwnedIndex);
+
+	void EndSelection();
+	void LogOptions(const TCHAR* What) const;
 	void BroadcastChanged();
 };

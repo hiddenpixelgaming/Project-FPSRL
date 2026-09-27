@@ -6,21 +6,24 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 #include "Data/FPSRLGrantSet.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLBoonDefinition.generated.h"
 
+class UFPSRLAspectDefinition;
 class UTexture2D;
 
 /**
- * One boon: a distinct, run-scoped gameplay upgrade (Abyssus-style). Boons have NO rarity - a boon is defined by
- * what it does, not by a tier. Pure data: one Data Asset per boon; its ID is the asset name (Primary Asset "Boon").
+ * One Blessing (called a boon in code): a distinct run upgrade that belongs to an Aspect and attaches to a channel.
+ * No rarity. Pure data: one asset per Blessing; its ID is the asset name (Primary Asset "Boon").
  *
- * Eligibility is data-driven through tags, so the Boon system never hardcodes combinations:
- *  - RequiredWeaponTags / RequiredAspectTags: the player's weapon / aspect must match at least one (empty = any).
- *  - RequiredElementTags: the player must already own a boon of at least one of these elements (empty = no requirement).
- *  - BlockedTags: excluded if the player carries any of these (weapon, aspect, build and element tags).
- *  - RequiredBoons: prerequisites that must all be owned.
- * Elements: ElementTags lists the element(s) this boon belongs to (0 = elementless). A player can own boons from at
- * most 3 elements; each owned boon of an element raises that element's offer weight (see UFPSRLBoonSettings).
+ * Where it can be offered (all data, nothing hardcoded in the altar):
+ *  - Aspect + AllowedChannels: only on a channel whose Aspect is this one (or an empty channel, as its first
+ *    Blessing), and only on the channels listed (empty = any channel the Aspect allows).
+ *  - BoonType: Normal, or the channel's Minor (position 3) / Major (position 6) milestone.
+ *  - RequiredItemTags: the channel's equipped item must carry one of them (e.g. Weapon.Cannon, Secondary.Melee,
+ *    a future Ability.*). Empty = any item. This is how "needs a projectile weapon" / "needs melee" is expressed.
+ *  - BlockedTags, RequiredBoons (prerequisites on the same channel), RequiredChannelCount.
+ * Stacking: MaxStacks (1 = one-time). Upgrading (Upgrade Altar): UpgradedGrants replace Grants, up to MaxUpgradeLevel.
  */
 UCLASS(BlueprintType, Const)
 class FPSRL_API UFPSRLBoonDefinition : public UPrimaryDataAsset
@@ -29,81 +32,104 @@ class FPSRL_API UFPSRLBoonDefinition : public UPrimaryDataAsset
 
 public:
 	// --- Presentation ---
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|UI")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|UI")
 	FText DisplayName;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|UI", meta = (MultiLine = "true"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|UI", meta = (MultiLine = "true"))
 	FText Description;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|UI")
+	/** What the upgrade does, shown on the Upgrade Altar. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|UI", meta = (MultiLine = "true"))
+	FText UpgradeDescription;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|UI")
 	TSoftObjectPtr<UTexture2D> Icon;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon", meta = (Categories = "Boon.Category"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing", meta = (Categories = "Boon.Category"))
 	FGameplayTag Category;
 
-	/** This boon's own tags (Build.RapidFire, ...). Aspects can restrict boons by these. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon")
+	/** This Blessing's own tags (Build.RapidFire, ...), for synergies and BlockedTags on other Blessings. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
 	FGameplayTagContainer BoonTags;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon", meta = (Categories = "Element"))
-	FGameplayTagContainer ElementTags;
+	// --- Family and channel ---
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
+	TObjectPtr<UFPSRLAspectDefinition> Aspect;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
+	EFPSRLBoonType BoonType = EFPSRLBoonType::Normal;
+
+	/** Channels it can attach to. Empty = any channel its Aspect allows. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
+	TArray<EFPSRLBoonChannel> AllowedChannels;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
+	EFPSRLBoonScope Scope = EFPSRLBoonScope::Self;
 
 	// --- Eligibility ---
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Eligibility", meta = (Categories = "Weapon"))
-	FGameplayTagContainer RequiredWeaponTags;
+	/** The channel's equipped item must have one of these (Weapon.*, Secondary.*, Ability.*). Empty = any. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility")
+	FGameplayTagContainer RequiredItemTags;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Eligibility", meta = (Categories = "Aspect"))
-	FGameplayTagContainer RequiredAspectTags;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Eligibility", meta = (Categories = "Element"))
-	FGameplayTagContainer RequiredElementTags;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Eligibility")
+	/** Not offered while the player carries any of these (on their ASC or owned Blessings' BoonTags). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility")
 	FGameplayTagContainer BlockedTags;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Eligibility")
+	/** Must already be owned on the same channel. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility")
 	TArray<TObjectPtr<UFPSRLBoonDefinition>> RequiredBoons;
 
-	/** Base offer weight (no rarity: all boons start equal unless a designer tunes this). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Eligibility", meta = (ClampMin = "0"))
+	/** Minimum Blessings already on the channel. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility", meta = (ClampMin = "0"))
+	int32 RequiredChannelCount = 0;
+
+	/** Relative offer weight. 0 = never offered. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility", meta = (ClampMin = "0"))
 	float SelectionWeight = 1.f;
 
-	// --- Stacking (per boon; there is no universal rule) ---
-	/** Can be owned more than once. Each extra stack re-applies Grants.Effects (abilities/tags/cue come with the first). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Stacking")
-	bool bCanStack = false;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Stacking", meta = (ClampMin = "1", EditCondition = "bCanStack"))
-	int32 MaxStacks = 1;
-
-	/** May be offered again once owned (only meaningful while stacks remain, or for boons shown for upgrade). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Stacking")
-	bool bCanAppearAfterOwned = false;
-
-	/** May appear in a rerolled set of choices (if false it only appears in a selection's first set). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon|Stacking")
+	/** May appear in a rerolled set (if false, only in an altar's first set). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility")
 	bool bCanReroll = true;
 
-	/** Reserved for future explicitly team-wide boons. Standard boons are personal; not yet implemented. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon")
-	bool bIsTeamBoon = false;
+	// --- Stacking and upgrade ---
+	/** Times it can be taken (1 = one-time). Each stack counts as one Blessing on the channel. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Stacking", meta = (ClampMin = "1"))
+	int32 MaxStacks = 1;
+
+	/** Times the Upgrade Altar can improve it (0 = never offered). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Stacking", meta = (ClampMin = "0"))
+	int32 MaxUpgradeLevel = 1;
 
 	// --- Effect ---
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boon")
+	/** Applied once per stack (abilities, tags and cue only with the first). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
 	FFPSRLGrantSet Grants;
 
-	int32 GetMaxStacks() const { return bCanStack ? FMath::Max(1, MaxStacks) : 1; }
+	/** Replaces Grants once upgraded. Empty = the upgrade keeps Grants as they are. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
+	FFPSRLGrantSet UpgradedGrants;
+
+	int32 GetMaxStacks() const { return FMath::Max(1, MaxStacks); }
+
+	/** Can attach to this channel (its own list and its Aspect's). */
+	bool AllowsChannel(EFPSRLBoonChannel Channel) const;
+
+	/** Grants for a stack at an upgrade level. */
+	const FFPSRLGrantSet& GetGrants(int32 UpgradeLevel) const
+	{
+		return (UpgradeLevel > 0 && !FPSRLGrants::IsEmpty(UpgradedGrants)) ? UpgradedGrants : Grants;
+	}
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 };
 
-/** The boons that can be offered. Set in Project Settings > FPSRL Boons. */
+/** The Blessings altars can offer. Set in Project Settings > FPSRL Blessings. */
 UCLASS(BlueprintType, Const)
 class FPSRL_API UFPSRLBoonPool : public UDataAsset
 {
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Boons")
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessings")
 	TArray<TObjectPtr<UFPSRLBoonDefinition>> Boons;
 };

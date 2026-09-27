@@ -88,3 +88,37 @@ enum class ERelicRarity : uint8
 	Epic,
 	Legendary
 };
+
+/**
+ * The three combat channels a player's Blessings (boons) attach to. Each channel gets its own Aspect (boon family)
+ * and progresses independently. The equipped item (a weapon, the melee, a future ability) is data supplied to the
+ * channel, so new weapons and abilities plug in without a new boon system.
+ */
+UENUM(BlueprintType)
+enum class EFPSRLBoonChannel : uint8
+{
+	Primary,	// lobby weapon (Pistol / Rifle / Cannon)
+	Secondary,	// built-in melee today; melee or artifact weapons later
+	Ability,	// framework only until a real ability exists
+	MAX UMETA(Hidden)
+};
+ENUM_RANGE_BY_COUNT(EFPSRLBoonChannel, EFPSRLBoonChannel::MAX);
+
+/** A Blessing's place in its channel's progression: position 3 is the Minor, position 6 the Major. */
+UENUM(BlueprintType)
+enum class EFPSRLBoonType : uint8
+{
+	Normal,
+	Minor,
+	Major
+};
+
+/** Who a Blessing affects. Only Self is implemented; the others are reserved for explicitly team-wide designs. */
+UENUM(BlueprintType)
+enum class EFPSRLBoonScope : uint8
+{
+	Self,
+	Team,
+	Target,
+	Area
+};
