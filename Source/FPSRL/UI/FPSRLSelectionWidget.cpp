@@ -57,6 +57,10 @@ void UFPSRLSelectionWidget::NativeOnInitialized()
 	{
 		CloseButton->OnClicked.AddDynamic(this, &ThisClass::HandleClose);
 	}
+	if (BackButton)
+	{
+		BackButton->OnClicked.AddDynamic(this, &ThisClass::HandleBack);
+	}
 }
 
 void UFPSRLSelectionWidget::BuildDefaultLayout()
@@ -97,12 +101,27 @@ void UFPSRLSelectionWidget::BuildDefaultLayout()
 	RerollButton->SetContent(RerollLabel);
 	AddTo(Column, RerollButton, 14.f)->SetHorizontalAlignment(HAlign_Center);
 
+	BackButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("BackButton"));
+	UTextBlock* BackLabel = MakeText(WidgetTree, TEXT("BackLabel"), 16, TextColor);
+	BackButton->SetBackgroundColor(ButtonColor);
+	BackLabel->SetText(NSLOCTEXT("FPSRL", "SelectionBack", "Back"));
+	BackButton->SetContent(BackLabel);
+	AddTo(Column, BackButton, 6.f)->SetHorizontalAlignment(HAlign_Center);
+
 	CloseButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("CloseButton"));
 	UTextBlock* CloseLabel = MakeText(WidgetTree, TEXT("CloseLabel"), 16, TextColor);
 	CloseButton->SetBackgroundColor(ButtonColor);
 	CloseLabel->SetText(NSLOCTEXT("FPSRL", "SelectionClose", "Close (decide later)"));
 	CloseButton->SetContent(CloseLabel);
 	AddTo(Column, CloseButton, 6.f)->SetHorizontalAlignment(HAlign_Center);
+}
+
+void UFPSRLSelectionWidget::SetBackVisible(bool bVisible)
+{
+	if (BackButton)
+	{
+		BackButton->SetVisibility(bVisible ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+	}
 }
 
 void UFPSRLSelectionWidget::SetCloseVisible(bool bVisible)
@@ -232,3 +251,4 @@ void UFPSRLSelectionWidget::HandleChoice3() { OnChoice.ExecuteIfBound(3); }
 void UFPSRLSelectionWidget::HandleChoice4() { OnChoice.ExecuteIfBound(4); }
 void UFPSRLSelectionWidget::HandleReroll() { OnReroll.ExecuteIfBound(); }
 void UFPSRLSelectionWidget::HandleClose() { OnClose.ExecuteIfBound(); }
+void UFPSRLSelectionWidget::HandleBack() { OnBack.ExecuteIfBound(); }

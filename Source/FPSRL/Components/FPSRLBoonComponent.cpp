@@ -75,6 +75,11 @@ void UFPSRLBoonComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 
 	DOREPLIFETIME(UFPSRLBoonComponent, Tracks);	// teammates may inspect each other's build
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, PendingKind, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, AltarStep, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, AspectOptions, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, SlotOptions, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, ChosenAspect, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, ChosenChannel, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, CurrentOptions, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, UpgradeOptions, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, SelectionEventId, COND_OwnerOnly);
@@ -223,18 +228,53 @@ bool UFPSRLBoonComponent::IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoo
 
 // --- Offer generation --------------------------------------------------------------------------------------------
 
-TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll, const TArray<FFPSRLBoonOffer>& Avoid) const
+EFPSRLBoonChannel UFPSRLBoonComponent::FindAspectChannel(const UFPSRLAspectDefinition* Aspect) const
+{
+	for (const FFPSRLBoonTrack& Track : Tracks)
+	{
+		if (Aspect && Track.Aspect == Aspect)
+		{
+			return Track.Channel;
+		}
+	}
+	return EFPSRLBoonChannel::MAX;
+}
+
+TArray<EFPSRLBoonChannel> UFPSRLBoonComponent::GetFreeSlotsFor(const UFPSRLAspectDefinition* Aspect) const
+{
+	TArray<EFPSRLBoonChannel> Slots;
+	const UFPSRLBoonPool* Pool = UFPSRLBoonSettings::Get().BoonPool.LoadSynchronous();
+	if (!Pool || !Aspect)
+	{
+		return Slots;
+	}
+	for (const EFPSRLBoonChannel Channel : TEnumRange<EFPSRLBoonChannel>())
+	{
+		if (!IsChannelOpen(Channel) || GetTrack(Channel).Aspect || !Aspect->AllowsChannel(Channel))
+		{
+			continue;	// no item (e.g. no Ability yet), full, or already holding an Aspect
+		}
+		const bool bHasFirstBlessing = Pool->Boons.ContainsByPredicate([this, Aspect, Channel](const UFPSRLBoonDefinition* Boon)
+		{
+			return Boon && Boon->Aspect == Aspect && IsEligible(Boon, Channel, false);
+		});
+		if (bHasFirstBlessing)
+		{
+			Slots.Add(Channel);
+		}
+	}
+	return Slots;
+}
+
+TArray<UFPSRLAspectDefinition*> UFPSRLBoonComponent::GenerateAspectOptions(const TArray<TObjectPtr<UFPSRLAspectDefinition>>& Avoid) const
 {
 	struct FCandidate
 	{
-		UFPSRLBoonDefinition* Boon = nullptr;
-		EFPSRLBoonChannel Channel = EFPSRLBoonChannel::Primary;
-		bool bNewAspect = false;
-		bool bMilestone = false;
+		UFPSRLAspectDefinition* Aspect = nullptr;
 		float Weight = 1.f;
 	};
 
-	TArray<FFPSRLBoonOffer> Options;
+	TArray<UFPSRLAspectDefinition*> Options;
 	const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
 	const UFPSRLBoonPool* Pool = Settings.BoonPool.LoadSynchronous();
 	if (!Pool)
@@ -243,132 +283,124 @@ TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll, co
 		return Options;
 	}
 
+	// Every Aspect the pool has Blessings for. The player's own ones (with room left on their slot) are weighted
+	// AssignedAspectWeight times higher; new ones only appear while a free slot could take them.
+	TArray<UFPSRLAspectDefinition*> Aspects;
+	for (const UFPSRLBoonDefinition* Boon : Pool->Boons)
+	{
+		if (Boon && Boon->Aspect)
+		{
+			Aspects.AddUnique(Boon->Aspect);
+		}
+	}
 	TArray<FCandidate> Candidates;
-	for (const EFPSRLBoonChannel Channel : TEnumRange<EFPSRLBoonChannel>())
+	for (UFPSRLAspectDefinition* Aspect : Aspects)
 	{
-		if (!IsChannelOpen(Channel))
+		const EFPSRLBoonChannel Channel = FindAspectChannel(Aspect);
+		if (Channel != EFPSRLBoonChannel::MAX)
 		{
-			continue;	// no item (e.g. no Ability yet) or all positions filled
-		}
-		const FFPSRLBoonTrack& Track = GetTrack(Channel);
-
-		if (!Track.Aspect)
-		{
-			// Empty channel: one "new Aspect" choice per Aspect, shown through one of its first Blessings.
-			TMap<const UFPSRLAspectDefinition*, TArray<UFPSRLBoonDefinition*>> ByAspect;
-			for (UFPSRLBoonDefinition* Boon : Pool->Boons)
+			const bool bHasNext = IsChannelOpen(Channel) && Pool->Boons.ContainsByPredicate([this, Aspect, Channel](const UFPSRLBoonDefinition* Boon)
 			{
-				if (Boon && Boon->BoonType == EFPSRLBoonType::Normal && IsEligible(Boon, Channel, bForReroll))
-				{
-					ByAspect.FindOrAdd(Boon->Aspect).AddUnique(Boon);
-				}
-			}
-			for (const TPair<const UFPSRLAspectDefinition*, TArray<UFPSRLBoonDefinition*>>& Entry : ByAspect)
-			{
-				const int32 Pick = FPSRLBoons::PickWeighted(Entry.Value, [](const UFPSRLBoonDefinition* Boon) { return Boon->SelectionWeight; });
-				Candidates.Add({ Entry.Value[Pick], Channel, true, false, 1.f });
-			}
-			continue;
-		}
-
-		// Established channel: its Aspect only, and exactly the type its next position calls for.
-		const EFPSRLBoonType Wanted = Settings.GetBoonTypeForPosition(Track.Count + 1);
-		TArray<FCandidate> ChannelCandidates;
-		for (UFPSRLBoonDefinition* Boon : Pool->Boons)
-		{
-			if (Boon && Boon->BoonType == Wanted && IsEligible(Boon, Channel, bForReroll))
-			{
-				ChannelCandidates.Add({ Boon, Channel, false, Wanted != EFPSRLBoonType::Normal, Boon->SelectionWeight });
-			}
-		}
-		if (Wanted != EFPSRLBoonType::Normal && ChannelCandidates.IsEmpty())
-		{
-			// Content gap, not RNG: keep the channel progressing and say so.
-			UE_LOG(LogFPSRL, Warning, TEXT("[Blessings] %s has no %s Blessing for %s at position %d; offering normal ones"),
-				*GetNameSafe(Track.Aspect), *UEnum::GetValueAsString(Wanted), *GetChannelName(Channel).ToString(), Track.Count + 1);
-			for (UFPSRLBoonDefinition* Boon : Pool->Boons)
-			{
-				if (Boon && Boon->BoonType == EFPSRLBoonType::Normal && IsEligible(Boon, Channel, bForReroll))
-				{
-					ChannelCandidates.Add({ Boon, Channel, false, false, Boon->SelectionWeight });
-				}
-			}
-		}
-		Candidates.Append(ChannelCandidates);
-	}
-
-	const int32 Count = Settings.BoonOptionsPerSelection;
-
-	// A reroll should look like a new set: leave out what was just shown (the same Blessing on the same channel, or the
-	// same new Aspect for the same empty channel), as long as enough other choices remain. Milestones always stay.
-	if (!Avoid.IsEmpty())
-	{
-		auto WasShown = [&Avoid](const FCandidate& Candidate)
-		{
-			return Avoid.ContainsByPredicate([&Candidate](const FFPSRLBoonOffer& Shown)
-			{
-				return Shown.Channel == Candidate.Channel && (Shown.Boon == Candidate.Boon
-					|| (Shown.bNewAspect && Candidate.bNewAspect && Shown.Boon && Shown.Boon->Aspect == Candidate.Boon->Aspect));
+				return Boon && Boon->Aspect == Aspect && IsEligible(Boon, Channel, false);
 			});
-		};
-		int32 Fresh = 0;
-		for (const FCandidate& Candidate : Candidates)
-		{
-			Fresh += (Candidate.bMilestone || !WasShown(Candidate)) ? 1 : 0;
-		}
-		if (Fresh >= Count)
-		{
-			Candidates.RemoveAll([&WasShown](const FCandidate& Candidate) { return !Candidate.bMilestone && WasShown(Candidate); });
-		}
-	}
-	auto Take = [&Options, &Candidates](int32 Index)
-	{
-		const FCandidate Chosen = Candidates[Index];
-		Options.Add({ Chosen.Boon, Chosen.Channel, Chosen.bNewAspect });
-		// No Blessing twice in one set, and a channel's milestone appears once.
-		Candidates.RemoveAll([&Chosen](const FCandidate& Other)
-		{
-			return Other.Boon == Chosen.Boon || (Chosen.bMilestone && Other.bMilestone && Other.Channel == Chosen.Channel);
-		});
-	};
-
-	// Milestones are guaranteed: every channel at its Minor / Major position gets its milestone into the set.
-	for (const EFPSRLBoonChannel Channel : TEnumRange<EFPSRLBoonChannel>())
-	{
-		TArray<int32> MilestoneIndices;
-		for (int32 Index = 0; Index < Candidates.Num(); ++Index)
-		{
-			if (Candidates[Index].bMilestone && Candidates[Index].Channel == Channel)
+			if (bHasNext)
 			{
-				MilestoneIndices.Add(Index);
+				Candidates.Add({ Aspect, Settings.AssignedAspectWeight });
 			}
 		}
-		const int32 Pick = FPSRLBoons::PickWeighted(MilestoneIndices, [&Candidates](int32 Index) { return Candidates[Index].Weight; });
-		if (Pick != INDEX_NONE && Options.Num() < Count)
+		else if (!GetFreeSlotsFor(Aspect).IsEmpty())
 		{
-			Take(MilestoneIndices[Pick]);
+			Candidates.Add({ Aspect, 1.f });
 		}
 	}
 
-	// The rest: weighted picks without replacement. No push toward filling empty slots: on every draw each open channel
-	// has the same chance, however many candidates it still has (an empty channel has one per available Aspect, an
-	// established one only its own Blessings); within a channel the Blessings' own weights decide. So specializing in
-	// one channel stays exactly as likely as spreading out.
+	// A reroll should look like a new set: leave out the new Aspects just shown, as long as enough others remain. The
+	// player's own Aspects are never left out, so they keep their higher chance on every reroll.
+	const int32 Count = Settings.AspectOptionsPerAltar;
+	auto IsShownNew = [this, &Avoid](const FCandidate& Candidate)
+	{
+		return Avoid.Contains(Candidate.Aspect) && FindAspectChannel(Candidate.Aspect) == EFPSRLBoonChannel::MAX;
+	};
+	const int32 Kept = Candidates.FilterByPredicate([&IsShownNew](const FCandidate& Candidate) { return !IsShownNew(Candidate); }).Num();
+	if (!Avoid.IsEmpty() && Kept >= Count)
+	{
+		Candidates.RemoveAll(IsShownNew);
+	}
+
 	while (Options.Num() < Count && !Candidates.IsEmpty())
 	{
-		TMap<EFPSRLBoonChannel, float> ChannelTotals;
-		for (const FCandidate& Candidate : Candidates)
-		{
-			ChannelTotals.FindOrAdd(Candidate.Channel) += FMath::Max(0.f, Candidate.Weight);
-		}
-		Take(FPSRLBoons::PickWeighted(Candidates, [&ChannelTotals](const FCandidate& Candidate)
-		{
-			const float Total = ChannelTotals.FindRef(Candidate.Channel);
-			return Total > 0.f ? FMath::Max(0.f, Candidate.Weight) / Total : 0.f;
-		}));
+		const int32 Pick = FPSRLBoons::PickWeighted(Candidates, [](const FCandidate& Candidate) { return Candidate.Weight; });
+		Options.Add(Candidates[Pick].Aspect);
+		Candidates.RemoveAtSwap(Pick);
+	}
+	FPSRLBoons::Shuffle(Options);
+	return Options;
+}
+
+TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateBlessingOptions(UFPSRLAspectDefinition* Aspect, EFPSRLBoonChannel Channel) const
+{
+	TArray<FFPSRLBoonOffer> Options;
+	const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
+	const UFPSRLBoonPool* Pool = Settings.BoonPool.LoadSynchronous();
+	if (!Pool || !Aspect)
+	{
+		return Options;
 	}
 
-	FPSRLBoons::Shuffle(Options);
+	// This Aspect's Blessings the channel can take, by type. The Major needs MajorMinBlessings on the slot first;
+	// Minor and Major are one-time (MaxStacks 1), so each can only be won once per slot.
+	const FFPSRLBoonTrack& Track = GetTrack(Channel);
+	TArray<UFPSRLBoonDefinition*> Normal, Minor, Major;
+	for (UFPSRLBoonDefinition* Boon : Pool->Boons)
+	{
+		if (!Boon || Boon->Aspect != Aspect || !IsEligible(Boon, Channel, false))
+		{
+			continue;
+		}
+		switch (Boon->BoonType)
+		{
+		case EFPSRLBoonType::Minor:	Minor.Add(Boon); break;
+		case EFPSRLBoonType::Major:	if (Track.Count >= Settings.MajorMinBlessings) { Major.Add(Boon); } break;
+		default:					Normal.Add(Boon); break;
+		}
+	}
+
+	auto TakeFrom = [&Options, Channel, &Track](TArray<UFPSRLBoonDefinition*>& From, bool bOnlyOne)
+	{
+		const int32 Pick = FPSRLBoons::PickWeighted(From, [](const UFPSRLBoonDefinition* Boon) { return Boon->SelectionWeight; });
+		Options.Add({ From[Pick], Channel, Track.Aspect == nullptr });
+		if (bOnlyOne)
+		{
+			From.Reset();	// one Minor / Major per set
+		}
+		else
+		{
+			From.RemoveAtSwap(Pick);
+		}
+	};
+
+	// Each choice rolls: Major (rarest), else Minor, else a normal Blessing. If the rolled kind has nothing left,
+	// fall back to whatever remains, so the set is as full as the content allows.
+	while (Options.Num() < Settings.BoonOptionsPerSelection && !(Normal.IsEmpty() && Minor.IsEmpty() && Major.IsEmpty()))
+	{
+		const float Roll = FMath::FRand();
+		if (Roll < Settings.MajorChance && !Major.IsEmpty())
+		{
+			TakeFrom(Major, true);
+		}
+		else if (Roll < Settings.MajorChance + Settings.MinorChance && !Minor.IsEmpty())
+		{
+			TakeFrom(Minor, true);
+		}
+		else if (!Normal.IsEmpty())
+		{
+			TakeFrom(Normal, false);
+		}
+		else
+		{
+			TakeFrom(!Minor.IsEmpty() ? Minor : Major, true);
+		}
+	}
 	return Options;
 }
 
@@ -398,30 +430,97 @@ bool UFPSRLBoonComponent::BeginSelection()
 	{
 		return false;	// one open choice at a time; the pending one stays as it is
 	}
-
-	TArray<FFPSRLBoonOffer> Options = GenerateOptions(false);
+	TArray<UFPSRLAspectDefinition*> Options = GenerateAspectOptions({});
 	if (Options.IsEmpty())
 	{
 		UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: nothing to offer"), *GetNameSafe(GetOwner()));
 		return false;
 	}
+	EndSelection();
 	++SelectionEventId;
 	PendingKind = EFPSRLBoonSelectionKind::Blessing;
-	CurrentOptions = MoveTemp(Options);
+	AltarStep = EFPSRLAltarStep::ChooseAspect;
+	AspectOptions = Options;
+	LogOptions(TEXT("altar opened"));
+	BroadcastChanged();
+	return true;
+}
 
-	LogOptions(TEXT("selection opened"));
+bool UFPSRLBoonComponent::TryChooseAspect(int32 EventId, int32 OptionIndex)
+{
+	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId)
+		|| AltarStep != EFPSRLAltarStep::ChooseAspect || !AspectOptions.IsValidIndex(OptionIndex))
+	{
+		return false;
+	}
+	UFPSRLAspectDefinition* Aspect = AspectOptions[OptionIndex];
+	const EFPSRLBoonChannel OwnedChannel = FindAspectChannel(Aspect);
+	ChosenAspect = Aspect;
+	if (OwnedChannel != EFPSRLBoonChannel::MAX)
+	{
+		// Already on a slot: straight to its Blessings.
+		SlotOptions.Reset();
+		ChosenChannel = OwnedChannel;
+		return EnterBlessingStep();
+	}
+
+	// A new Aspect: pick one of the free slots it fits (skipped when only one does).
+	SlotOptions = GetFreeSlotsFor(Aspect);
+	if (SlotOptions.IsEmpty())
+	{
+		return false;
+	}
+	if (SlotOptions.Num() == 1)
+	{
+		ChosenChannel = SlotOptions[0];
+		return EnterBlessingStep();
+	}
+	AltarStep = EFPSRLAltarStep::ChooseSlot;
+	LogOptions(TEXT("Aspect chosen, choose a slot"));
+	BroadcastChanged();
+	return true;
+}
+
+bool UFPSRLBoonComponent::TryChooseSlot(int32 EventId, int32 OptionIndex)
+{
+	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId)
+		|| AltarStep != EFPSRLAltarStep::ChooseSlot || !SlotOptions.IsValidIndex(OptionIndex))
+	{
+		return false;
+	}
+	ChosenChannel = SlotOptions[OptionIndex];
+	return EnterBlessingStep();
+}
+
+bool UFPSRLBoonComponent::EnterBlessingStep()
+{
+	// Roll this Aspect + slot's Blessings once per altar; going Back and choosing them again shows the same ones.
+	const FString Key = FString::Printf(TEXT("%s|%d"), *GetPathNameSafe(ChosenAspect), static_cast<int32>(ChosenChannel));
+	TArray<FFPSRLBoonOffer>* Rolled = RolledBlessings.Find(Key);
+	if (!Rolled)
+	{
+		Rolled = &RolledBlessings.Add(Key, GenerateBlessingOptions(ChosenAspect, ChosenChannel));
+	}
+	if (Rolled->IsEmpty())
+	{
+		return false;
+	}
+	CurrentOptions = *Rolled;
+	AltarStep = EFPSRLAltarStep::ChooseBlessing;
+	LogOptions(TEXT("choose a Blessing"));
 	BroadcastChanged();
 	return true;
 }
 
 bool UFPSRLBoonComponent::TrySelect(int32 EventId, int32 OptionIndex)
 {
-	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId) || !CurrentOptions.IsValidIndex(OptionIndex))
+	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId)
+		|| AltarStep != EFPSRLAltarStep::ChooseBlessing || !CurrentOptions.IsValidIndex(OptionIndex))
 	{
 		return false;
 	}
 	const FFPSRLBoonOffer Offer = CurrentOptions[OptionIndex];
-	if (!IsEligible(Offer.Boon, Offer.Channel, false) || (Offer.bNewAspect && GetTrack(Offer.Channel).Aspect))
+	if (!IsChannelOpen(Offer.Channel) || !IsEligible(Offer.Boon, Offer.Channel, false) || (Offer.bNewAspect && GetTrack(Offer.Channel).Aspect))
 	{
 		UE_LOG(LogFPSRL, Warning, TEXT("[Blessings] %s: offer %s is no longer valid"), *GetNameSafe(GetOwner()), *GetNameSafe(Offer.Boon));
 		return false;
@@ -430,8 +529,33 @@ bool UFPSRLBoonComponent::TrySelect(int32 EventId, int32 OptionIndex)
 	EndSelection();	// resolve first, so nothing re-entrant can resolve this event twice
 	ApplyBoon(Offer.Boon, Offer.Channel);
 	const FFPSRLBoonTrack& Track = GetTrack(Offer.Channel);
-	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s took %s on %s (%s x%d, event %d)"), *GetNameSafe(GetOwner()), *GetNameSafe(Offer.Boon),
-		*GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Track.Aspect), Track.Count, EventId);
+	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s took %s (%s) on %s (%s x%d, event %d)"), *GetNameSafe(GetOwner()), *GetNameSafe(Offer.Boon),
+		*UEnum::GetDisplayValueAsText(Offer.Boon->BoonType).ToString(), *GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Track.Aspect), Track.Count, EventId);
+	BroadcastChanged();
+	return true;
+}
+
+bool UFPSRLBoonComponent::TryBack(int32 EventId)
+{
+	if (!GetOwner()->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId))
+	{
+		return false;
+	}
+	if (AltarStep == EFPSRLAltarStep::ChooseBlessing && SlotOptions.Num() > 1)
+	{
+		AltarStep = EFPSRLAltarStep::ChooseSlot;	// a new Aspect with a slot to choose: back to the slot
+	}
+	else if (AltarStep == EFPSRLAltarStep::ChooseBlessing || AltarStep == EFPSRLAltarStep::ChooseSlot)
+	{
+		AltarStep = EFPSRLAltarStep::ChooseAspect;
+		ChosenAspect = nullptr;
+		SlotOptions.Reset();
+	}
+	else
+	{
+		return false;	// already at the first step
+	}
+	CurrentOptions.Reset();
 	BroadcastChanged();
 	return true;
 }
@@ -439,12 +563,11 @@ bool UFPSRLBoonComponent::TrySelect(int32 EventId, int32 OptionIndex)
 bool UFPSRLBoonComponent::TryReroll(int32 EventId)
 {
 	AFPSRLPlayerState* PS = GetOwningPlayerState();
-	if (!PS || !PS->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId))
+	if (!PS || !PS->HasAuthority() || !IsSelectionPending(EFPSRLBoonSelectionKind::Blessing, EventId) || AltarStep != EFPSRLAltarStep::ChooseAspect)
 	{
-		return false;
+		return false;	// rerolls replace the Aspect choices only
 	}
-
-	TArray<FFPSRLBoonOffer> NewOptions = GenerateOptions(true, CurrentOptions);
+	TArray<UFPSRLAspectDefinition*> NewOptions = GenerateAspectOptions(AspectOptions);
 	if (NewOptions.IsEmpty())
 	{
 		return false;	// nothing else to offer; keep the current set and charge nothing
@@ -457,8 +580,7 @@ bool UFPSRLBoonComponent::TryReroll(int32 EventId)
 	{
 		return false;
 	}
-
-	CurrentOptions = MoveTemp(NewOptions);
+	AspectOptions = NewOptions;
 	LogOptions(TEXT("rerolled"));
 	BroadcastChanged();
 	return true;
@@ -513,9 +635,28 @@ void UFPSRLBoonComponent::LogOptions(const TCHAR* What) const
 {
 	// One line per event, so a playtest log shows exactly what each player was offered.
 	TArray<FString> Parts;
-	for (const FFPSRLBoonOffer& Offer : CurrentOptions)
+	if (PendingKind == EFPSRLBoonSelectionKind::Blessing && AltarStep == EFPSRLAltarStep::ChooseAspect)
 	{
-		Parts.Add(FString::Printf(TEXT("%s %s%s"), *GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Offer.Boon), Offer.bNewAspect ? TEXT(" (new Aspect)") : TEXT("")));
+		for (const UFPSRLAspectDefinition* Aspect : AspectOptions)
+		{
+			const EFPSRLBoonChannel Channel = FindAspectChannel(Aspect);
+			Parts.Add(FString::Printf(TEXT("%s (%s)"), *GetNameSafe(Aspect), Channel == EFPSRLBoonChannel::MAX ? TEXT("new") : *GetChannelName(Channel).ToString()));
+		}
+	}
+	else if (PendingKind == EFPSRLBoonSelectionKind::Blessing && AltarStep == EFPSRLAltarStep::ChooseSlot)
+	{
+		for (const EFPSRLBoonChannel Channel : SlotOptions)
+		{
+			Parts.Add(FString::Printf(TEXT("%s for %s"), *GetChannelName(Channel).ToString(), *GetNameSafe(ChosenAspect)));
+		}
+	}
+	else
+	{
+		for (const FFPSRLBoonOffer& Offer : CurrentOptions)
+		{
+			Parts.Add(FString::Printf(TEXT("%s %s [%s]%s"), *GetChannelName(Offer.Channel).ToString(), *GetNameSafe(Offer.Boon),
+				Offer.Boon ? *UEnum::GetDisplayValueAsText(Offer.Boon->BoonType).ToString() : TEXT("?"), Offer.bNewAspect ? TEXT(" (new Aspect)") : TEXT("")));
+		}
 	}
 	for (const FFPSRLUpgradeOffer& Offer : UpgradeOptions)
 	{
@@ -527,6 +668,11 @@ void UFPSRLBoonComponent::LogOptions(const TCHAR* What) const
 void UFPSRLBoonComponent::EndSelection()
 {
 	PendingKind = EFPSRLBoonSelectionKind::None;
+	AltarStep = EFPSRLAltarStep::ChooseAspect;
+	AspectOptions.Reset();
+	SlotOptions.Reset();
+	ChosenAspect = nullptr;
+	RolledBlessings.Reset();
 	CurrentOptions.Reset();
 	UpgradeOptions.Reset();
 }

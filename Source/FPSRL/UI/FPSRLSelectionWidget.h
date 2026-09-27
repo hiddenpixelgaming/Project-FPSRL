@@ -18,7 +18,7 @@ DECLARE_DELEGATE_OneParam(FFPSRLChoiceDelegate, int32 /*OptionIndex*/);
  * the server decides what is valid. Builds a simple default layout in code; a Blueprint subclass can supply its own
  * layout with widgets named Title, Countdown, Choice0..Choice4 (buttons), ChoiceHeader0..4 / ChoiceName0..4 /
  * ChoiceDesc0..4 (text),
- * RerollButton, RerollLabel and CloseButton (all optional).
+ * RerollButton, RerollLabel, BackButton and CloseButton (all optional).
  * The countdown refreshes on a 4 Hz timer, not Tick.
  */
 UCLASS()
@@ -50,9 +50,13 @@ public:
 	/** Close = hide the screen without choosing (the choice stays pending). */
 	void SetCloseVisible(bool bVisible);
 
+	/** Back = return to the previous step of the altar (Blessing -> slot -> Aspect). */
+	void SetBackVisible(bool bVisible);
+
 	FFPSRLChoiceDelegate OnChoice;
 	FSimpleDelegate OnReroll;
 	FSimpleDelegate OnClose;
+	FSimpleDelegate OnBack;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -73,6 +77,9 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Selection", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> CloseButton;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Selection", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> BackButton;
+
 private:
 	void BuildDefaultLayout();
 	void BindChoiceWidgets();
@@ -85,6 +92,7 @@ private:
 	UFUNCTION() void HandleChoice4();
 	UFUNCTION() void HandleReroll();
 	UFUNCTION() void HandleClose();
+	UFUNCTION() void HandleBack();
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UButton>> ChoiceButtons;

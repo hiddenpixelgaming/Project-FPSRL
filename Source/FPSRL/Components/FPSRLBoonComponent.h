@@ -92,27 +92,37 @@ enum class EFPSRLBoonSelectionKind : uint8
 	Upgrade		// Upgrade Altar
 };
 
+/** Where a Blessing altar choice is: Aspect first, then a slot (only for a new Aspect), then the Blessing. */
+UENUM(BlueprintType)
+enum class EFPSRLAltarStep : uint8
+{
+	ChooseAspect,
+	ChooseSlot,
+	ChooseBlessing
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
 
 /**
  * A player's run build of Blessings (boons): three independent channels (Primary / Secondary / Ability), each with
  * one Aspect and its own count. Lives on AFPSRLPlayerState (one per player; never shared).
  *
- * Progression per channel: the first Blessing sets the channel's Aspect and is position 1. Later Blessings for the
- * channel come only from that Aspect. Position MinorPosition (3) is always the Aspect's Minor, MajorPosition (6) its
- * Major: at those positions the channel offers only its milestone, and every offer includes it. Up to
- * MaxBoonsPerChannel (11). An Aspect can be on only one channel: once Fire is on Primary it is never offered
- * for Secondary or Ability.
+ * Progression per channel: the first Blessing sets the channel's Aspect; later Blessings for the channel come only from
+ * that Aspect, up to MaxBoonsPerChannel (11). An Aspect can be on only one channel (once Fire is on Primary it is never
+ * offered for Secondary or Ability), and slots may stay empty. Minor and Major Blessings are a chance on each Blessing
+ * choice (MinorChance / MajorChance, the Major only once the slot has MajorMinBlessings), each at most once per slot.
  *
  * Server-authoritative: the server rolls this player's options, validates the pick, applies it through GAS and
  * replicates the result. Clients only request (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons).
  * One selection at a time, Blessing or Upgrade; every request carries the SelectionEventId, and the first valid
  * resolution wins, so double clicks and stale requests can't grant twice. Nobody waits for it and there is no timer.
  *
- *  Blessing altar: BeginSelection -> TrySelect / TryReroll (3 free per RUN, shared by every altar and refilled only when
- *    the run ends; then Soul Fragments). Rerolls only replace the
- *    current options with a fresh set (avoiding the ones just shown when there are enough others); they never touch
- *    owned Blessings, Aspects or counts.
+ *  Blessing altar, three steps: BeginSelection offers AspectOptionsPerAltar Aspects (the player's own weighted
+ *    AssignedAspectWeight times higher; unassigned ones only while a slot is free) -> TryChooseAspect -> TryChooseSlot
+ *    (only for a new Aspect with more than one free slot) -> TrySelect from BoonOptionsPerSelection (2) Blessings.
+ *    TryBack steps back; the Blessings rolled for an Aspect and slot are kept for the altar, so going back never
+ *    re-rolls them. TryReroll (Aspect step only; 3 free per RUN shared by every altar, refilled when the run ends, then
+ *    Soul Fragments) replaces the Aspect choices; it never touches owned Blessings, Aspects or counts.
  *  Upgrade Altar: BeginUpgradeSelection -> TrySelectUpgrade. Offers up to UpgradeOptionsPerSelection of the
  *    player's owned Blessings below their MaxUpgradeLevel (any channel; Aspects are never upgraded). Upgrades stack
  *    (a Blessing can be upgraded again at a later altar) and never change a count.
@@ -138,6 +148,24 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	EFPSRLBoonSelectionKind PendingKind = EFPSRLBoonSelectionKind::None;
 
+	/** Blessing altar: the current step and its choices (Aspects, then slots, then Blessings). */
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	EFPSRLAltarStep AltarStep = EFPSRLAltarStep::ChooseAspect;
+
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	TArray<TObjectPtr<UFPSRLAspectDefinition>> AspectOptions;
+
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	TArray<EFPSRLBoonChannel> SlotOptions;
+
+	/** The Aspect picked at step 1 (and its slot, once known). */
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	TObjectPtr<UFPSRLAspectDefinition> ChosenAspect;
+
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	EFPSRLBoonChannel ChosenChannel = EFPSRLBoonChannel::Primary;
+
+	/** Step 3: the Blessing choices for ChosenAspect on ChosenChannel. */
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	TArray<FFPSRLBoonOffer> CurrentOptions;
 
@@ -177,12 +205,23 @@ public:
 
 	// --- Server API (altars / AFPSRLPlayerController) -------------------------------------------------------------
 
-	/** Blessing altar used: roll this player's options. False if a selection is already open or nothing is eligible. */
+	/** Blessing altar used: offer this player's Aspect choices. False if a selection is already open or nothing fits. */
 	bool BeginSelection();
 
+	/** Step 1: pick an Aspect. An owned one goes straight to its Blessings; a new one to the slot step (or straight to
+	 *  Blessings when only one slot is free). */
+	bool TryChooseAspect(int32 EventId, int32 OptionIndex);
+
+	/** Step 2: pick the free slot for a new Aspect. */
+	bool TryChooseSlot(int32 EventId, int32 OptionIndex);
+
+	/** Step 3: pick the Blessing. */
 	bool TrySelect(int32 EventId, int32 OptionIndex);
 
-	/** Replaces the current options. Free while free rerolls remain, then costs Soul Fragments. */
+	/** Back one step (Blessing -> slot or Aspect, slot -> Aspect). */
+	bool TryBack(int32 EventId);
+
+	/** Step 1 only: replaces the Aspect choices. Free while this run's free rerolls remain, then costs Soul Fragments. */
 	bool TryReroll(int32 EventId);
 
 	/** Upgrade Altar used: offer upgradeable owned Blessings. False if a selection is open or nothing qualifies. */
@@ -231,9 +270,24 @@ private:
 	/** Can this Blessing be taken on this channel right now (as the channel's next position)? */
 	bool IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel, bool bForReroll) const;
 
-	/** The Blessing pipeline: open channels -> Aspects -> valid pool -> milestones -> weighting -> unique picks. */
-	/** Avoid: offers to leave out if enough other choices exist (a reroll passes the set it replaces). */
-	TArray<FFPSRLBoonOffer> GenerateOptions(bool bForReroll, const TArray<FFPSRLBoonOffer>& Avoid = TArray<FFPSRLBoonOffer>()) const;
+	/** The channel holding this Aspect, or MAX if none. */
+	EFPSRLBoonChannel FindAspectChannel(const UFPSRLAspectDefinition* Aspect) const;
+
+	/** Free, open slots a new Aspect could take (each with at least one eligible first Blessing). */
+	TArray<EFPSRLBoonChannel> GetFreeSlotsFor(const UFPSRLAspectDefinition* Aspect) const;
+
+	/** Step 1 choices: the player's own Aspects (weighted higher) and, while a slot is free, new ones. Avoid: leave out
+	 *  if enough others exist (a reroll passes the set it replaces). */
+	TArray<UFPSRLAspectDefinition*> GenerateAspectOptions(const TArray<TObjectPtr<UFPSRLAspectDefinition>>& Avoid) const;
+
+	/** Step 3 choices for an Aspect on a channel, each with a chance of being its Minor or Major. */
+	TArray<FFPSRLBoonOffer> GenerateBlessingOptions(UFPSRLAspectDefinition* Aspect, EFPSRLBoonChannel Channel) const;
+
+	/** Moves to step 3 for ChosenAspect / ChosenChannel (rolls its Blessings once per altar, then reuses them). */
+	bool EnterBlessingStep();
+
+	/** Server: Blessings already rolled at this altar, by Aspect and channel, so Back can't be used to re-roll them. */
+	TMap<FString, TArray<FFPSRLBoonOffer>> RolledBlessings;
 	TArray<FFPSRLUpgradeOffer> GenerateUpgradeOptions() const;
 
 	void ApplyBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel);

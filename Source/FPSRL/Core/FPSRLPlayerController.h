@@ -45,7 +45,8 @@ struct FFPSRLWeaponOption
  *    (i.e. on arrival in the Arena), and immediately when picked at the weapon station.
  *
  * Blessing selection (requests only; the server validates everything in the player's UFPSRLBoonComponent):
- *  - ServerSelectBoon, ServerRerollBoons (Blessing altar) and ServerSelectUpgrade (Upgrade Altar). Each request carries
+ *  - Blessing altar: ServerChooseAspect -> ServerChooseSlot (new Aspect only) -> ServerSelectBoon, with ServerAltarBack
+ *    and ServerRerollBoons (Aspect step). Upgrade Altar: ServerSelectUpgrade. Each request carries
  *    the selection event id it was made for, so stale or duplicate requests are rejected.
  *  - The owning client shows one selection screen for whichever choice is pending (default C++ layout, restylable
  *    with a Blueprint subclass via BoonSelectionClass). It opens when the player uses an altar (UseBoonAltar -> the
@@ -106,6 +107,15 @@ public:
 	bool AreAllPlayersReady() const;
 
 	// --- Blessing selection ------------------------------------------------------------------------------------
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
+	void ServerChooseAspect(int32 EventId, int32 OptionIndex);
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
+	void ServerChooseSlot(int32 EventId, int32 OptionIndex);
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
+	void ServerAltarBack(int32 EventId);
 
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "Boons")
 	void ServerSelectBoon(int32 EventId, int32 OptionIndex);
@@ -183,8 +193,9 @@ public:
 	 *  FPSRLOfferBoon     - open a Blessing altar choice without an altar
 	 *  FPSRLOfferUpgrade  - open an Upgrade Altar choice without an altar
 	 *  FPSRLGiveRelic [DA_Relic_X]  - grant that relic, or roll a random one by rarity
-	 *  FPSRLPick N        - pick option N (0-based) of the open Blessing or Upgrade choice
-	 *  FPSRLReroll        - reroll the open Blessing choice (same rules and cost as the button)
+	 *  FPSRLPick N        - pick option N (0-based) at the current step (Aspect, slot, Blessing or upgrade)
+	 *  FPSRLReroll        - reroll the Aspect choices (same rules and cost as the button)
+	 *  FPSRLBack          - step back at a Blessing altar (Blessing -> slot -> Aspect)
 	 */
 	UFUNCTION(Exec)
 	void FPSRLGiveBoon(const FString& BoonAsset, const FString& Channel);
@@ -203,6 +214,9 @@ public:
 
 	UFUNCTION(Exec)
 	void FPSRLReroll();
+
+	UFUNCTION(Exec)
+	void FPSRLBack();
 
 	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
 	UFUNCTION(Server, Reliable)
@@ -314,6 +328,7 @@ private:
 	void HandleBoonChoice(int32 OptionIndex);
 	void HandleBoonReroll();
 	void HandleBoonClose();
+	void HandleBoonBack();
 
 	void ClosePortalMenu();
 	void HandlePortalChoice(bool bContinue);

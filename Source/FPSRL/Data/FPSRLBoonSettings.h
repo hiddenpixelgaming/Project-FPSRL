@@ -31,21 +31,33 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Pools")
 	TSoftObjectPtr<UFPSRLRelicPool> RelicPool;
 
-	/** Blessing choices per altar. */
+	/** Aspect choices at the first step of a Blessing altar. */
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
-	int32 BoonOptionsPerSelection = 3;
+	int32 AspectOptionsPerAltar = 3;
+
+	/** How much likelier an Aspect already on one of the player's slots is offered than a new one (1 = no preference). */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
+	float AssignedAspectWeight = 3.f;
+
+	/** Blessing choices after an Aspect (and slot) is picked. */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
+	int32 BoonOptionsPerSelection = 2;
 
 	/** Blessing positions per channel (a channel stops being offered once full). */
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
 	int32 MaxBoonsPerChannel = 11;
 
-	/** Position on a channel that is always its Aspect's Minor Blessing. */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
-	int32 MinorPosition = 3;
+	/** Chance each Blessing choice is the Aspect's Minor Blessing instead (once per slot). */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0", ClampMax = "1"))
+	float MinorChance = 0.2f;
 
-	/** Position on a channel that is always its Aspect's Major Blessing. */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
-	int32 MajorPosition = 6;
+	/** Chance each Blessing choice is the Aspect's Major Blessing instead (once per slot; rarer than the Minor). */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0", ClampMax = "1"))
+	float MajorChance = 0.05f;
+
+	/** Blessings a slot must already have before its Major can be offered. */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
+	int32 MajorMinBlessings = 3;
 
 	/** Secondary-channel item every player starts with (the built-in melee). */
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (Categories = "Secondary"))
@@ -70,12 +82,6 @@ public:
 	/** Relic drop odds by rarity (relative weights; rarities with no eligible relic are skipped). */
 	UPROPERTY(Config, EditAnywhere, Category = "Relics")
 	TMap<ERelicRarity, float> RelicRarityWeights;
-
-	/** Channel position (1-based) -> its milestone type. */
-	EFPSRLBoonType GetBoonTypeForPosition(int32 Position) const
-	{
-		return Position == MajorPosition ? EFPSRLBoonType::Major : Position == MinorPosition ? EFPSRLBoonType::Minor : EFPSRLBoonType::Normal;
-	}
 
 	virtual FName GetCategoryName() const override { return TEXT("Game"); }
 };

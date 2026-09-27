@@ -106,6 +106,30 @@ void AFPSRLPlayerController::ServerRerollBoons_Implementation(int32 EventId)
 	}
 }
 
+void AFPSRLPlayerController::ServerChooseAspect_Implementation(int32 EventId, int32 OptionIndex)
+{
+	if (AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
+	{
+		PS->GetBoonComponent()->TryChooseAspect(EventId, OptionIndex);
+	}
+}
+
+void AFPSRLPlayerController::ServerChooseSlot_Implementation(int32 EventId, int32 OptionIndex)
+{
+	if (AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
+	{
+		PS->GetBoonComponent()->TryChooseSlot(EventId, OptionIndex);
+	}
+}
+
+void AFPSRLPlayerController::ServerAltarBack_Implementation(int32 EventId)
+{
+	if (AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
+	{
+		PS->GetBoonComponent()->TryBack(EventId);
+	}
+}
+
 void AFPSRLPlayerController::ServerSelectUpgrade_Implementation(int32 EventId, int32 OptionIndex)
 {
 	if (AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
@@ -159,6 +183,11 @@ void AFPSRLPlayerController::FPSRLPick(int32 OptionIndex)
 void AFPSRLPlayerController::FPSRLReroll()
 {
 	HandleBoonReroll();	// same request the Reroll button sends
+}
+
+void AFPSRLPlayerController::FPSRLBack()
+{
+	HandleBoonBack();	// same request the Back button sends
 }
 
 namespace
@@ -643,30 +672,68 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 		}
 		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseUpgrade", "UPGRADE A BLESSING"));
 		BoonSelectionWidget->SetReroll(false, FText::GetEmpty(), false);
+		BoonSelectionWidget->SetBackVisible(false);
+	}
+	else if (Boons->AltarStep == EFPSRLAltarStep::ChooseAspect)
+	{
+		// Step 1: the Aspect. Owned ones say which slot they are on; new ones say a free slot will be chosen.
+		for (const UFPSRLAspectDefinition* Aspect : Boons->AspectOptions)
+		{
+			EFPSRLBoonChannel OwnedOn = EFPSRLBoonChannel::MAX;
+			for (const FFPSRLBoonTrack& Track : Boons->Tracks)
+			{
+				OwnedOn = Track.Aspect == Aspect ? Track.Channel : OwnedOn;
+			}
+			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
+			Choice.Header = OwnedOn != EFPSRLBoonChannel::MAX
+				? FText::Format(NSLOCTEXT("FPSRL", "AspectOwnedHeader", "YOUR ASPECT{0}ON {1}{0}{2} BLESSINGS"), Dot,
+					UFPSRLBoonComponent::GetChannelName(OwnedOn), Boons->GetTrack(OwnedOn).Count)
+				: NSLOCTEXT("FPSRL", "AspectNewHeader", "NEW ASPECT (goes on a free slot)");
+			Choice.HeaderColor = Aspect ? Aspect->Color : FLinearColor::White;
+			Choice.Name = AspectName(Aspect);
+			Choice.Description = Aspect ? Aspect->Description : FText::GetEmpty();
+		}
+		const int32 Cost = Boons->GetNextRerollCost();
+		const FText RerollLabel = Cost == 0
+			? FText::Format(NSLOCTEXT("FPSRL", "RerollFree", "Reroll Aspects ({0} free left this run)"), Boons->FreeRerollsRemaining)
+			: FText::Format(NSLOCTEXT("FPSRL", "RerollCost", "Reroll Aspects ({0} Soul Fragments, have {1})"), Cost, PS->TalentEssence);
+		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseAspect", "CHOOSE AN ASPECT"));
+		BoonSelectionWidget->SetReroll(true, RerollLabel, Cost == 0 || PS->TalentEssence >= Cost);
+		BoonSelectionWidget->OnReroll.BindUObject(this, &ThisClass::HandleBoonReroll);
+		BoonSelectionWidget->SetBackVisible(false);
+	}
+	else if (Boons->AltarStep == EFPSRLAltarStep::ChooseSlot)
+	{
+		// Step 2 (new Aspect only): which free slot it goes on.
+		for (const EFPSRLBoonChannel Channel : Boons->SlotOptions)
+		{
+			FString ItemName;
+			Boons->GetChannelItem(Channel).GetTagName().ToString().Split(TEXT("."), nullptr, &ItemName, ESearchCase::IgnoreCase, ESearchDir::FromEnd);
+			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
+			Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "SlotHeader", "EMPTY SLOT{0}{1}"), Dot, FText::FromString(ItemName.ToUpper()));
+			Choice.HeaderColor = Boons->ChosenAspect ? Boons->ChosenAspect->Color : FLinearColor::White;
+			Choice.Name = UFPSRLBoonComponent::GetChannelName(Channel);
+			Choice.Description = FText::Format(NSLOCTEXT("FPSRL", "SlotDescription", "Put {0} on your {1}. It stays there for the rest of the run."),
+				AspectName(Boons->ChosenAspect), UFPSRLBoonComponent::GetChannelName(Channel));
+		}
+		BoonSelectionWidget->SetTitle(FText::Format(NSLOCTEXT("FPSRL", "ChooseSlot", "CHOOSE A SLOT FOR {0}"), AspectName(Boons->ChosenAspect)));
+		BoonSelectionWidget->SetReroll(false, FText::GetEmpty(), false);
+		BoonSelectionWidget->SetBackVisible(true);
 	}
 	else
 	{
-		const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
+		// Step 3: the Blessing, which may be the Aspect's Minor or Major.
 		for (const FFPSRLBoonOffer& Offer : Boons->CurrentOptions)
 		{
-			const FFPSRLBoonTrack& Track = Boons->GetTrack(Offer.Channel);
 			const UFPSRLAspectDefinition* Aspect = Offer.Boon ? Offer.Boon->Aspect.Get() : nullptr;
-			FText Kind;
-			if (Offer.bNewAspect)
-			{
-				Kind = NSLOCTEXT("FPSRL", "NewAspect", "NEW ASPECT");
-			}
-			else if (Offer.Boon && Offer.Boon->BoonType == EFPSRLBoonType::Minor)
+			FText Kind = NSLOCTEXT("FPSRL", "NormalBlessing", "BLESSING");
+			if (Offer.Boon && Offer.Boon->BoonType == EFPSRLBoonType::Minor)
 			{
 				Kind = NSLOCTEXT("FPSRL", "MinorBlessing", "MINOR BLESSING");
 			}
 			else if (Offer.Boon && Offer.Boon->BoonType == EFPSRLBoonType::Major)
 			{
 				Kind = NSLOCTEXT("FPSRL", "MajorBlessing", "MAJOR BLESSING");
-			}
-			else
-			{
-				Kind = FText::Format(NSLOCTEXT("FPSRL", "BlessingPosition", "BLESSING {0}/{1}"), Track.Count + 1, Settings.MaxBoonsPerChannel);
 			}
 			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
 			Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "BlessingHeader", "{0}{1}{2}{1}{3}"),
@@ -675,15 +742,12 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 			Choice.Name = BoonName(Offer.Boon);
 			Choice.Description = Offer.Boon ? Offer.Boon->Description : FText::GetEmpty();
 		}
-
-		const int32 Cost = Boons->GetNextRerollCost();
-		const FText RerollLabel = Cost == 0
-			? FText::Format(NSLOCTEXT("FPSRL", "RerollFree", "Reroll ({0} free left this run)"), Boons->FreeRerollsRemaining)
-			: FText::Format(NSLOCTEXT("FPSRL", "RerollCost", "Reroll ({0} Soul Fragments, have {1})"), Cost, PS->TalentEssence);
-		BoonSelectionWidget->SetTitle(NSLOCTEXT("FPSRL", "ChooseBlessing", "CHOOSE A BLESSING"));
-		BoonSelectionWidget->SetReroll(true, RerollLabel, Cost == 0 || PS->TalentEssence >= Cost);
-		BoonSelectionWidget->OnReroll.BindUObject(this, &ThisClass::HandleBoonReroll);
+		BoonSelectionWidget->SetTitle(FText::Format(NSLOCTEXT("FPSRL", "ChooseBlessing", "CHOOSE A {0} BLESSING"),
+			FText::FromString(AspectName(Boons->ChosenAspect).ToString().ToUpper())));
+		BoonSelectionWidget->SetReroll(false, FText::GetEmpty(), false);
+		BoonSelectionWidget->SetBackVisible(true);
 	}
+	BoonSelectionWidget->OnBack.BindUObject(this, &ThisClass::HandleBoonBack);
 
 	BoonSelectionWidget->SetChoices(Choices);
 	BoonSelectionWidget->SetDeadline(0.0);	// altars have no timer
@@ -696,8 +760,25 @@ bool AFPSRLPlayerController::HasPendingBoonSelection() const
 {
 	const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>();
 	const UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
-	return Boons && (Boons->PendingKind == EFPSRLBoonSelectionKind::Upgrade ? !Boons->UpgradeOptions.IsEmpty()
-		: Boons->PendingKind == EFPSRLBoonSelectionKind::Blessing && !Boons->CurrentOptions.IsEmpty());
+	if (!Boons)
+	{
+		return false;
+	}
+	if (Boons->PendingKind == EFPSRLBoonSelectionKind::Upgrade)
+	{
+		return !Boons->UpgradeOptions.IsEmpty();
+	}
+	if (Boons->PendingKind != EFPSRLBoonSelectionKind::Blessing)
+	{
+		return false;
+	}
+	// A Blessing altar is pending at whichever step it is on, once that step's choices have arrived.
+	switch (Boons->AltarStep)
+	{
+	case EFPSRLAltarStep::ChooseAspect:	return !Boons->AspectOptions.IsEmpty();
+	case EFPSRLAltarStep::ChooseSlot:	return !Boons->SlotOptions.IsEmpty();
+	default:							return !Boons->CurrentOptions.IsEmpty();
+	}
 }
 
 bool AFPSRLPlayerController::OpenBoonSelection()
@@ -757,10 +838,26 @@ void AFPSRLPlayerController::HandleBoonChoice(int32 OptionIndex)
 		{
 			ServerSelectUpgrade(Boons->SelectionEventId, OptionIndex);
 		}
+		else if (Boons->AltarStep == EFPSRLAltarStep::ChooseAspect)
+		{
+			ServerChooseAspect(Boons->SelectionEventId, OptionIndex);
+		}
+		else if (Boons->AltarStep == EFPSRLAltarStep::ChooseSlot)
+		{
+			ServerChooseSlot(Boons->SelectionEventId, OptionIndex);
+		}
 		else
 		{
 			ServerSelectBoon(Boons->SelectionEventId, OptionIndex);
 		}
+	}
+}
+
+void AFPSRLPlayerController::HandleBoonBack()
+{
+	if (const AFPSRLPlayerState* PS = GetPlayerState<AFPSRLPlayerState>())
+	{
+		ServerAltarBack(PS->GetBoonComponent()->SelectionEventId);
 	}
 }
 
