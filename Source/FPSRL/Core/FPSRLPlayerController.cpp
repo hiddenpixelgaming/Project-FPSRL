@@ -156,6 +156,11 @@ void AFPSRLPlayerController::FPSRLPick(int32 OptionIndex)
 	HandleBoonChoice(OptionIndex);	// same request the screen sends
 }
 
+void AFPSRLPlayerController::FPSRLReroll()
+{
+	HandleBoonReroll();	// same request the Reroll button sends
+}
+
 namespace
 {
 	/** A pool entry by asset name (DA_Boon_X), or any asset by full path. */

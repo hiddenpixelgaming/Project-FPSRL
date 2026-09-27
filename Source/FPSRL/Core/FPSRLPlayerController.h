@@ -184,6 +184,7 @@ public:
 	 *  FPSRLOfferUpgrade  - open an Upgrade Altar choice without an altar
 	 *  FPSRLGiveRelic [DA_Relic_X]  - grant that relic, or roll a random one by rarity
 	 *  FPSRLPick N        - pick option N (0-based) of the open Blessing or Upgrade choice
+	 *  FPSRLReroll        - reroll the open Blessing choice (same rules and cost as the button)
 	 */
 	UFUNCTION(Exec)
 	void FPSRLGiveBoon(const FString& BoonAsset, const FString& Channel);
@@ -199,6 +200,9 @@ public:
 
 	UFUNCTION(Exec)
 	void FPSRLPick(int32 OptionIndex);
+
+	UFUNCTION(Exec)
+	void FPSRLReroll();
 
 	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
 	UFUNCTION(Server, Reliable)

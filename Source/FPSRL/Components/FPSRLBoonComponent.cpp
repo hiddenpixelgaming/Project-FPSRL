@@ -326,10 +326,22 @@ TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateOptions(bool bForReroll) co
 		}
 	}
 
-	// The rest: weighted picks without replacement.
+	// The rest: weighted picks without replacement. No push toward filling empty slots: on every draw each open channel
+	// has the same chance, however many candidates it still has (an empty channel has one per available Aspect, an
+	// established one only its own Blessings); within a channel the Blessings' own weights decide. So specializing in
+	// one channel stays exactly as likely as spreading out.
 	while (Options.Num() < Count && !Candidates.IsEmpty())
 	{
-		Take(FPSRLBoons::PickWeighted(Candidates, [](const FCandidate& Candidate) { return Candidate.Weight; }));
+		TMap<EFPSRLBoonChannel, float> ChannelTotals;
+		for (const FCandidate& Candidate : Candidates)
+		{
+			ChannelTotals.FindOrAdd(Candidate.Channel) += FMath::Max(0.f, Candidate.Weight);
+		}
+		Take(FPSRLBoons::PickWeighted(Candidates, [&ChannelTotals](const FCandidate& Candidate)
+		{
+			const float Total = ChannelTotals.FindRef(Candidate.Channel);
+			return Total > 0.f ? FMath::Max(0.f, Candidate.Weight) / Total : 0.f;
+		}));
 	}
 
 	FPSRLBoons::Shuffle(Options);
