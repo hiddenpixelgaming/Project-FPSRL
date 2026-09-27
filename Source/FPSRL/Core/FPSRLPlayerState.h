@@ -121,7 +121,7 @@ private:
 	/** Client: give the current pawn EquippedWeapon locally (once per pawn and weapon; waits for the pawn's BeginPlay). */
 	void EquipWeaponLocally();
 
-	/** Someone else's pawn on this machine: stop animating its first-person arms (only its own player sees them). */
+	/** Someone else's pawn on a client (simulated proxy): stop animating its first-person arms (only its own player sees them). */
 	void StopFirstPersonAnimationIfRemote(APawn* InPawn) const;
 
 	TWeakObjectPtr<APawn> LocallyEquippedPawn;

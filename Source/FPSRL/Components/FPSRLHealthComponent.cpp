@@ -25,6 +25,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Camera/CameraComponent.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "FPSRL.h"
 
 namespace FPSRLHealthDebug
@@ -79,21 +81,41 @@ void UFPSRLHealthComponent::ApplyEnemyTestTint()
 	{
 		return;
 	}
-	// Engine basic-shape material (cooked: the debug MIs derive from it), whose "Color" parameter tints the whole mesh.
-	UMaterialInterface* BaseMaterial = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
-	if (!BaseMaterial)
-	{
-		return;
-	}
-	UMaterialInstanceDynamic* Tint = UMaterialInstanceDynamic::Create(BaseMaterial, this);
-	Tint->SetVectorParameterValue(TEXT("Color"), EnemyTestTintColor);
-
+	// Tint the mesh's own materials. A swapped-in material must be flagged "Used with Skeletal Mesh" or a packaged build
+	// renders the default grey instead (v0.1.2: the engine BasicShapeMaterial tinted in the editor, grey in the build).
+	// The mannequin material has no single body-colour switch, so every colour/tint vector parameter it exposes is set.
 	TInlineComponentArray<USkeletalMeshComponent*> Meshes(GetOwner());
 	for (USkeletalMeshComponent* Mesh : Meshes)
 	{
 		for (int32 Index = 0; Index < Mesh->GetNumMaterials(); ++Index)
 		{
-			Mesh->SetMaterial(Index, Tint);
+			UMaterialInstanceDynamic* Tint = Mesh->CreateAndSetMaterialInstanceDynamic(Index);
+			if (!Tint)
+			{
+				continue;
+			}
+			TArray<FMaterialParameterInfo> Parameters;
+			TArray<FGuid> Ids;
+			Tint->GetAllVectorParameterInfo(Parameters, Ids);
+			TArray<FString> SetNames;
+			for (const FMaterialParameterInfo& Parameter : Parameters)
+			{
+				const FString Name = Parameter.Name.ToString();
+				if ((Name.Contains(TEXT("Tint")) || Name.Contains(TEXT("Color")))
+					&& !Name.Contains(TEXT("Emissive")) && !Name.Contains(TEXT("Subsurface")))
+				{
+					Tint->SetVectorParameterValue(Parameter.Name, EnemyTestTintColor);
+					SetNames.Add(Name);
+				}
+			}
+			static TSet<FName> LoggedMaterials;	// once per material, so the playtest log shows what got tinted
+			bool bAlreadyLogged = false;
+			LoggedMaterials.Add(GetFNameSafe(Tint->Parent), &bAlreadyLogged);
+			if (!bAlreadyLogged)
+			{
+				UE_LOG(LogFPSRL, Log, TEXT("[Tint] %s: set %s (of %d vector parameters)"), *GetNameSafe(Tint->Parent),
+					SetNames.IsEmpty() ? TEXT("nothing") : *FString::Join(SetNames, TEXT(", ")), Parameters.Num());
+			}
 		}
 	}
 }
@@ -525,6 +547,10 @@ void UFPSRLHealthComponent::HandleDownedTagChanged(const FGameplayTag Tag, int32
 	{
 		PC->SetWeaponInputBlocked(bDowned);	// downed players can't shoot, aim, reload, melee or dash
 	}
+	if (bDowned || !IsDead())	// bled out / party wipe: stay on the body until the death screen takes over
+	{
+		ApplyDownedCamera(bDowned);
+	}
 	if (bDowned && OwnerPawn && OwnerPawn->IsLocallyControlled())
 	{
 		FPSRLHealthDebug::Show(TEXT("You are DOWN - crawl to safety, a teammate can revive you (E)"), FColor::Orange);
@@ -559,5 +585,99 @@ void UFPSRLHealthComponent::ApplyDownedMovement(bool bDowned)
 		Movement->JumpZVelocity = SavedJumpZVelocity;
 		Movement->bCanWalkOffLedges = bSavedCanWalkOffLedges;
 		Movement->bCanWalkOffLedgesWhenCrouching = bSavedCanWalkOffLedgesWhenCrouching;
+	}
+}
+
+void UFPSRLHealthComponent::ApplyDownedCamera(bool bDowned)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || bDowned == bDownedCameraApplied || (bDowned && !OwnerPawn->IsLocallyControlled()))
+	{
+		return;
+	}
+	bDownedCameraApplied = bDowned;
+
+	if (!bDowned)
+	{
+		// Revived: first person again, exactly as it was.
+		for (const FDownedViewChange& Change : DownedViewChanges)
+		{
+			if (UPrimitiveComponent* Primitive = Change.Primitive.Get())
+			{
+				Primitive->SetFirstPersonPrimitiveType(Change.FirstPersonType);
+				Primitive->SetOwnerNoSee(Change.bOwnerNoSee);
+				Primitive->SetHiddenInGame(Change.bHiddenInGame);
+			}
+		}
+		DownedViewChanges.Reset();
+		if (DownedCamera)
+		{
+			DownedCamera->Deactivate();
+		}
+		for (const TWeakObjectPtr<UCameraComponent>& Camera : DownedDeactivatedCameras)
+		{
+			if (Camera.IsValid())
+			{
+				Camera->Activate();
+			}
+		}
+		DownedDeactivatedCameras.Reset();
+		return;
+	}
+
+	if (!DownedCamera)
+	{
+		DownedSpringArm = NewObject<USpringArmComponent>(OwnerPawn, TEXT("DownedSpringArm"));
+		DownedSpringArm->SetupAttachment(OwnerPawn->GetRootComponent());
+		DownedSpringArm->TargetArmLength = DownedCameraDistance;
+		DownedSpringArm->SocketOffset = DownedCameraOffset;
+		DownedSpringArm->bUsePawnControlRotation = true;	// mouse look orbits the body
+		DownedSpringArm->RegisterComponent();
+
+		DownedCamera = NewObject<UCameraComponent>(OwnerPawn, TEXT("DownedCamera"));
+		DownedCamera->bAutoActivate = false;
+		DownedCamera->SetupAttachment(DownedSpringArm, USpringArmComponent::SocketName);
+		DownedCamera->RegisterComponent();
+	}
+
+	// The view uses the pawn's first active camera, so switch the first-person one off.
+	TInlineComponentArray<UCameraComponent*> Cameras(OwnerPawn);
+	for (UCameraComponent* Camera : Cameras)
+	{
+		if (Camera != DownedCamera && Camera->IsActive())
+		{
+			Camera->Deactivate();
+			DownedDeactivatedCameras.Add(Camera);
+		}
+	}
+	DownedCamera->Activate();
+
+	// Owner-only first-person pieces (arms, first-person weapon) hidden; the world-space body and third-person weapon,
+	// normally hidden from their owner, shown. Weapons are separate actors attached to the pawn.
+	TArray<AActor*> Actors;
+	OwnerPawn->GetAttachedActors(Actors, true, true);
+	Actors.Add(OwnerPawn);
+	for (AActor* Actor : Actors)
+	{
+		TInlineComponentArray<UPrimitiveComponent*> Primitives(Actor);
+		for (UPrimitiveComponent* Primitive : Primitives)
+		{
+			const bool bFirstPersonOnly = Primitive->FirstPersonPrimitiveType == EFirstPersonPrimitiveType::FirstPerson || Primitive->bOnlyOwnerSee;
+			const bool bHiddenFromOwner = Primitive->FirstPersonPrimitiveType == EFirstPersonPrimitiveType::WorldSpaceRepresentation || Primitive->bOwnerNoSee;
+			if (!bFirstPersonOnly && !bHiddenFromOwner)
+			{
+				continue;
+			}
+			DownedViewChanges.Add({ Primitive, Primitive->FirstPersonPrimitiveType, Primitive->bOwnerNoSee != 0, Primitive->bHiddenInGame != 0 });
+			if (bFirstPersonOnly)
+			{
+				Primitive->SetHiddenInGame(true);
+			}
+			else
+			{
+				Primitive->SetFirstPersonPrimitiveType(EFirstPersonPrimitiveType::None);
+				Primitive->SetOwnerNoSee(false);
+			}
+		}
 	}
 }

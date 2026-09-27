@@ -140,6 +140,7 @@ void AFPSRLPlayerState::EquipWeaponLocally()
 		LocallyEquippedPawn = CurrentPawn;
 		LocallyEquippedWeapon = EquippedWeapon;
 		UE_LOG(LogFPSRL, Log, TEXT("[Client] equipped %s on %s (%s)"), *EquippedWeapon.ToString(), *CurrentPawn->GetName(), *GetPlayerName());
+		StopFirstPersonAnimationIfRemote(CurrentPawn);	// equipping switches the arms to ABP_FP_Weapon
 	}
 }
 
@@ -248,12 +249,12 @@ void AFPSRLPlayerState::PostInitializeComponents()
 
 void AFPSRLPlayerState::StopFirstPersonAnimationIfRemote(APawn* InPawn) const
 {
-	// Someone else's pawn on this machine. On a client its controller never replicates, so the template's
-	// ABP_FP_Weapon (on the first-person arms) failed GetController every frame: 1.5 million "Accessed None" log lines
-	// (150 MB) in one session. Those arms are drawn only for their own player, so nobody here needs them animated.
-	const UWorld* World = GetWorld();
-	const APlayerController* LocalPC = World ? World->GetFirstPlayerController() : nullptr;
-	if (!InPawn || InPawn->IsLocallyControlled() || !LocalPC || !LocalPC->PlayerState || LocalPC->PlayerState == this)
+	// Someone else's pawn on a client. Its controller never replicates here, so the template's ABP_FP_Weapon (on the
+	// first-person arms) failed GetController every frame: ~300 "Accessed None" log lines a second. Those arms are drawn
+	// only for their own player, so nobody here needs them animated. Decided by net role rather than by comparing with
+	// the local controller: right after joining or travelling the local controller's PlayerState isn't there yet
+	// (v0.1.2 log: that check bailed out and the spam continued).
+	if (!InPawn || InPawn->GetNetMode() != NM_Client || InPawn->GetLocalRole() != ROLE_SimulatedProxy)
 	{
 		return;
 	}

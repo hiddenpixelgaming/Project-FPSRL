@@ -31,6 +31,7 @@
 #include "Data/FPSRLBoonSettings.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "FPSRL.h"
 
@@ -911,6 +912,17 @@ void AFPSRLPlayerController::AcknowledgePossession(APawn* InPawn)
 {
 	Super::AcknowledgePossession(InPawn);
 	SetWeaponInputBlocked(false);	// a fresh pawn is never downed
+
+	// Our own arms always animate (the PlayerState turns them off on other players' pawns; undo that if this pawn
+	// replicated as someone else's before the possession arrived).
+	TInlineComponentArray<USkeletalMeshComponent*> Meshes(InPawn);
+	for (USkeletalMeshComponent* Mesh : Meshes)
+	{
+		if (Mesh->GetFName() == TEXT("FirstPersonMesh"))
+		{
+			Mesh->SetComponentTickEnabled(true);
+		}
+	}
 }
 
 void AFPSRLPlayerController::BeginPlay()

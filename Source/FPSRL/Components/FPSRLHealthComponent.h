@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "FPSRLHealthComponent.generated.h"
 
 class UAbilitySystemComponent;
@@ -122,7 +123,7 @@ private:
 
 	bool bBodyIgnoresProjectiles = false;
 
-	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies are painted this solid colour on every machine. */
+	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies' materials are tinted this colour on every machine. */
 	void ApplyEnemyTestTint();
 
 	UPROPERTY(EditDefaultsOnly, Category = "Health|Testing")
@@ -164,4 +165,36 @@ private:
 	float SavedJumpZVelocity = 0.f;
 	bool bSavedCanWalkOffLedges = true;
 	bool bSavedCanWalkOffLedgesWhenCrouching = true;
+
+	// --- Downed camera (owning player only) --------------------------------------------------------------------
+	// While down the owner watches their body from a third-person camera behind it; revived, back to first person.
+
+	/** Local player's own pawn: swap first-person camera and meshes for a third-person view of the body, or back. */
+	void ApplyDownedCamera(bool bDowned);
+
+	/** Third-person camera distance behind the downed body. */
+	UPROPERTY(EditDefaultsOnly, Category = "Health|Downed")
+	float DownedCameraDistance = 350.f;
+
+	/** Third-person camera offset (camera space: X back/forward, Y side, Z up) from the end of the arm. */
+	UPROPERTY(EditDefaultsOnly, Category = "Health|Downed")
+	FVector DownedCameraOffset = FVector(0.f, 0.f, 80.f);
+
+	UPROPERTY(Transient)
+	TObjectPtr<class USpringArmComponent> DownedSpringArm;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UCameraComponent> DownedCamera;
+
+	/** What ApplyDownedCamera changed, to put back on revive. */
+	struct FDownedViewChange
+	{
+		TWeakObjectPtr<class UPrimitiveComponent> Primitive;
+		EFirstPersonPrimitiveType FirstPersonType = EFirstPersonPrimitiveType::None;
+		bool bOwnerNoSee = false;
+		bool bHiddenInGame = false;
+	};
+	TArray<FDownedViewChange> DownedViewChanges;
+	TArray<TWeakObjectPtr<class UCameraComponent>> DownedDeactivatedCameras;
+	bool bDownedCameraApplied = false;
 };
