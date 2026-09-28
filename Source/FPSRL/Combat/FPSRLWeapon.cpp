@@ -168,6 +168,7 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 	});
 
 	--CurrentBullets;
+	OnWeaponStateChanged.Broadcast();
 	if (CurrentBullets <= 0)
 	{
 		Reload();
@@ -185,12 +186,14 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 
 void AFPSRLWeapon::Reload()
 {
-	if (bIsReloading)
+	if (bIsReloading || CurrentBullets >= MagSize)
 	{
 		return;
 	}
 	bIsReloading = true;
 	StopFiring();
+	ReloadStartTime = GetWorld()->GetTimeSeconds();
+	OnWeaponStateChanged.Broadcast();
 	if (ReloadDuration > 0.f)
 	{
 		GetWorldTimerManager().SetTimer(ReloadTimer, this, &ThisClass::FinishReload, ReloadDuration, false);
@@ -205,6 +208,7 @@ void AFPSRLWeapon::FinishReload()
 {
 	CurrentBullets = MagSize;
 	bIsReloading = false;
+	OnWeaponStateChanged.Broadcast();
 	CallHolder(TEXT("UpdateWeaponHUD"), [this](UFunction* Function, uint8* Params)
 	{
 		int32 Index = 0;
@@ -233,6 +237,7 @@ void AFPSRLWeapon::ActivateWeapon(FName OwnerTag)
 {
 	NoiseTag = OwnerTag;
 	SetActorHiddenInGame(false);
+	OnWeaponStateChanged.Broadcast();
 	CallHolder(TEXT("OnWeaponActivated"), [this](UFunction* Function, uint8* Params)
 	{
 		if (FObjectPropertyBase* Weapon = CastField<FObjectPropertyBase>(Function->ChildProperties))
@@ -342,4 +347,13 @@ bool AFPSRLWeapon::CallHolder(const TCHAR* FunctionName, TFunctionRef<void(UFunc
 		It->DestroyValue_InContainer(Params);
 	}
 	return true;
+}
+
+float AFPSRLWeapon::GetReloadProgress() const
+{
+	if (!bIsReloading || ReloadDuration <= 0.f)
+	{
+		return 1.f;
+	}
+	return FMath::Clamp(static_cast<float>((GetWorld()->GetTimeSeconds() - ReloadStartTime) / ReloadDuration), 0.f, 1.f);
 }

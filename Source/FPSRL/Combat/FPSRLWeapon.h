@@ -26,6 +26,8 @@ class USkeletalMeshComponent;
  * Aim-down-sights moves FP_Weapon between HipFire* and ADS* offsets; the weapon ticks only while that move or the spread
  * recovery is still settling (No-Tick policy: off the rest of the time).
  */
+DECLARE_MULTICAST_DELEGATE(FFPSRLWeaponStateEvent);
+
 UCLASS(Abstract, Blueprintable)
 class FPSRL_API AFPSRLWeapon : public AActor
 {
@@ -170,6 +172,13 @@ public:
 	TSubclassOf<UAnimInstance> GetThirdPersonAnimInstance() const { return ThirdPersonAnimInstance; }
 
 	/** Seconds between shots right now (slower while aiming). */
+	/** 0..1 through the current reload; 1 when not reloading. */
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	float GetReloadProgress() const;
+
+	/** Ammo or reload state changed (HUD). Local: weapons are local actors on every machine. */
+	FFPSRLWeaponStateEvent OnWeaponStateChanged;
+
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	float GetRefireRate() const { return bIsAiming ? BaseRefireRate * AimingRefireMultiplier : BaseRefireRate; }
 
@@ -213,6 +222,7 @@ private:
 	bool bIsAiming = false;
 	bool bIsReloading = false;
 	double TimeOfLastShot = -1000.0;
+	double ReloadStartTime = 0.0;
 	FName NoiseTag;
 	TWeakObjectPtr<APawn> PawnOwner;
 	FTimerHandle RefireTimer;

@@ -21,6 +21,7 @@
 #include "UI/FPSRLPortalWidgets.h"
 #include "UI/FPSRLReviveWidget.h"
 #include "UI/FPSRLEncounterBarWidget.h"
+#include "UI/FPSRLCombatHUDWidget.h"
 #include "Rooms/FPSRLRoom.h"
 #include "Data/FPSRLEncounterDefinition.h"
 #include "Core/FPSRLAutopilotSubsystem.h"
@@ -274,6 +275,16 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 				Enemy->FinishSpawning(At);
 				bDone = true;
 			}
+		}
+	}
+	else if (Command == TEXT("Hurt"))
+	{
+		// Damage this player (downed / damage-flash checks).
+		UFPSRLHealthComponent* Health = GetPawn() ? GetPawn()->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+		if (Health)
+		{
+			Health->ApplyEnvironmentDamage(FCString::Atof(*Arg1));
+			bDone = true;
 		}
 	}
 	else if (Command == TEXT("God"))
@@ -1199,6 +1210,16 @@ void AFPSRLPlayerController::BeginPlay()
 	// Listen host / cases where the PlayerState already exists (clients also get OnRep_PlayerState).
 	BindToPlayerStateComponents();
 	ReportTalentEssenceIfNeeded();
+
+	if (IsLocalController())
+	{
+		CombatHUD = CreateWidget<UFPSRLCombatHUDWidget>(this, CombatHUDClass ? CombatHUDClass : TSubclassOf<UFPSRLCombatHUDWidget>(UFPSRLCombatHUDWidget::StaticClass()));
+		if (CombatHUD)
+		{
+			CombatHUD->AddToViewport(-1);	// under menus and prompts
+			CombatHUD->SetController(this);
+		}
+	}
 }
 
 void AFPSRLPlayerController::SetupInputComponent()
@@ -1399,10 +1420,16 @@ void AFPSRLPlayerController::ClientShowNotice_Implementation(const FText& Messag
 void AFPSRLPlayerController::HandleMeleePressed()
 {
 	// The swing is done on the server for everyone: the host directly, a client by asking.
-	if (IsLocalController() && GetPawn())
+	if (!IsLocalController() || !GetPawn() || GetMeleeCooldownFraction() > 0.f)
 	{
-		ServerMelee();	// on the listen host this runs right here
+		return;	// still recovering from the last swing
 	}
+	LastLocalMeleeTime = GetWorld()->GetTimeSeconds();
+	if (CombatHUD)
+	{
+		CombatHUD->NotifyMeleeSwung();
+	}
+	ServerMelee();	// on the listen host this runs right here
 }
 
 void AFPSRLPlayerController::ServerMelee_Implementation()
@@ -1414,7 +1441,7 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 		return;	// downed or dead
 	}
 	const double Now = World->GetTimeSeconds();
-	if (LastServerMeleeTime >= 0.0 && Now - LastServerMeleeTime < MinMeleeInterval)
+	if (LastServerMeleeTime >= 0.0 && Now - LastServerMeleeTime < MeleeCooldown * 0.8f)
 	{
 		return;	// faster than anyone can swing
 	}
@@ -1444,4 +1471,14 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	{
 		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))));
 	}
+}
+
+float AFPSRLPlayerController::GetMeleeCooldownFraction() const
+{
+	if (MeleeCooldown <= 0.f || !GetWorld())
+	{
+		return 0.f;
+	}
+	const double Remaining = MeleeCooldown - (GetWorld()->GetTimeSeconds() - LastLocalMeleeTime);
+	return FMath::Clamp(static_cast<float>(Remaining / MeleeCooldown), 0.f, 1.f);
 }

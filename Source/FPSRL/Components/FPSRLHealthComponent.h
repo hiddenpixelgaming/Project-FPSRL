@@ -135,6 +135,23 @@ private:
 	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies' materials are tinted this colour on every machine. */
 	void ApplyEnemyTestTint();
 
+	/** Every body-colour parameter ('Tint' / 'Color') on this character's skeletal mesh materials set to Color; the
+	 *  first time a material is touched its own values are remembered so RestoreBodyColor can put them back. */
+	void SetBodyColor(const FLinearColor& Color);
+
+	/** Back to the resting look: the enemy test tint for enemies, the materials' own colours otherwise. */
+	void RestoreBodyColor();
+
+	/** Enemy hit: red, then white, then back (about 0.1 s). Every machine (health replicates). */
+	void StartHitFlash();
+	void StepHitFlash();
+
+	TMap<TWeakObjectPtr<class UMaterialInstanceDynamic>, TArray<TPair<FName, FLinearColor>>> OriginalBodyColors;
+	FTimerHandle HitFlashTimer;
+	int32 HitFlashStage = 0;
+	float LastHealthSeen = -1.f;
+	bool bRestingTintIsEnemyTint = false;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Health|Testing")
 	FLinearColor EnemyTestTintColor = FLinearColor(1.f, 0.85f, 0.f);
 

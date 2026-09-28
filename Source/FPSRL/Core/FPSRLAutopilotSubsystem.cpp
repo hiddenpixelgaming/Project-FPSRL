@@ -4,6 +4,7 @@
 #include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Combat/FPSRLWeapon.h"
+#include "UI/FPSRLCombatHUDWidget.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Core/FPSRLDepthLayoutComponent.h"
@@ -392,41 +393,80 @@ bool UFPSRLAutopilotSubsystem::StepWeaponTest(float DeltaTime)
 		PC->ConsoleCommand(TEXT("quit"));
 		return false;
 	}
-	switch (WeaponStep)
+	auto HUDState = [PC]() { return PC->GetCombatHUD() ? PC->GetCombatHUD()->DescribeForTest() : FString(TEXT("no HUD")); };
+	auto Press = [PC](const TCHAR* ActionPath)
+	{
+		const ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
+		UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+		if (UInputAction* Action = LoadObject<UInputAction>(nullptr, ActionPath); Action && Input)
+		{
+			Input->InjectInputForAction(Action, FInputActionValue(true), {}, {});	// a real key press for every binding
+		}
+	};
+	switch (WeaponStep)	// 4 steps per second
 	{
 	case 1004:	// one real trigger press (IA_Shoot through the character Blueprint)
 		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] holding %s: %d/%d rounds, enemy health %.0f"), *Weapon->GetClass()->GetName(),
 			Weapon->GetCurrentBullets(), Weapon->GetMagSize(), EnemyHealth());
-		if (const ULocalPlayer* LocalPlayer = PC->GetLocalPlayer())
-		{
-			if (UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
-			{
-				if (UInputAction* Shoot = LoadObject<UInputAction>(nullptr, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot")))
-				{
-					Input->InjectInputForAction(Shoot, FInputActionValue(true), {}, {});
-				}
-			}
-		}
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] HUD: %s"), *HUDState());
+		Press(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot"));
 		break;
 	case 1008:
-		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after one press: %d rounds, enemy health %.0f, firing %d"), Weapon->GetCurrentBullets(), EnemyHealth(), Weapon->IsWeaponFiring() ? 1 : 0);
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after one press: %d rounds, enemy health %.0f"), Weapon->GetCurrentBullets(), EnemyHealth());
 		Weapon->StopFiring();
 		Weapon->StartFiring();	// hold the trigger for a second (full auto)
 		break;
 	case 1012:
 		Weapon->StopFiring();
-		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after 1 s full auto: %d rounds (rifle fires every %.2f s), spread %.1f"), Weapon->GetCurrentBullets(), Weapon->GetRefireRate(), Weapon->GetAimVariance());
-		Weapon->StartAiming();
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after 1 s full auto: %d rounds, spread %.1f; HUD: %s"), Weapon->GetCurrentBullets(), Weapon->GetAimVariance(), *HUDState());
+		Weapon->StartFiring();	// hold until empty (29 rounds at 0.1 s)
 		break;
-	case 1014:
-		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] aiming: %d, refire %.2f s; holding until empty"), Weapon->IsWeaponAiming() ? 1 : 0, Weapon->GetRefireRate());
-		Weapon->StopAiming();
-		Weapon->StartFiring();
+	case 1026:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] emptied, reloading %d (%.1f s): %d rounds; HUD: %s"), Weapon->IsReloading() ? 1 : 0, Weapon->ReloadDuration, Weapon->GetCurrentBullets(), *HUDState());
 		break;
-	case 1030:
+	case 1029:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] mid reload: HUD: %s"), *HUDState());
+		break;
+	case 1034:
 		Weapon->StopFiring();
-		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after emptying: %d/%d rounds (reloaded: %s), enemy health %.0f"), Weapon->GetCurrentBullets(), Weapon->GetMagSize(),
-			Weapon->GetCurrentBullets() == Weapon->GetMagSize() || Weapon->GetCurrentBullets() > 30 ? TEXT("yes") : TEXT("NO"), EnemyHealth());
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after reload: %d/%d rounds, reloading %d; HUD: %s"), Weapon->GetCurrentBullets(), Weapon->GetMagSize(), Weapon->IsReloading() ? 1 : 0, *HUDState());
+		PC->ServerTestCommand(TEXT("SpawnTestEnemy"), FString(), FString());	// a fresh target for melee
+		break;
+	case 1038:
+		Press(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee"));
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] melee pressed"));
+		break;
+	case 1039:
+		Press(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee"));	// 0.25 s later: must be ignored (1 s cooldown)
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] melee pressed again at 0.25 s; HUD: %s"), *HUDState());
+		break;
+	case 1041:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] melee at 0.75 s; HUD: %s"), *HUDState());
+		break;
+	case 1043:
+		Press(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee"));	// 1.25 s: allowed again
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] melee pressed at 1.25 s"));
+		break;
+	case 1045:
+		PC->ServerTestCommand(TEXT("God"), FString(), FString());	// god mode off
+		break;
+	case 1046:
+		if (UFPSRLHealthComponent* Health = Pawn->FindComponentByClass<UFPSRLHealthComponent>())
+		{
+			Health->ApplyEnvironmentDamage(10.f);
+		}
+		break;
+	case 1047:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] 0.25 s after taking 10 damage: HUD: %s"), *HUDState());
+		break;
+	case 1050:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] 1 s after: HUD: %s"), *HUDState());
+		if (UFPSRLHealthComponent* Health = Pawn->FindComponentByClass<UFPSRLHealthComponent>())
+		{
+			Health->ApplyEnvironmentDamage(Health->GetCurrentHealth() + 10.f);	// goes down (purple)
+		}
+		break;
+	case 1054:
 		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] done"));
 		PC->ConsoleCommand(TEXT("quit"));
 		return false;
@@ -436,6 +476,7 @@ bool UFPSRLAutopilotSubsystem::StepWeaponTest(float DeltaTime)
 	return true;
 }
 
+
 static FAutoConsoleCommandWithWorld GFPSRLWeaponTestCommand(TEXT("FPSRL.WeaponTest"),
 	TEXT("Host test: rifle, enemy in front, shoot / full auto / aim / empty + reload (see [WeaponTest])."),
 	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
@@ -444,4 +485,34 @@ static FAutoConsoleCommandWithWorld GFPSRLWeaponTestCommand(TEXT("FPSRL.WeaponTe
 		{
 			World->GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->StartWeaponTest();
 		}
+	}));
+
+static FAutoConsoleCommandWithWorldAndArgs GFPSRLHurtCommand(TEXT("FPSRL.HurtMe"),
+	TEXT("Test: once in a game, ask the server to damage this player by the given amount (default 1000), then quit after 4 s."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World)
+	{
+		const FString Amount = Args.Num() > 0 ? Args[0] : FString(TEXT("1000"));
+		TWeakObjectPtr<UGameInstance> GameInstance = World ? World->GetGameInstance() : nullptr;
+		TSharedRef<int32> Step = MakeShared<int32>(0);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([GameInstance, Amount, Step](float)
+		{
+			UGameInstance* GI = GameInstance.Get();
+			AFPSRLPlayerController* PC = GI ? Cast<AFPSRLPlayerController>(GI->GetFirstLocalPlayerController()) : nullptr;
+			if (!PC || !PC->GetPawn() || (PC->GetNetMode() == NM_Client && !PC->GetNetConnection()) || PC->GetWorld()->GetMapName().Contains(TEXT("Lobby")))
+			{
+				return ++*Step < 300;	// waiting to be in a Depth
+			}
+			if (*Step < 1000)
+			{
+				*Step = 1000;
+				PC->ServerTestCommand(TEXT("Hurt"), Amount, FString());
+				return true;
+			}
+			if (++*Step > 1004)
+			{
+				PC->ConsoleCommand(TEXT("quit"));
+				return false;
+			}
+			return true;
+		}), 1.f);
 	}));

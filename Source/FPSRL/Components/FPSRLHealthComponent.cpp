@@ -85,44 +85,16 @@ void UFPSRLHealthComponent::ApplyEnemyTestTint()
 	// Tint the mesh's own materials. A swapped-in material must be flagged "Used with Skeletal Mesh" or a packaged build
 	// renders the default grey instead (v0.1.2: the engine BasicShapeMaterial tinted in the editor, grey in the build).
 	// The mannequin material has no single body-colour switch, so every colour/tint vector parameter it exposes is set.
-	TInlineComponentArray<USkeletalMeshComponent*> Meshes(GetOwner());
-	for (USkeletalMeshComponent* Mesh : Meshes)
-	{
-		for (int32 Index = 0; Index < Mesh->GetNumMaterials(); ++Index)
-		{
-			UMaterialInstanceDynamic* Tint = Mesh->CreateAndSetMaterialInstanceDynamic(Index);
-			if (!Tint)
-			{
-				continue;
-			}
-			TArray<FMaterialParameterInfo> Parameters;
-			TArray<FGuid> Ids;
-			Tint->GetAllVectorParameterInfo(Parameters, Ids);
-			TArray<FString> SetNames;
-			for (const FMaterialParameterInfo& Parameter : Parameters)
-			{
-				const FString Name = Parameter.Name.ToString();
-				if ((Name.Contains(TEXT("Tint")) || Name.Contains(TEXT("Color")))
-					&& !Name.Contains(TEXT("Emissive")) && !Name.Contains(TEXT("Subsurface")))
-				{
-					Tint->SetVectorParameterValue(Parameter.Name, EnemyTestTintColor);
-					SetNames.Add(Name);
-				}
-			}
-			static TSet<FName> LoggedMaterials;	// once per material, so the playtest log shows what got tinted
-			bool bAlreadyLogged = false;
-			LoggedMaterials.Add(GetFNameSafe(Tint->Parent), &bAlreadyLogged);
-			if (!bAlreadyLogged)
-			{
-				UE_LOG(LogFPSRL, Log, TEXT("[Tint] %s: set %s (of %d vector parameters)"), *GetNameSafe(Tint->Parent),
-					SetNames.IsEmpty() ? TEXT("nothing") : *FString::Join(SetNames, TEXT(", ")), Parameters.Num());
-			}
-		}
-	}
+	bRestingTintIsEnemyTint = true;
+	SetBodyColor(EnemyTestTintColor);
 }
 
 void UFPSRLHealthComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(HitFlashTimer);
+	}
 	UninitializeFromAbilitySystem();
 	Super::EndPlay(EndPlayReason);
 }
@@ -308,6 +280,14 @@ void UFPSRLHealthComponent::ApplyHealthEffect(TSubclassOf<UGameplayEffect> Effec
 void UFPSRLHealthComponent::HandleHealthAttributeChanged(const FOnAttributeChangeData& ChangeData)
 {
 	OnHealthChanged.Broadcast(GetCurrentHealth(), GetMaxHealth());
+
+	// Enemies flash red / white when hurt (players get a screen flash from their HUD instead).
+	const float Health = GetCurrentHealth();
+	if (LastHealthSeen >= 0.f && Health < LastHealthSeen - 0.01f && !IsPlayerSide(nullptr, GetOwner()))
+	{
+		StartHitFlash();
+	}
+	LastHealthSeen = Health;
 
 	// After the broadcast, so the character's own death handling (ragdoll profile) has already run.
 	if (!bBodyIgnoresProjectiles && GetHealthSet() && GetCurrentHealth() <= 0.f)
@@ -575,6 +555,19 @@ void UFPSRLHealthComponent::HandleDownedTagChanged(const FGameplayTag Tag, int32
 	{
 		PC->SetWeaponInputBlocked(bDowned);	// downed players can't shoot, aim, reload, melee or dash
 	}
+	if (IsPlayerSide(nullptr, GetOwner()))
+	{
+		// Downed players turn purple for everyone until revived.
+		if (bDowned)
+		{
+			UE_LOG(LogFPSRL, Verbose, TEXT("[Downed] %s turns purple"), *GetOwner()->GetName());
+			SetBodyColor(FLinearColor(0.55f, 0.1f, 1.f));
+		}
+		else
+		{
+			RestoreBodyColor();
+		}
+	}
 	if (bDowned || !IsDead())	// bled out / party wipe: stay on the body until the death screen takes over
 	{
 		ApplyDownedCamera(bDowned);
@@ -719,4 +712,90 @@ bool UFPSRLHealthComponent::IsGodMode() const
 	const AFPSRLPlayerState* PlayerState = Pawn ? Pawn->GetPlayerState<AFPSRLPlayerState>() : nullptr;
 	return PlayerState && PlayerState->bGodMode;
 #endif
+}
+
+// --- Body colour: enemy hit flash, downed players --------------------------------------------------------------------
+
+void UFPSRLHealthComponent::SetBodyColor(const FLinearColor& Color)
+{
+	if (GetNetMode() == NM_DedicatedServer)
+	{
+		return;
+	}
+	TInlineComponentArray<USkeletalMeshComponent*> Meshes(GetOwner());
+	for (USkeletalMeshComponent* Mesh : Meshes)
+	{
+		for (int32 Index = 0; Index < Mesh->GetNumMaterials(); ++Index)
+		{
+			UMaterialInstanceDynamic* Material = Mesh->CreateAndSetMaterialInstanceDynamic(Index);
+			if (!Material)
+			{
+				continue;
+			}
+			TArray<FMaterialParameterInfo> Parameters;
+			TArray<FGuid> Ids;
+			Material->GetAllVectorParameterInfo(Parameters, Ids);
+			const bool bFirstTime = !OriginalBodyColors.Contains(Material);
+			TArray<TPair<FName, FLinearColor>>& Originals = OriginalBodyColors.FindOrAdd(Material);
+			for (const FMaterialParameterInfo& Parameter : Parameters)
+			{
+				// The mannequin material has no single body-colour switch: every colour / tint parameter is set.
+				const FString Name = Parameter.Name.ToString();
+				if ((Name.Contains(TEXT("Tint")) || Name.Contains(TEXT("Color"))) && !Name.Contains(TEXT("Emissive")) && !Name.Contains(TEXT("Subsurface")))
+				{
+					if (bFirstTime)
+					{
+						FLinearColor Original;
+						Material->GetVectorParameterValue(Parameter, Original);
+						Originals.Emplace(Parameter.Name, Original);
+					}
+					Material->SetVectorParameterValue(Parameter.Name, Color);
+				}
+			}
+		}
+	}
+}
+
+void UFPSRLHealthComponent::RestoreBodyColor()
+{
+	if (bRestingTintIsEnemyTint)
+	{
+		SetBodyColor(EnemyTestTintColor);
+		return;
+	}
+	for (const TPair<TWeakObjectPtr<UMaterialInstanceDynamic>, TArray<TPair<FName, FLinearColor>>>& Entry : OriginalBodyColors)
+	{
+		if (UMaterialInstanceDynamic* Material = Entry.Key.Get())
+		{
+			for (const TPair<FName, FLinearColor>& Value : Entry.Value)
+			{
+				Material->SetVectorParameterValue(Value.Key, Value.Value);
+			}
+		}
+	}
+}
+
+void UFPSRLHealthComponent::StartHitFlash()
+{
+	if (GetNetMode() == NM_DedicatedServer || !GetWorld())
+	{
+		return;
+	}
+	UE_LOG(LogFPSRL, Verbose, TEXT("[Flash] %s hit flash"), *GetOwner()->GetName());
+	HitFlashStage = 0;
+	SetBodyColor(FLinearColor(1.f, 0.05f, 0.05f));	// red
+	GetWorld()->GetTimerManager().SetTimer(HitFlashTimer, this, &ThisClass::StepHitFlash, 0.05f, false);
+}
+
+void UFPSRLHealthComponent::StepHitFlash()
+{
+	if (HitFlashStage++ == 0)
+	{
+		SetBodyColor(FLinearColor::White);
+		GetWorld()->GetTimerManager().SetTimer(HitFlashTimer, this, &ThisClass::StepHitFlash, 0.05f, false);
+	}
+	else
+	{
+		RestoreBodyColor();
+	}
 }

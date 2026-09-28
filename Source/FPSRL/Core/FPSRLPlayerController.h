@@ -120,10 +120,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
 	float MeleeDamage = 75.f;
 
-	/** Server: fastest a client can melee. */
+	/** Seconds between swings (the swing's recovery). Checked locally, and on the server with a little slack for lag. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
+	float MeleeCooldown = 1.f;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee")
-	float MinMeleeInterval = 0.2f;
+	/** 0 = ready, 1 = just swung (HUD). */
+	float GetMeleeCooldownFraction() const;
 
 	/** Local: while downed (or dead) the weapon inputs (shoot, aim, reload, melee, dash) are removed. */
 	void SetWeaponInputBlocked(bool bBlocked);
@@ -272,6 +274,9 @@ public:
 
 	void HandleMeleePressed();
 
+	/** The local player's combat HUD (null for others). */
+	class UFPSRLCombatHUDWidget* GetCombatHUD() const { return CombatHUD; }
+
 	/** Server -> this player: a short message on screen. */
 	UFUNCTION(Client, Reliable)
 	void ClientShowNotice(const FText& Message);
@@ -329,6 +334,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Encounter")
 	TSubclassOf<class UFPSRLEncounterBarWidget> EncounterBarClass;
 
+	/** Health, ammo, melee cooldown, reload bar, damage flash. Restyle hook; the C++ layout is used if unset. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD")
+	TSubclassOf<class UFPSRLCombatHUDWidget> CombatHUDClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UFPSRLCombatHUDWidget> CombatHUD;
+
 	/** Revive progress bar (default C++ layout; set a Blueprint subclass to restyle). */
 	UPROPERTY(EditDefaultsOnly, Category = "Revive")
 	TSubclassOf<UFPSRLReviveWidget> ReviveWidgetClass;
@@ -374,6 +386,7 @@ private:
 	/** Server: time of the last projectile fired for this client (rate sanity check). */
 	double LastServerShotTime = -1.0;
 	double LastServerMeleeTime = -1.0;
+	double LastLocalMeleeTime = -1000.0;
 
 	/** Local: weapon inputs are currently removed (downed); priority to restore them at. */
 	bool bWeaponInputBlocked = false;
