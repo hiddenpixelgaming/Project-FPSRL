@@ -31,6 +31,10 @@ public:
 	 *  The host log shows whether the hits landed ([Melee]). Console: FPSRL.MeleeTest */
 	void StartMeleeTest();
 
+	/** Host: give the player a Rifle, spawn an enemy in front, press shoot (real input), hold full auto, empty the magazine
+	 *  and check the reload; logs [WeaponTest]. Console: FPSRL.WeaponTest */
+	void StartWeaponTest();
+
 	virtual void Deinitialize() override;
 
 private:
@@ -39,6 +43,8 @@ private:
 	void RunAltarTest();
 	bool StepMeleeTest(float DeltaTime);
 	int32 MeleeStep = 0;
+	bool StepWeaponTest(float DeltaTime);
+	int32 WeaponStep = 0;
 
 	FTSTicker::FDelegateHandle TickerHandle;
 	bool bStartedRun = false;

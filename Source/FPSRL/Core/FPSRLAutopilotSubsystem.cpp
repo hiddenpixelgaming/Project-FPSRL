@@ -3,6 +3,7 @@
 #include "Core/FPSRLAutopilotSubsystem.h"
 #include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLHealthComponent.h"
+#include "Combat/FPSRLWeapon.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Core/FPSRLDepthLayoutComponent.h"
@@ -326,5 +327,121 @@ static FAutoConsoleCommandWithWorld GFPSRLMeleeTestCommand(TEXT("FPSRL.MeleeTest
 		if (World && World->GetGameInstance())
 		{
 			World->GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->StartMeleeTest();
+		}
+	}));
+
+void UFPSRLAutopilotSubsystem::StartWeaponTest()
+{
+#if !UE_BUILD_SHIPPING
+	WeaponStep = 0;
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ThisClass::StepWeaponTest), 0.25f);
+	UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] started"));
+#endif
+}
+
+bool UFPSRLAutopilotSubsystem::StepWeaponTest(float DeltaTime)
+{
+	UWorld* World = GetGameInstance()->GetWorld();
+	AFPSRLPlayerController* PC = World ? Cast<AFPSRLPlayerController>(GetGameInstance()->GetFirstLocalPlayerController(World)) : nullptr;
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	if (!Pawn || !World->GetGameState())
+	{
+		return ++WeaponStep < 400;
+	}
+	auto FindWeapon = [World, Pawn]() -> AFPSRLWeapon*
+	{
+		for (TActorIterator<AFPSRLWeapon> It(World); It; ++It)
+		{
+			if (It->GetOwner() == Pawn && !It->IsHidden())
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	};
+	auto EnemyHealth = [World]() -> double
+	{
+		for (TActorIterator<APawn> It(World); It; ++It)
+		{
+			if (!It->IsPlayerControlled())
+			{
+				if (const UFPSRLHealthComponent* Health = It->FindComponentByClass<UFPSRLHealthComponent>())
+				{
+					return Health->GetCurrentHealth();
+				}
+			}
+		}
+		return -1.0;
+	};
+
+	++WeaponStep;
+	if (WeaponStep < 1000)
+	{
+		WeaponStep = 1000;
+		PC->ServerTestCommand(TEXT("God"), FString(), FString());
+		UClass* Rifle = LoadClass<AActor>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Rifle.BP_ShooterWeapon_Rifle_C"));
+		const bool bGiven = AFPSRLPlayerController::GiveWeaponToPawn(Pawn, Rifle);
+		PC->ServerTestCommand(TEXT("SpawnTestEnemy"), FString(), FString());
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] rifle given: %s"), bGiven ? TEXT("yes") : TEXT("NO"));
+		return true;
+	}
+	AFPSRLWeapon* Weapon = FindWeapon();
+	if (!Weapon)
+	{
+		UE_LOG(LogFPSRL, Error, TEXT("[WeaponTest] FAILED: the player holds no C++ weapon"));
+		PC->ConsoleCommand(TEXT("quit"));
+		return false;
+	}
+	switch (WeaponStep)
+	{
+	case 1004:	// one real trigger press (IA_Shoot through the character Blueprint)
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] holding %s: %d/%d rounds, enemy health %.0f"), *Weapon->GetClass()->GetName(),
+			Weapon->GetCurrentBullets(), Weapon->GetMagSize(), EnemyHealth());
+		if (const ULocalPlayer* LocalPlayer = PC->GetLocalPlayer())
+		{
+			if (UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>())
+			{
+				if (UInputAction* Shoot = LoadObject<UInputAction>(nullptr, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot")))
+				{
+					Input->InjectInputForAction(Shoot, FInputActionValue(true), {}, {});
+				}
+			}
+		}
+		break;
+	case 1008:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after one press: %d rounds, enemy health %.0f, firing %d"), Weapon->GetCurrentBullets(), EnemyHealth(), Weapon->IsWeaponFiring() ? 1 : 0);
+		Weapon->StopFiring();
+		Weapon->StartFiring();	// hold the trigger for a second (full auto)
+		break;
+	case 1012:
+		Weapon->StopFiring();
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after 1 s full auto: %d rounds (rifle fires every %.2f s), spread %.1f"), Weapon->GetCurrentBullets(), Weapon->GetRefireRate(), Weapon->GetAimVariance());
+		Weapon->StartAiming();
+		break;
+	case 1014:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] aiming: %d, refire %.2f s; holding until empty"), Weapon->IsWeaponAiming() ? 1 : 0, Weapon->GetRefireRate());
+		Weapon->StopAiming();
+		Weapon->StartFiring();
+		break;
+	case 1030:
+		Weapon->StopFiring();
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] after emptying: %d/%d rounds (reloaded: %s), enemy health %.0f"), Weapon->GetCurrentBullets(), Weapon->GetMagSize(),
+			Weapon->GetCurrentBullets() == Weapon->GetMagSize() || Weapon->GetCurrentBullets() > 30 ? TEXT("yes") : TEXT("NO"), EnemyHealth());
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] done"));
+		PC->ConsoleCommand(TEXT("quit"));
+		return false;
+	default:
+		break;
+	}
+	return true;
+}
+
+static FAutoConsoleCommandWithWorld GFPSRLWeaponTestCommand(TEXT("FPSRL.WeaponTest"),
+	TEXT("Host test: rifle, enemy in front, shoot / full auto / aim / empty + reload (see [WeaponTest])."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		if (World && World->GetGameInstance())
+		{
+			World->GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->StartWeaponTest();
 		}
 	}));
