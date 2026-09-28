@@ -7,6 +7,11 @@
 #include "Data/FPSRLAspectDefinition.h"
 #include "Core/FPSRLDepthLayoutComponent.h"
 #include "Core/FPSRLGameState.h"
+#include "Core/FPSRLPlayerController.h"
+#include "HAL/IConsoleManager.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
+#include "Engine/LocalPlayer.h"
 #include "Core/FPSRLRunSubsystem.h"
 #include "Data/FPSRLRoomDefinition.h"
 #include "Engine/GameInstance.h"
@@ -268,3 +273,58 @@ void UFPSRLAutopilotSubsystem::RunAltarTest()
 	UE_LOG(LogFPSRL, Log, TEXT("[AltarTest] %d players, 40 altars: identical teammate sets %d; %d rerolls: same set %d, fully different set %d"),
 		Players.Num(), SameAsTeammate, Rerolls, RerollSame, RerollMirror);
 }
+
+void UFPSRLAutopilotSubsystem::StartMeleeTest()
+{
+#if !UE_BUILD_SHIPPING
+	MeleeStep = 0;
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ThisClass::StepMeleeTest), 1.f);
+	UE_LOG(LogFPSRL, Log, TEXT("[MeleeTest] started"));
+#endif
+}
+
+bool UFPSRLAutopilotSubsystem::StepMeleeTest(float DeltaTime)
+{
+	UWorld* World = GetGameInstance()->GetWorld();
+	AFPSRLPlayerController* PC = World ? Cast<AFPSRLPlayerController>(GetGameInstance()->GetFirstLocalPlayerController(World)) : nullptr;
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	const bool bInGame = World && (World->GetNetMode() == NM_Client ? PC && PC->GetNetConnection() != nullptr : World->GetGameState() != nullptr);
+	if (!Pawn || !bInGame)
+	{
+		return ++MeleeStep < 120;	// waiting to be in the host's game with a pawn
+	}
+	if (MeleeStep < 1000)
+	{
+		MeleeStep = 1000;
+		PC->ServerTestCommand(TEXT("God"), FString(), FString());
+		PC->ServerTestCommand(TEXT("SpawnTestEnemy"), FString(), FString());
+		return true;
+	}
+	if (++MeleeStep <= 1004)
+	{
+		if (MeleeStep >= 1002)	// give the enemy time to replicate, then swing (the Blueprint's own melee)
+		{
+			const ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
+			UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+			if (UInputAction* Melee = LoadObject<UInputAction>(nullptr, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee")); Melee && Input)
+			{
+				Input->InjectInputForAction(Melee, FInputActionValue(true), {}, {});	// a real key press, as far as every binding is concerned
+				UE_LOG(LogFPSRL, Log, TEXT("[MeleeTest] melee pressed"));
+			}
+		}
+		return true;
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[MeleeTest] done"));
+	PC->ConsoleCommand(TEXT("quit"));
+	return false;
+}
+
+static FAutoConsoleCommandWithWorld GFPSRLMeleeTestCommand(TEXT("FPSRL.MeleeTest"),
+	TEXT("Client test: spawn an enemy in front and melee it 3 times (see the host log)."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		if (World && World->GetGameInstance())
+		{
+			World->GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->StartMeleeTest();
+		}
+	}));

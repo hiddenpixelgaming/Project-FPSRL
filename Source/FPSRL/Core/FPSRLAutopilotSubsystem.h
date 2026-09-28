@@ -27,12 +27,18 @@ public:
 	 *  two players got the identical Aspect set, or a reroll repeated or mirrored the set before it. Then quits. */
 	void StartAltarTest(int32 InMinPlayers);
 
+	/** Client: once in the host's Lobby, spawn an enemy in front (god mode on), swing the player's melee 3 times, quit.
+	 *  The host log shows whether the hits landed ([Melee]). Console: FPSRL.MeleeTest */
+	void StartMeleeTest();
+
 	virtual void Deinitialize() override;
 
 private:
 	bool Step(float DeltaTime);
 	void Finish(const TCHAR* Result);
 	void RunAltarTest();
+	bool StepMeleeTest(float DeltaTime);
+	int32 MeleeStep = 0;
 
 	FTSTicker::FDelegateHandle TickerHandle;
 	bool bStartedRun = false;

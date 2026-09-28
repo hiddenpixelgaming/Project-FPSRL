@@ -260,6 +260,22 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 	{
 		bDone = Boons->BeginUpgradeSelection();
 	}
+	else if (Command == TEXT("SpawnTestEnemy"))
+	{
+		// A stationary enemy right in front of this player (melee checks).
+		UClass* EnemyClass = LoadClass<APawn>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/AI/BP_ShooterNPC.BP_ShooterNPC_C"));
+		APawn* Me = GetPawn();
+		if (EnemyClass && Me)
+		{
+			const FTransform At(Me->GetActorRotation() + FRotator(0.f, 180.f, 0.f), Me->GetActorLocation() + Me->GetActorForwardVector() * 120.f);
+			if (APawn* Enemy = GetWorld()->SpawnActorDeferred<APawn>(EnemyClass, At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn))
+			{
+				Enemy->AutoPossessAI = EAutoPossessAI::Disabled;
+				Enemy->FinishSpawning(At);
+				bDone = true;
+			}
+		}
+	}
 	else if (Command == TEXT("God"))
 	{
 		PS->bGodMode = !PS->bGodMode;
@@ -1195,6 +1211,10 @@ void AFPSRLPlayerController::SetupInputComponent()
 		{
 			EnhancedInput->BindAction(PauseAction, ETriggerEvent::Started, this, &ThisClass::TogglePauseMenu);
 		}
+		if (UInputAction* Melee = MeleeAction.LoadSynchronous())
+		{
+			EnhancedInput->BindAction(Melee, ETriggerEvent::Started, this, &ThisClass::HandleMeleePressed);
+		}
 	}
 #if !UE_BUILD_SHIPPING
 	if (InputComponent)
@@ -1373,4 +1393,62 @@ void AFPSRLPlayerController::FPSRLGod()
 void AFPSRLPlayerController::ClientShowNotice_Implementation(const FText& Message)
 {
 	ShowNotice(Message);
+}
+
+
+void AFPSRLPlayerController::HandleMeleePressed()
+{
+	// The swing is done on the server for everyone: the host directly, a client by asking.
+	if (IsLocalController() && GetPawn())
+	{
+		ServerMelee();	// on the listen host this runs right here
+	}
+}
+
+void AFPSRLPlayerController::ServerMelee_Implementation()
+{
+	APawn* Attacker = GetPawn();
+	UWorld* World = GetWorld();
+	if (!World || !Attacker || !AFPSRLProjectile::CanPawnShoot(Attacker))
+	{
+		return;	// downed or dead
+	}
+	const double Now = World->GetTimeSeconds();
+	if (LastServerMeleeTime >= 0.0 && Now - LastServerMeleeTime < MinMeleeInterval)
+	{
+		return;	// faster than anyone can swing
+	}
+	LastServerMeleeTime = Now;
+
+	// The character Blueprint's swing (a 30-radius sphere along the facing, MeleeRange long) but on the Pawn channel: its
+	// Visibility trace never hit a character body, so melee never damaged anyone (host included).
+	auto ReadNumber = [Attacker](const TCHAR* Name, double Default)
+	{
+		const FProperty* Property = Attacker->GetClass()->FindPropertyByName(Name);
+		if (const FDoubleProperty* AsDouble = CastField<FDoubleProperty>(Property))
+		{
+			return AsDouble->GetPropertyValue_InContainer(Attacker);
+		}
+		if (const FFloatProperty* AsFloat = CastField<FFloatProperty>(Property))
+		{
+			return static_cast<double>(AsFloat->GetPropertyValue_InContainer(Attacker));
+		}
+		return Default;
+	};
+	const float Range = static_cast<float>(ReadNumber(TEXT("MeleeRange"), 150.0));
+	const float Damage = static_cast<float>(ReadNumber(TEXT("MeleeDamage"), 25.0));
+	const FVector Start = Attacker->GetActorLocation();
+	const FVector End = Start + Attacker->GetActorForwardVector() * Range;
+	FHitResult Hit;
+	const bool bHit = UKismetSystemLibrary::SphereTraceSingle(this, Start, End, 30.f, UEngineTypes::ConvertToTraceType(ECC_Pawn),
+		false, { Attacker }, EDrawDebugTrace::None, Hit, true);
+	if (bHit && Hit.GetActor())
+	{
+		UGameplayStatics::ApplyDamage(Hit.GetActor(), Damage, this, Attacker, nullptr);
+		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *GetNameSafe(PlayerState), *Hit.GetActor()->GetName(), Damage);
+	}
+	else
+	{
+		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *GetNameSafe(PlayerState));
+	}
 }

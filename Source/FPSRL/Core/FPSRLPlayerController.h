@@ -98,6 +98,23 @@ public:
 	void ServerFireProjectile(TSubclassOf<AFPSRLProjectile> ProjectileClass, FVector_NetQuantize10 Location, FRotator Rotation,
 		const TArray<FString>& SpawnSettings);
 
+	/**
+	 * Client -> server: this player swung their melee. The character Blueprint's melee runs on the machine that pressed
+	 * the key, and a client's damage never counts, so for clients the server swings instead: the same sphere trace from
+	 * the server's copy of the player (reach and damage read from the character's MeleeRange / MeleeDamage).
+	 */
+	UFUNCTION(Server, Reliable)
+	void ServerMelee();
+
+	/** The melee input (IA_Melee), also bound here so a client's press reaches the server. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee")
+	TSoftObjectPtr<UInputAction> MeleeAction = TSoftObjectPtr<UInputAction>(FSoftObjectPath(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee")));
+
+	/** Server: fastest a client can melee. */
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee")
+	float MinMeleeInterval = 0.2f;
+
 	/** Local: while downed (or dead) the weapon inputs (shoot, aim, reload, melee, dash) are removed. */
 	void SetWeaponInputBlocked(bool bBlocked);
 
@@ -243,6 +260,8 @@ public:
 	UFUNCTION(Exec)
 	void FPSRLGod();
 
+	void HandleMeleePressed();
+
 	/** Server -> this player: a short message on screen. */
 	UFUNCTION(Client, Reliable)
 	void ClientShowNotice(const FText& Message);
@@ -344,6 +363,7 @@ private:
 
 	/** Server: time of the last projectile fired for this client (rate sanity check). */
 	double LastServerShotTime = -1.0;
+	double LastServerMeleeTime = -1.0;
 
 	/** Local: weapon inputs are currently removed (downed); priority to restore them at. */
 	bool bWeaponInputBlocked = false;
