@@ -4,6 +4,8 @@
 #include "Components/BoxComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLGameState.h"
+#include "Core/FPSRLPlayerController.h"
+#include "Data/FPSRLEncounterDefinition.h"
 #include "EngineUtils.h"
 #include "Net/UnrealNetwork.h"
 #include "GameFramework/Pawn.h"
@@ -32,6 +34,8 @@ void AFPSRLRoom::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifeti
 
 	DOREPLIFETIME(AFPSRLRoom, bCombatStarted);
 	DOREPLIFETIME(AFPSRLRoom, bRoomComplete);
+	DOREPLIFETIME(AFPSRLRoom, Encounter);
+	DOREPLIFETIME(AFPSRLRoom, EncounterEnemy);
 	DOREPLIFETIME(AFPSRLRoom, RemainingEnemies);
 }
 
@@ -141,12 +145,24 @@ void AFPSRLRoom::StartCombat()
 		ExitDoor->Lock();
 	}
 
-	// Spawn this room's enemies now (nothing existed at the spawn points before), then track every living one.
+	// Spawn this room's enemies now (nothing existed at the spawn points before), then track every living one. An
+	// encounter definition (Elite, Final Level Boss) supplies the enemy and its health and size multipliers.
 	TArray<AActor*> ToTrack = GatherEnemies();
-	const TSubclassOf<APawn> DefaultEnemy = (EnemyClass && EnemyClass->IsChildOf(APawn::StaticClass())) ? TSubclassOf<APawn>(EnemyClass.Get()) : nullptr;
+	TSubclassOf<APawn> DefaultEnemy = (EnemyClass && EnemyClass->IsChildOf(APawn::StaticClass())) ? TSubclassOf<APawn>(EnemyClass.Get()) : nullptr;
+	float HealthMultiplier = 1.f;
+	float SizeMultiplier = 1.f;
+	if (Encounter)
+	{
+		if (UClass* EncounterClass = Encounter->EnemyClass.LoadSynchronous())
+		{
+			DefaultEnemy = EncounterClass;
+		}
+		HealthMultiplier = Encounter->HealthMultiplier;
+		SizeMultiplier = Encounter->SizeMultiplier;
+	}
 	for (const AFPSRLEnemySpawnPoint* Point : GatherSpawnPoints())
 	{
-		if (APawn* Spawned = Point->SpawnEnemy(DefaultEnemy))
+		if (APawn* Spawned = Point->SpawnEnemy(DefaultEnemy, HealthMultiplier, SizeMultiplier))
 		{
 			ToTrack.Add(Spawned);
 		}
@@ -161,9 +177,17 @@ void AFPSRLRoom::StartCombat()
 		{
 			Health->OnDeath.AddUniqueDynamic(this, &ThisClass::HandleEnemyDeath);
 			++RemainingEnemies;
+			if (Encounter && Encounter->bShowHealthBar && (!EncounterEnemy || Health->GetMaxHealth() > EncounterEnemy->FindComponentByClass<UFPSRLHealthComponent>()->GetMaxHealth()))
+			{
+				EncounterEnemy = Cast<APawn>(Enemy);	// the health bar follows the toughest one
+			}
 		}
 	}
 	UE_LOG(LogFPSRL, Log, TEXT("[Room %s] combat started: %d living enemies"), *GetActorNameOrLabel(), RemainingEnemies);
+	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
+	{
+		GameState->NotifyEncounterStarted(this);
+	}
 
 	ForceNetUpdate();
 	OnRep_RoomState();
@@ -212,6 +236,11 @@ void AFPSRLRoom::CompleteRoom()
 
 void AFPSRLRoom::OnRep_RoomState()
 {
+	// The Elite / Final Level Boss health bar on this machine's screen.
+	if (AFPSRLPlayerController* LocalPC = GetWorld() ? Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr)
+	{
+		LocalPC->RefreshEncounterBar(this);
+	}
 	// Runs on the server by hand and on clients via replication; each event fires once per machine.
 	if (bCombatStarted && !bBroadcastCombatStarted)
 	{
@@ -223,4 +252,9 @@ void AFPSRLRoom::OnRep_RoomState()
 		bBroadcastCompleted = true;
 		OnRoomCompleted.Broadcast();
 	}
+}
+
+EFPSRLEncounterKind AFPSRLRoom::GetEncounterKind() const
+{
+	return Encounter ? Encounter->Kind : EFPSRLEncounterKind::Normal;
 }

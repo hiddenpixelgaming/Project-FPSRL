@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLGameState.generated.h"
 
 class AFPSRLRoom;
@@ -16,7 +17,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLDepthEvent);
  *
  * Room / Depth / Area / Run completion are separate states:
  *  - Room: an AFPSRLRoom's required enemies are dead (the room reports it here).
- *  - Depth: every REQUIRED room of this Depth is complete -> OnDepthCompleted fires exactly once -> exit portals open.
+ *  - Depth: every REQUIRED encounter of this Depth is complete -> OnDepthCompleted fires exactly once -> exit portals open.
+ *    A generated Depth counts its Combat / Elite / Final Level Boss rooms from the room sequence (rooms stream in one
+ *    by one and unload behind the party, so counting loaded rooms would undercount).
+ *  - Final Level Boss: FinalLevelBossState follows the boss room; defeating it sets bLevelComplete (the level exit
+ *    portal then leads wherever the run data says: the next Area, or back to the Lobby after the last one).
  *    A Depth with no required rooms (merchant / preparation) completes as soon as play begins, or, for a generated
  *    Depth, as soon as all of its rooms have streamed in.
  *  - Area / Run: advanced by UFPSRLRunSubsystem when the party takes the portal.
@@ -53,6 +58,17 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_DepthComplete, BlueprintReadOnly, Category = "Depth")
 	bool bDepthComplete = false;
 
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Depth")
+	EFPSRLDepthState DepthState = EFPSRLDepthState::NotStarted;
+
+	/** This Depth's Final Level Boss (NotStarted when it has none or it isn't reached yet). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Depth")
+	EFPSRLBossState FinalLevelBossState = EFPSRLBossState::NotStarted;
+
+	/** The Final Level Boss is defeated: the level is complete and its exit portal opens. */
+	UPROPERTY(ReplicatedUsing = OnRep_LevelComplete, BlueprintReadOnly, Category = "Depth")
+	bool bLevelComplete = false;
+
 	/** Required-room counters changed (server and clients). */
 	UPROPERTY(BlueprintAssignable, Category = "Depth")
 	FFPSRLDepthEvent OnDepthProgressChanged;
@@ -66,6 +82,9 @@ public:
 
 	/** Server: a required room joins this Depth (called by the room on BeginPlay). */
 	void RegisterRequiredRoom(AFPSRLRoom* Room);
+
+	/** Server: a room's encounter started. */
+	void NotifyEncounterStarted(AFPSRLRoom* Room);
 
 	/** Server: a room finished its encounter. */
 	void NotifyRoomCompleted(AFPSRLRoom* Room);
@@ -85,10 +104,17 @@ protected:
 	UFUNCTION()
 	void OnRep_DepthComplete();
 
+	/** Everyone sees "Level Complete" when the Final Level Boss falls (the listen host calls it directly). */
+	UFUNCTION()
+	void OnRep_LevelComplete();
+
 private:
 	void RecountRooms();
 	void EvaluateEmptyDepth();
 	void CompleteDepth();
+	void RefreshFinalLevelBossState();
+
+	FTimerHandle CompletedTimer;
 
 	TArray<TWeakObjectPtr<AFPSRLRoom>> RequiredRoomList;
 };

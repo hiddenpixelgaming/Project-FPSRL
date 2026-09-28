@@ -2,7 +2,10 @@
 
 #include "Core/FPSRLGameState.h"
 #include "Core/FPSRLDepthLayoutComponent.h"
+#include "Core/FPSRLPlayerController.h"
 #include "Core/FPSRLRunSubsystem.h"
+#include "Data/FPSRLRoomDefinition.h"
+#include "Data/FPSRLRunSettings.h"
 #include "Engine/GameInstance.h"
 #include "Rooms/FPSRLRoom.h"
 #include "Net/UnrealNetwork.h"
@@ -18,6 +21,9 @@ void AFPSRLGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AFPSRLGameState, RequiredRooms);
 	DOREPLIFETIME(AFPSRLGameState, CompletedRooms);
 	DOREPLIFETIME(AFPSRLGameState, bDepthComplete);
+	DOREPLIFETIME(AFPSRLGameState, DepthState);
+	DOREPLIFETIME(AFPSRLGameState, FinalLevelBossState);
+	DOREPLIFETIME(AFPSRLGameState, bLevelComplete);
 }
 
 void AFPSRLGameState::BeginPlay()
@@ -37,10 +43,13 @@ void AFPSRLGameState::BeginPlay()
 		Depth = RunSubsystem->GetCurrentDepth();
 	}
 
-	// Generated Depth: its rooms register as they stream in, so evaluate once they all have.
+	// Generated Depth: the rooms stream in one by one; evaluate once the first ones are in.
 	DepthLayout->OnLayoutReady.AddUObject(this, &ThisClass::EvaluateEmptyDepth);
+	DepthLayout->OnRoomStateChanged.AddUObject(this, &ThisClass::RefreshFinalLevelBossState);
+	DepthState = EFPSRLDepthState::Loading;
 	if (DepthLayout->BuildLayout(Depth))
 	{
+		RecountRooms();
 		return;
 	}
 
@@ -56,6 +65,11 @@ AFPSRLGameState::AFPSRLGameState()
 
 void AFPSRLGameState::EvaluateEmptyDepth()
 {
+	if (DepthState == EFPSRLDepthState::Loading || DepthState == EFPSRLDepthState::NotStarted)
+	{
+		DepthState = EFPSRLDepthState::Active;
+	}
+	RecountRooms();
 	UE_LOG(LogFPSRL, Log, TEXT("[Depth] Area %d Depth %d: %d required room(s)"), AreaNumber, DepthNumber, RequiredRooms);
 	if (RequiredRooms == 0)
 	{
@@ -82,9 +96,17 @@ void AFPSRLGameState::NotifyRoomCompleted(AFPSRLRoom* Room)
 	{
 		return;
 	}
+	DepthLayout->NotifyEncounterCleared(Room);	// remembered even after the room unloads
 	RecountRooms();
-	// While the layout streams in, more required rooms may still be on their way.
-	if (!DepthLayout->IsLayoutPending() && RequiredRooms > 0 && CompletedRooms >= RequiredRooms)
+	if (Room && Room->RoomType == ERoomType::Boss)
+	{
+		bLevelComplete = true;	// the Final Level Boss is down: the level is complete
+		FinalLevelBossState = EFPSRLBossState::Defeated;
+		UE_LOG(LogFPSRL, Log, TEXT("[Depth] Final Level Boss defeated: level complete"));
+		OnRep_LevelComplete();
+	}
+	// A generated Depth knows all its encounters up front; a handcrafted one waits until its rooms have registered.
+	if ((DepthLayout->HasLayout() || !DepthLayout->IsLayoutPending()) && RequiredRooms > 0 && CompletedRooms >= RequiredRooms)
 	{
 		CompleteDepth();
 	}
@@ -92,6 +114,14 @@ void AFPSRLGameState::NotifyRoomCompleted(AFPSRLRoom* Room)
 
 void AFPSRLGameState::RecountRooms()
 {
+	if (DepthLayout->HasLayout())
+	{
+		RequiredRooms = DepthLayout->GetRequiredEncounterCount();
+		CompletedRooms = DepthLayout->GetClearedEncounterCount();
+		ForceNetUpdate();
+		OnDepthProgressChanged.Broadcast();
+		return;
+	}
 	RequiredRoomList.RemoveAll([](const TWeakObjectPtr<AFPSRLRoom>& Room) { return !Room.IsValid(); });
 	RequiredRooms = RequiredRoomList.Num();
 	CompletedRooms = 0;
@@ -110,6 +140,9 @@ void AFPSRLGameState::CompleteDepth()
 		return;
 	}
 	bDepthComplete = true;
+	DepthState = EFPSRLDepthState::Completing;
+	GetWorldTimerManager().SetTimer(CompletedTimer, [this]() { DepthState = EFPSRLDepthState::Completed; ForceNetUpdate(); },
+		FMath::Max(0.01f, UFPSRLRunSettings::Get().PortalActivationDelay), false);
 	ForceNetUpdate();
 	UE_LOG(LogFPSRL, Log, TEXT("[Depth] Area %d Depth %d complete"), AreaNumber, DepthNumber);
 	OnDepthCompleted.Broadcast();
@@ -134,5 +167,50 @@ void AFPSRLGameState::RemovePlayerState(APlayerState* PlayerState)
 	if (HasAuthority())
 	{
 		OnPlayerLeft.Broadcast();
+	}
+}
+
+void AFPSRLGameState::NotifyEncounterStarted(AFPSRLRoom* Room)
+{
+	if (HasAuthority())
+	{
+		DepthLayout->NotifyEncounterStarted(Room);
+		if (Room && Room->RoomType == ERoomType::Boss && FinalLevelBossState != EFPSRLBossState::Defeated)
+		{
+			FinalLevelBossState = EFPSRLBossState::Active;
+			ForceNetUpdate();
+		}
+	}
+}
+
+void AFPSRLGameState::RefreshFinalLevelBossState()
+{
+	// The boss arena's streaming state -> NotStarted / Loading; the fight itself sets Active and Defeated.
+	if (!HasAuthority() || FinalLevelBossState == EFPSRLBossState::Active || FinalLevelBossState == EFPSRLBossState::Defeated)
+	{
+		return;
+	}
+	for (int32 Index = 0; Index < DepthLayout->Placements.Num(); ++Index)
+	{
+		const UFPSRLRoomDefinition* Room = DepthLayout->Placements[Index].Room;
+		if (Room && Room->RoomType == ERoomType::Boss && DepthLayout->RoomStates.IsValidIndex(Index))
+		{
+			const EFPSRLBossState NewState = DepthLayout->RoomStates[Index] == EFPSRLRoomState::Loading ? EFPSRLBossState::Loading : EFPSRLBossState::NotStarted;
+			if (NewState != FinalLevelBossState)
+			{
+				FinalLevelBossState = NewState;
+				ForceNetUpdate();
+			}
+			return;
+		}
+	}
+}
+
+void AFPSRLGameState::OnRep_LevelComplete()
+{
+	AFPSRLPlayerController* PC = bLevelComplete ? Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	if (PC && PC->IsLocalController())
+	{
+		PC->ShowNotice(NSLOCTEXT("FPSRL", "LevelComplete", "Level Complete"));
 	}
 }

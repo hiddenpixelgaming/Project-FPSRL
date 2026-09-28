@@ -12,6 +12,7 @@ class AFPSRLDoor;
 class AFPSRLEnemySpawnPoint;
 class AFPSRLTriggerVolume;
 class UBoxComponent;
+class UFPSRLEncounterDefinition;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLRoomEvent);
 
@@ -58,6 +59,18 @@ public:
 	/** Where enemies spawn when combat starts. Leave empty to use every spawn point inside RoomBounds. */
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Room|Enemies")
 	TArray<TObjectPtr<AFPSRLEnemySpawnPoint>> SpawnPoints;
+
+	/** What this encounter is (Elite, Final Level Boss, ...): which enemy the spawn points use and how it is scaled. Empty =
+	 *  a normal encounter with EnemyClass. Replace the placeholder by changing the asset, not the room. */
+	UPROPERTY(EditAnywhere, Replicated, BlueprintReadOnly, Category = "Room|Enemies")
+	TObjectPtr<UFPSRLEncounterDefinition> Encounter;
+
+	/** The enemy the Elite / boss health bar follows (the toughest one spawned), when the encounter shows a bar. */
+	UPROPERTY(ReplicatedUsing = OnRep_RoomState, BlueprintReadOnly, Category = "Room|Enemies")
+	TObjectPtr<APawn> EncounterEnemy;
+
+	UFUNCTION(BlueprintPure, Category = "Room")
+	EFPSRLEncounterKind GetEncounterKind() const;
 
 	/** Default enemy for spawn points without their own class, and the class gathered for pre-placed enemies. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room|Enemies")

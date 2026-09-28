@@ -30,7 +30,8 @@ enum class EDoorState : uint8
 	Locked	= 4		// Closed and refuses Open() until Unlock().
 };
 
-/** What a room inside a Depth is for. Combat, Elite and Boss rooms are the ones a Depth can require. */
+/** What a room inside a Depth is for. Combat, Elite and Boss (the Final Level Boss arena) rooms are the encounters a Depth
+ *  requires; Traversal spaces sit between them and never count as combat rooms. */
 UENUM(BlueprintType)
 enum class ERoomType : uint8
 {
@@ -41,19 +42,71 @@ enum class ERoomType : uint8
 	Boon,
 	Merchant,
 	Upgrade,
-	Boss
+	Boss,			// the Final Level Boss arena
+	Traversal,		// corridor between encounters: streaming, movement, optional altar (see EFPSRLTraversalReward)
+	Preparation		// safe room before the Final Level Boss (altars, future Merchant)
 };
 
-/** Pacing role of a Depth within its Area (NORMAL -> NORMAL + ELITE -> PREPARATION -> AREA BOSS, then the final area). */
+/** What a Traversal space holds, rolled per traversal from the Depth's data. Future = reserved for later interactables. */
+UENUM(BlueprintType)
+enum class EFPSRLTraversalReward : uint8
+{
+	None,
+	BlessingAltar,
+	UpgradeAltar,
+	Future
+};
+
+/** What kind of encounter a room runs. Elite and Final Level Boss are data (UFPSRLEncounterDefinition), not enemies. */
+UENUM(BlueprintType)
+enum class EFPSRLEncounterKind : uint8
+{
+	Normal,
+	Elite,
+	FinalLevelBoss
+};
+
+/** A Depth's progress (AFPSRLGameState). */
+UENUM(BlueprintType)
+enum class EFPSRLDepthState : uint8
+{
+	NotStarted,
+	Loading,		// first rooms streaming in
+	Active,
+	Completing,		// every required encounter done; the exit portal is activating
+	Completed
+};
+
+/** One room of a Depth, as the room-by-room streaming sees it (UFPSRLDepthLayoutComponent). */
+UENUM(BlueprintType)
+enum class EFPSRLRoomState : uint8
+{
+	Unloaded,
+	Loading,
+	Active,			// loaded, encounter not started (or no encounter)
+	Combat,
+	Completed,
+	Unloading
+};
+
+/** The Final Level Boss encounter of the current Depth (AFPSRLGameState). */
+UENUM(BlueprintType)
+enum class EFPSRLBossState : uint8
+{
+	NotStarted,
+	Loading,
+	Active,
+	Defeated
+};
+
+/** Pacing role of a Depth within its level (Normal -> Normal + Elite -> Normal -> Preparation + Final Level Boss). */
 UENUM(BlueprintType)
 enum class EDepthType : uint8
 {
 	Normal,
 	Elite,
 	Preparation,
-	AreaBoss,
-	FinalArea,
-	FinalBoss
+	FinalLevelBoss
 };
 
 /** Exit portal state machine. Only Active accepts players. */
@@ -74,7 +127,7 @@ enum class EPortalDestination : uint8
 {
 	NextDepth,
 	NextArea,
-	FinalBoss,
+	FinalLevelBoss,
 	RunComplete
 };
 

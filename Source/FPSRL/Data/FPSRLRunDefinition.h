@@ -9,13 +9,30 @@
 
 class UFPSRLRoomDefinition;
 
+/** Relative odds of what a Traversal space holds (weights; 0 or missing = never). */
+USTRUCT(BlueprintType)
+struct FFPSRLTraversalRewardOdds
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Traversal")
+	TMap<EFPSRLTraversalReward, float> Weights;
+
+	/** Rolls one reward (None when every weight is 0). */
+	EFPSRLTraversalReward Roll() const;
+};
+
 /**
  * One Depth of a run: a small set of handcrafted rooms fought through before the exit portal opens.
  *
  * Map is the Depth's entry room (player spawn + an AFPSRLRoomConnector at its exit). If the room pools below are
- * filled, the server rolls a room sequence from them each time the Depth is entered and streams those rooms in
- * behind the entry (UFPSRLDepthLayoutComponent):
- *   Entry -> combat rooms (Min..Max, at least Guaranteed) with optional rooms mixed in -> Elite -> Boss -> Exit room.
+ * filled, the server rolls a room sequence from them each time the Depth is entered and streams those rooms in behind
+ * the entry, room by room (UFPSRLDepthLayoutComponent):
+ *   Entry -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Elite] -> [Traversal -> Final Level
+ *   Boss arena] -> Exit room.
+ * Combat rooms: exactly MinCombatRooms when Min == Max (4 in Area 1). Traversal spaces sit between combat rooms and
+ * before the boss arena; each one's reward (none, Blessing Altar, Upgrade Altar, ...) is rolled from TraversalRewards.
+ * Altars never count toward completion; only Combat, Elite and Final Level Boss encounters do.
  * With empty pools the Map alone is the Depth (a fully handcrafted Depth).
  */
 UCLASS(BlueprintType)
@@ -71,6 +88,29 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation", meta = (ClampMin = "0", ClampMax = "1"))
 	float UpgradeStationChance = 0.f;
 
+	/** A Traversal space between each pair of combat rooms (streaming, movement, optional altar). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation|Traversal")
+	bool bTraversalBetweenCombatRooms = true;
+
+	/** A Traversal space before the Final Level Boss arena (the boss transition). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation|Traversal")
+	bool bTraversalBeforeBoss = true;
+
+	/** Reward odds per traversal, in order (entry 0 = the first traversal). Traversals past the end use DefaultTraversalReward. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation|Traversal")
+	TArray<FFPSRLTraversalRewardOdds> TraversalRewards;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation|Traversal")
+	FFPSRLTraversalRewardOdds DefaultTraversalReward;
+
+	/** Reward odds for the traversal before the boss arena. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation|Traversal")
+	FFPSRLTraversalRewardOdds BossTraversalReward;
+
+	/** Starts with a Preparation room (safe room: altars, future Merchant), e.g. the Final Level Boss Depth. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation")
+	bool bHasPreparation = false;
+
 	// --- Room pools (handcrafted room library) ----------------------------------------------------------------
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
@@ -84,7 +124,15 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
 	TArray<TObjectPtr<UFPSRLRoomDefinition>> OptionalRooms;
 
-	/** Used when bHasBoss: the last room before the exit. */
+	/** Traversal spaces (corridors). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> TraversalRooms;
+
+	/** Used when bHasPreparation. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> PreparationRooms;
+
+	/** Used when bHasBoss: the Final Level Boss arena, the last room before the exit. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
 	TArray<TObjectPtr<UFPSRLRoomDefinition>> BossRooms;
 
@@ -93,12 +141,12 @@ public:
 	TArray<TObjectPtr<UFPSRLRoomDefinition>> ExitRooms;
 
 	/** True if the Depth is assembled from pools (otherwise Map alone is the Depth). */
-	bool UsesRoomPools() const { return !CombatRooms.IsEmpty() || !ExitRooms.IsEmpty(); }
+	bool UsesRoomPools() const { return !CombatRooms.IsEmpty() || !ExitRooms.IsEmpty() || !BossRooms.IsEmpty() || !PreparationRooms.IsEmpty(); }
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override { return FPrimaryAssetId(TEXT("Depth"), GetFName()); }
 };
 
-/** One Area: an ordered list of Depths, normally ending in an Area Boss. */
+/** One Area (level): an ordered list of Depths, normally ending in the Final Level Boss. */
 USTRUCT(BlueprintType)
 struct FFPSRLAreaEntry
 {

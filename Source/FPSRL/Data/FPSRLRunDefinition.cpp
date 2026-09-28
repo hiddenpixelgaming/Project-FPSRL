@@ -37,3 +37,26 @@ const UFPSRLDepthDefinition* UFPSRLRunDefinition::GetDepth(int32 FlatIndex, int3
 	}
 	return nullptr;
 }
+
+EFPSRLTraversalReward FFPSRLTraversalRewardOdds::Roll() const
+{
+	float Total = 0.f;
+	for (const TPair<EFPSRLTraversalReward, float>& Entry : Weights)
+	{
+		Total += FMath::Max(0.f, Entry.Value);
+	}
+	if (Total <= 0.f)
+	{
+		return EFPSRLTraversalReward::None;
+	}
+	float Roll = FMath::FRandRange(0.f, Total);
+	for (const TPair<EFPSRLTraversalReward, float>& Entry : Weights)
+	{
+		Roll -= FMath::Max(0.f, Entry.Value);
+		if (Roll <= 0.f && Entry.Value > 0.f)
+		{
+			return Entry.Key;
+		}
+	}
+	return EFPSRLTraversalReward::None;
+}

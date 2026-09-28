@@ -156,6 +156,15 @@ public:
 	/** Local: a short message on screen (in the revive bar's place), e.g. "Nothing left to offer". */
 	void ShowNotice(const FText& Message);
 
+	// --- Expedition rooms ---------------------------------------------------------------------------------------
+
+	/** Client -> server: this machine has loaded and shown room PlacementIndex of the Depth (gates wait for everyone). */
+	UFUNCTION(Server, Reliable)
+	void ServerReportRoomShown(int32 PlacementIndex);
+
+	/** Local: show, update or hide the Elite / Final Level Boss health bar for this room's encounter. */
+	void RefreshEncounterBar(class AFPSRLRoom* Room);
+
 	// --- Death ---------------------------------------------------------------------------------------------------
 
 	/** Server -> owning client: your pawn died. Fades to black, then shows the death menu. */
@@ -222,6 +231,10 @@ public:
 	UFUNCTION(Exec)
 	void FPSRLBack();
 
+	/** Listen host, in the Lobby: play a whole run by itself (UFPSRLAutopilotSubsystem). Test only. */
+	UFUNCTION(Exec)
+	void FPSRLAutoRun();
+
 	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
 	UFUNCTION(Server, Reliable)
 	void ServerTestCommand(FName Command, const FString& Arg1, const FString& Arg2);
@@ -270,6 +283,10 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Portal")
 	TSubclassOf<UFPSRLPortalStatusWidget> PortalStatusClass;
+
+	/** Elite / Final Level Boss health bar (default C++ layout; set a Blueprint subclass to restyle). */
+	UPROPERTY(EditDefaultsOnly, Category = "Encounter")
+	TSubclassOf<class UFPSRLEncounterBarWidget> EncounterBarClass;
 
 	/** Revive progress bar (default C++ layout; set a Blueprint subclass to restyle). */
 	UPROPERTY(EditDefaultsOnly, Category = "Revive")
@@ -366,6 +383,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UFPSRLReviveWidget> ReviveWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UFPSRLEncounterBarWidget> EncounterBar;
+
+	/** The room whose encounter the bar shows. */
+	TWeakObjectPtr<class AFPSRLRoom> EncounterBarRoom;
 
 	/** Portal the open menu belongs to. */
 	TWeakObjectPtr<AFPSRLExitPortal> MenuPortal;

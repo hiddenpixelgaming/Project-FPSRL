@@ -3,6 +3,7 @@
 #include "Rooms/FPSRLEnemySpawnPoint.h"
 #include "Components/ArrowComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/FPSRLHealthComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "FPSRL.h"
@@ -25,7 +26,7 @@ AFPSRLEnemySpawnPoint::AFPSRLEnemySpawnPoint()
 	Arrow->ArrowColor = FColor(255, 60, 60);
 }
 
-APawn* AFPSRLEnemySpawnPoint::SpawnEnemy(TSubclassOf<APawn> FallbackClass) const
+APawn* AFPSRLEnemySpawnPoint::SpawnEnemy(TSubclassOf<APawn> FallbackClass, float HealthMultiplier, float SizeMultiplier) const
 {
 	const TSubclassOf<APawn> Class = EnemyClass ? EnemyClass : FallbackClass;
 	UWorld* World = GetWorld();
@@ -35,10 +36,21 @@ APawn* AFPSRLEnemySpawnPoint::SpawnEnemy(TSubclassOf<APawn> FallbackClass) const
 		return nullptr;
 	}
 
+	const FTransform SpawnTransform(GetActorRotation(), GetActorLocation(), FVector(FMath::Max(0.1f, SizeMultiplier)));
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-	APawn* Enemy = World->SpawnActor<APawn>(Class, GetActorLocation(), GetActorRotation(), Params);
-	if (Enemy && !Enemy->GetController())
+	APawn* Enemy = World->SpawnActor<APawn>(Class, SpawnTransform, Params);
+	if (!Enemy)
+	{
+		return nullptr;
+	}
+	// After spawning: the health component usually comes from the enemy Blueprint, so it only exists (and has set up
+	// its health) once the actor is fully spawned.
+	if (UFPSRLHealthComponent* Health = Enemy->FindComponentByClass<UFPSRLHealthComponent>())
+	{
+		Health->ScaleMaxHealth(HealthMultiplier);
+	}
+	if (!Enemy->GetController())
 	{
 		Enemy->SpawnDefaultController();	// its AI (StateTree) runs from here
 	}

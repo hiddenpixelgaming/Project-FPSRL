@@ -99,6 +99,9 @@ public:
 	/** Server: finish a downed (or living) player off: health 0, OnDeath. */
 	void Kill();
 
+	/** Server: multiply max health (and refill to it), e.g. an Elite / Final Level Boss encounter. Works before or after BeginPlay. */
+	void ScaleMaxHealth(float Multiplier);
+
 	/** Alive and not downed: can fight, revive teammates, vote at the portal. */
 	static bool IsPawnUp(const APawn* Pawn);
 

@@ -76,9 +76,9 @@ EPortalDestination UFPSRLRunSubsystem::GetNextDestination() const
 	{
 		return EPortalDestination::RunComplete;
 	}
-	if (Next->DepthType == EDepthType::FinalBoss)
+	if (Next->DepthType == EDepthType::FinalLevelBoss)
 	{
-		return EPortalDestination::FinalBoss;
+		return EPortalDestination::FinalLevelBoss;
 	}
 	return NextArea != CurrentArea ? EPortalDestination::NextArea : EPortalDestination::NextDepth;
 }

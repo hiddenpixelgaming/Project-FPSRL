@@ -20,6 +20,11 @@
 #include "Rooms/FPSRLReviveMarker.h"
 #include "UI/FPSRLPortalWidgets.h"
 #include "UI/FPSRLReviveWidget.h"
+#include "UI/FPSRLEncounterBarWidget.h"
+#include "Rooms/FPSRLRoom.h"
+#include "Data/FPSRLEncounterDefinition.h"
+#include "Core/FPSRLAutopilotSubsystem.h"
+#include "Core/FPSRLDepthLayoutComponent.h"
 #include "UI/FPSRLDeathMenuWidget.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Combat/FPSRLProjectile.h"
@@ -188,6 +193,14 @@ void AFPSRLPlayerController::FPSRLReroll()
 void AFPSRLPlayerController::FPSRLBack()
 {
 	HandleBoonBack();	// same request the Back button sends
+}
+
+void AFPSRLPlayerController::FPSRLAutoRun()
+{
+	if (HasAuthority() && GetGameInstance())
+	{
+		GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->Start();
+	}
 }
 
 namespace
@@ -1286,5 +1299,48 @@ void AFPSRLPlayerController::HandleDestroySessionComplete(FName SessionName, boo
 	if (UGameInstance* GameInstance = GetGameInstance())
 	{
 		GameInstance->ReturnToMainMenu();
+	}
+}
+
+// --- Expedition rooms --------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerController::ServerReportRoomShown_Implementation(int32 PlacementIndex)
+{
+	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
+	{
+		GameState->DepthLayout->ReportRoomShown(this, PlacementIndex);
+	}
+}
+
+void AFPSRLPlayerController::RefreshEncounterBar(AFPSRLRoom* Room)
+{
+	if (!IsLocalController() || !Room)
+	{
+		return;
+	}
+	const UFPSRLEncounterDefinition* Encounter = Room->Encounter;
+	UFPSRLHealthComponent* EnemyHealth = Room->EncounterEnemy ? Room->EncounterEnemy->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+	const bool bShow = Encounter && Encounter->bShowHealthBar && Room->bCombatStarted && !Room->bRoomComplete && EnemyHealth;
+	if (bShow)
+	{
+		if (!EncounterBar)
+		{
+			EncounterBar = CreateWidget<UFPSRLEncounterBarWidget>(this, EncounterBarClass ? EncounterBarClass : TSubclassOf<UFPSRLEncounterBarWidget>(UFPSRLEncounterBarWidget::StaticClass()));
+		}
+		if (EncounterBar)
+		{
+			EncounterBar->SetTarget(EnemyHealth, Encounter->DisplayName, Encounter->Kind);
+			if (!EncounterBar->IsInViewport())
+			{
+				EncounterBar->AddToViewport(5);
+			}
+		}
+		EncounterBarRoom = Room;
+	}
+	else if (EncounterBar && (!EncounterBarRoom.IsValid() || EncounterBarRoom == Room))
+	{
+		EncounterBar->ClearTarget();
+		EncounterBar->RemoveFromParent();
+		EncounterBarRoom.Reset();
 	}
 }

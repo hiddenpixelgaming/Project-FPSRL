@@ -476,6 +476,20 @@ void UFPSRLHealthComponent::Revive(float HealthFraction)
 	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s was revived (%.0f HP)"), *GetOwner()->GetActorNameOrLabel(), NewHealth), FColor::Green);
 }
 
+void UFPSRLHealthComponent::ScaleMaxHealth(float Multiplier)
+{
+	if (!GetOwner()->HasAuthority() || Multiplier <= 0.f || Multiplier == 1.f)
+	{
+		return;
+	}
+	DefaultMaxHealth *= Multiplier;
+	if (AbilitySystemComponent && !bDied)
+	{
+		AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetMaxHealthAttribute(), DefaultMaxHealth);
+		AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), DefaultMaxHealth);
+	}
+}
+
 void UFPSRLHealthComponent::Kill()
 {
 	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied)

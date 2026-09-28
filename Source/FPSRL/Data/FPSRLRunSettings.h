@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DeveloperSettings.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLRunSettings.generated.h"
 
 class UFPSRLRunDefinition;
@@ -26,6 +27,14 @@ public:
 	/** Where the party returns when a run ends. */
 	UPROPERTY(Config, EditAnywhere, Category = "Run")
 	TSoftObjectPtr<UWorld> LobbyMap;
+
+	/** What each Traversal reward spawns at the traversal's reward point (Blessing Altar, Upgrade Altar, future ones). */
+	UPROPERTY(Config, EditAnywhere, Category = "Rooms")
+	TMap<EFPSRLTraversalReward, TSoftClassPtr<AActor>> TraversalRewardClasses;
+
+	/** Seconds between an occupancy check and the next when unloading rooms every player has left behind. */
+	UPROPERTY(Config, EditAnywhere, Category = "Rooms", meta = (ClampMin = "0.1"))
+	float RoomUnloadCheckInterval = 1.f;
 
 	/** Seconds between the Depth completing and the portal accepting players (activation VFX window). */
 	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0"))

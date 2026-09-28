@@ -45,7 +45,7 @@ FText FPSRLPortalText::GetQuestion(const AFPSRLExitPortal* Portal)
 	{
 	case EPortalDestination::NextDepth:	return NSLOCTEXT("FPSRL", "PortalNextDepth", "Continue to the next Depth?");
 	case EPortalDestination::NextArea:	return NSLOCTEXT("FPSRL", "PortalNextArea", "Leave for the next Area?");
-	case EPortalDestination::FinalBoss:	return NSLOCTEXT("FPSRL", "PortalFinalBoss", "Continue to the Final Boss?");
+	case EPortalDestination::FinalLevelBoss:	return NSLOCTEXT("FPSRL", "PortalFinalLevelBoss", "Continue to the Final Level Boss?");
 	default:							return NSLOCTEXT("FPSRL", "PortalRunComplete", "Leave the run and return to the Lobby?");
 	}
 }
