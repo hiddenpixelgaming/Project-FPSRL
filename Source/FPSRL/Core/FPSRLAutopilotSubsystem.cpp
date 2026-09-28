@@ -15,10 +15,11 @@
 #include "Rooms/FPSRLRoom.h"
 #include "FPSRL.h"
 
-void UFPSRLAutopilotSubsystem::Start(bool bTestFall)
+void UFPSRLAutopilotSubsystem::Start(bool bTestFall, int32 InMinPlayers)
 {
 #if !UE_BUILD_SHIPPING
 	bFallPending = bTestFall;
+	MinPlayers = FMath::Max(1, InMinPlayers);
 	if (!TickerHandle.IsValid())
 	{
 		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] started"));
@@ -63,6 +64,11 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	{
 		if (!bStartedRun)
 		{
+			const AGameStateBase* LobbyState = World->GetGameState();
+			if (!LobbyState || LobbyState->PlayerArray.Num() < MinPlayers)
+			{
+				return true;	// waiting for the other test players to join
+			}
 			bStartedRun = Run->StartRun(World);
 			UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] start run: %s"), bStartedRun ? TEXT("ok") : TEXT("FAILED"));
 		}

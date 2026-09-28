@@ -233,7 +233,7 @@ public:
 
 	/** Listen host, in the Lobby: play a whole run by itself (UFPSRLAutopilotSubsystem). FPSRLAutoRun 1 also tests a fall. Test only. */
 	UFUNCTION(Exec)
-	void FPSRLAutoRun(int32 TestFall = 0);
+	void FPSRLAutoRun(int32 TestFall = 0, int32 MinPlayers = 1);
 
 	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
 	UFUNCTION(Server, Reliable)

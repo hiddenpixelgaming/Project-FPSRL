@@ -21,7 +21,7 @@ class FPSRL_API UFPSRLAutopilotSubsystem : public UGameInstanceSubsystem
 
 public:
 	/** bTestFall: once in the first encounter room, drop the host off the side of the level (checks the fall volume). */
-	void Start(bool bTestFall = false);
+	void Start(bool bTestFall = false, int32 InMinPlayers = 1);
 
 	virtual void Deinitialize() override;
 
@@ -32,6 +32,7 @@ private:
 	FTSTicker::FDelegateHandle TickerHandle;
 	bool bStartedRun = false;
 	bool bFallPending = false;
+	int32 MinPlayers = 1;
 	int32 Steps = 0;
 	int32 MaxSteps = 900;
 	FString LastStatus;

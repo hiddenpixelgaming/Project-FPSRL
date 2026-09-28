@@ -195,11 +195,11 @@ void AFPSRLPlayerController::FPSRLBack()
 	HandleBoonBack();	// same request the Back button sends
 }
 
-void AFPSRLPlayerController::FPSRLAutoRun(int32 TestFall)
+void AFPSRLPlayerController::FPSRLAutoRun(int32 TestFall, int32 MinPlayers)
 {
 	if (HasAuthority() && GetGameInstance())
 	{
-		GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->Start(TestFall != 0);
+		GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->Start(TestFall != 0, MinPlayers);
 	}
 }
 

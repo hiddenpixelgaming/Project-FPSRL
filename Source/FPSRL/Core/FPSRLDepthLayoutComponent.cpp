@@ -424,7 +424,6 @@ void UFPSRLDepthLayoutComponent::ApplyWindow()
 void UFPSRLDepthLayoutComponent::HandleStreamingChanged()
 {
 	const bool bServer = GetOwner()->HasAuthority();
-	AFPSRLPlayerController* LocalPC = Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController());
 	for (const TPair<int32, TObjectPtr<ULevelStreamingDynamic>>& Entry : StreamedRooms)
 	{
 		if (!Entry.Value || !Entry.Value->IsLevelVisible() || ShownHere.Contains(Entry.Key))
@@ -436,13 +435,10 @@ void UFPSRLDepthLayoutComponent::HandleStreamingChanged()
 		{
 			OnPlacementShownOnServer(Entry.Key);
 		}
-		else if (LocalPC)
-		{
-			LocalPC->ServerReportRoomShown(Entry.Key);	// the server opens gates only once every machine has the room
-		}
 	}
 	if (!bServer)
 	{
+		ResendUnconfirmedRooms();	// the server opens gates only once every machine has the room
 		return;
 	}
 
@@ -465,18 +461,42 @@ void UFPSRLDepthLayoutComponent::HandleStreamingChanged()
 
 void UFPSRLDepthLayoutComponent::OnRep_ReadyThrough()
 {
-	// A report can be lost if it raced this client's controller; re-send anything loaded here but not counted yet.
-	if (AFPSRLPlayerController* LocalPC = Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController()))
+	ResendUnconfirmedRooms();
+	OnReadinessChanged.Broadcast();
+}
+
+void UFPSRLDepthLayoutComponent::ResendUnconfirmedRooms()
+{
+	if (GetOwner()->HasAuthority())
 	{
-		for (const int32 Index : ShownHere)
+		return;
+	}
+	// Report every room loaded here that the server hasn't counted yet (ReadyThrough is below it). A report sent while
+	// this client's controller is still being swapped after travel has no connection and is dropped by the engine, so
+	// wait for a connected controller and keep retrying once a second until the server has counted them all.
+	AFPSRLPlayerController* LocalPC = Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController());
+	const bool bConnected = LocalPC && LocalPC->IsLocalController() && LocalPC->GetNetConnection();
+	bool bPending = false;
+	for (const int32 Index : ShownHere)
+	{
+		if (Index > ReadyThrough)
 		{
-			if (Index > ReadyThrough)
+			bPending = true;
+			if (bConnected)
 			{
 				LocalPC->ServerReportRoomShown(Index);
 			}
 		}
 	}
-	OnReadinessChanged.Broadcast();
+	FTimerManager& Timers = GetWorld()->GetTimerManager();
+	if (bPending && !Timers.IsTimerActive(ReportRetryTimer))
+	{
+		Timers.SetTimer(ReportRetryTimer, this, &ThisClass::ResendUnconfirmedRooms, 1.f, true);
+	}
+	else if (!bPending)
+	{
+		Timers.ClearTimer(ReportRetryTimer);
+	}
 }
 
 // --- Readiness, occupancy, rewards (server) ----------------------------------------------------------------------------
@@ -675,6 +695,7 @@ void UFPSRLDepthLayoutComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(OccupancyTimer);
+		World->GetTimerManager().ClearTimer(ReportRetryTimer);
 	}
 	for (const TPair<int32, TObjectPtr<ULevelStreamingDynamic>>& Entry : StreamedRooms)
 	{

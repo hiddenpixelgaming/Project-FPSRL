@@ -146,6 +146,9 @@ private:
 	UFUNCTION()
 	void HandleStreamingChanged();
 
+	/** Client: send the server any room loaded here that it hasn't counted yet; retries every second until it has. */
+	void ResendUnconfirmedRooms();
+
 	TArray<FFPSRLRoomPlacement> RollSequence(const UFPSRLDepthDefinition& Depth) const;
 	FTransform FindEntryTransform() const;
 
@@ -181,6 +184,8 @@ private:
 	TMap<int32, TWeakObjectPtr<AActor>> RewardActors;
 	TWeakObjectPtr<AActor> FallVolume;
 	FTimerHandle OccupancyTimer;
+	/** Client: retries room reports the server hasn't counted yet (see ResendUnconfirmedRooms). */
+	FTimerHandle ReportRetryTimer;
 	/** Rooms before this index may be unloaded (everyone has moved past them). Only grows. */
 	int32 KeepFrom = 0;
 	bool bLayoutPending = false;
