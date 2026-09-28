@@ -7,9 +7,11 @@
 #include "Engine/World.h"
 #include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
 #include "Online/OnlineSessionNames.h"
 #include "OnlineSessionSettings.h"
 #include "OnlineSubsystemUtils.h"
+#include "TimerManager.h"
 #include "UObject/UObjectGlobals.h"
 #include "FPSRL.h"
 
@@ -53,6 +55,8 @@ void UFPSRLSessionSubsystem::Deinitialize()
 		Sessions->ClearOnFindSessionsCompleteDelegate_Handle(FindCompleteHandle);
 		Sessions->ClearOnJoinSessionCompleteDelegate_Handle(JoinCompleteHandle);
 		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyCompleteHandle);
+		Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateCompleteHandle);
+		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyBeforeHostHandle);
 	}
 	Super::Deinitialize();
 }
@@ -93,6 +97,7 @@ void UFPSRLSessionSubsystem::HandlePostLoadMap(UWorld* World)
 	{
 		return;
 	}
+	bHosting = false;	// any map load ends a Host attempt (the Lobby it opened, or back to the Menu)
 	if (World->GetNetMode() == NM_Client)
 	{
 		bJoining = false;	// arrived at the host
@@ -327,6 +332,156 @@ FText UFPSRLSessionSubsystem::ConsumePendingJoinError()
 	FText Error = PendingJoinError;
 	PendingJoinError = FText::GetEmpty();
 	return Error;
+}
+
+// --- Hosting ---------------------------------------------------------------------------------------------------------
+
+void UFPSRLSessionSubsystem::HostSession()
+{
+	if (bHosting)
+	{
+		return;	// a create is already in flight: extra clicks must not start a second one
+	}
+	const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld());
+	if (!Sessions.IsValid())
+	{
+		FailHost(LOCTEXT("NoOnline", "Steam isn't available. Make sure Steam is running."));
+		return;
+	}
+	bHosting = true;
+	HostAttempt = 0;
+	OnHostStatus.Broadcast(LOCTEXT("Creating", "Creating game..."), false);
+
+	// A session left over from an earlier game (or a create Steam never finished) would make the create fail with
+	// "session already exists": clear it first.
+	if (Sessions->GetNamedSession(NAME_GameSession))
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Session] Host: clearing a leftover session first"));
+		DestroyBeforeHostHandle = Sessions->AddOnDestroySessionCompleteDelegate_Handle(
+			FOnDestroySessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleDestroyBeforeHostComplete));
+		if (Sessions->DestroySession(NAME_GameSession))
+		{
+			return;
+		}
+		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyBeforeHostHandle);
+	}
+	StartCreate();
+}
+
+void UFPSRLSessionSubsystem::HandleDestroyBeforeHostComplete(FName SessionName, bool bWasSuccessful)
+{
+	if (const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld()); Sessions.IsValid())
+	{
+		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyBeforeHostHandle);
+	}
+	if (bHosting)
+	{
+		StartCreate();
+	}
+}
+
+void UFPSRLSessionSubsystem::StartCreate()
+{
+	const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld());
+	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
+	const FUniqueNetIdRepl UserId = LocalPlayer ? LocalPlayer->GetPreferredUniqueNetId() : FUniqueNetIdRepl();
+	if (!Sessions.IsValid() || !UserId.IsValid())
+	{
+		FailHost(LOCTEXT("NotSignedIn", "Not signed in to Steam yet. Wait a moment and try again."));
+		return;
+	}
+	++HostAttempt;
+
+	// Same settings as the old Blueprint flow (Create Advanced Session), so the browser and invites see no difference.
+	const IOnlineSubsystem* Online = Online::GetSubsystem(GetWorld());
+	FOnlineSessionSettings Settings;
+	Settings.NumPublicConnections = 4;
+	Settings.NumPrivateConnections = 0;
+	Settings.bIsLANMatch = Online && Online->GetSubsystemName() == NULL_SUBSYSTEM;
+	Settings.bIsDedicated = false;
+	Settings.bShouldAdvertise = true;
+	Settings.bAllowJoinInProgress = true;
+	Settings.bAllowInvites = true;
+	Settings.bUsesPresence = true;
+	Settings.bUseLobbiesIfAvailable = true;
+	Settings.bAllowJoinViaPresence = true;
+	Settings.bAllowJoinViaPresenceFriendsOnly = false;
+	Settings.Set(FPSRLSession::GameTagKey, FPSRLSession::GameTagValue, EOnlineDataAdvertisementType::ViaOnlineService);
+	Settings.Set(StatusKey, StatusLobby, EOnlineDataAdvertisementType::ViaOnlineService);
+
+	CreateCompleteHandle = Sessions->AddOnCreateSessionCompleteDelegate_Handle(
+		FOnCreateSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleCreateSessionComplete));
+	UE_LOG(LogFPSRL, Log, TEXT("[Session] Host: creating session (attempt %d)"), HostAttempt);
+	if (!Sessions->CreateSession(*UserId, NAME_GameSession, Settings))
+	{
+		Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateCompleteHandle);
+		FailHost(LOCTEXT("CreateFailed", "Couldn't create the game on Steam. Try again in a moment."));
+		return;
+	}
+	GetGameInstance()->GetTimerManager().SetTimer(HostTimeoutTimer, this, &ThisClass::HandleHostTimeout, HostTimeoutSeconds, false);
+}
+
+void UFPSRLSessionSubsystem::HandleHostTimeout()
+{
+	if (!bHosting)
+	{
+		return;
+	}
+	// Steam never answered (seen when hosting right after launch while Steam's network was still starting).
+	// Abandon that create and try once more; a second silence gives up with a message.
+	const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld());
+	if (Sessions.IsValid())
+	{
+		Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateCompleteHandle);
+	}
+	UE_LOG(LogFPSRL, Warning, TEXT("[Session] Host: Steam didn't answer within %.0fs (attempt %d)"), HostTimeoutSeconds, HostAttempt);
+	if (HostAttempt >= 2 || !Sessions.IsValid())
+	{
+		if (Sessions.IsValid())
+		{
+			Sessions->DestroySession(NAME_GameSession);
+		}
+		FailHost(LOCTEXT("SteamSlow", "Steam didn't respond. Check your connection and try again."));
+		return;
+	}
+	OnHostStatus.Broadcast(LOCTEXT("Retrying", "Steam is slow to respond, trying again..."), false);
+	DestroyBeforeHostHandle = Sessions->AddOnDestroySessionCompleteDelegate_Handle(
+		FOnDestroySessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleDestroyBeforeHostComplete));
+	if (!Sessions->DestroySession(NAME_GameSession))
+	{
+		Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyBeforeHostHandle);
+		StartCreate();
+	}
+}
+
+void UFPSRLSessionSubsystem::HandleCreateSessionComplete(FName SessionName, bool bWasSuccessful)
+{
+	if (const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld()); Sessions.IsValid())
+	{
+		Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateCompleteHandle);
+	}
+	GetGameInstance()->GetTimerManager().ClearTimer(HostTimeoutTimer);
+	if (!bHosting)
+	{
+		return;
+	}
+	if (!bWasSuccessful)
+	{
+		FailHost(LOCTEXT("CreateFailed", "Couldn't create the game on Steam. Try again in a moment."));
+		return;
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Session] Host: session created, opening the Lobby"));
+	OnHostStatus.Broadcast(LOCTEXT("Opening", "Opening the Lobby..."), false);
+	// bHosting stays set until the Lobby has loaded (HandlePostLoadMap), so a click during the load can't start over.
+	UGameplayStatics::OpenLevelBySoftObjectPtr(GetGameInstance(), UFPSRLRunSettings::Get().LobbyMap, true, TEXT("listen"));
+}
+
+void UFPSRLSessionSubsystem::FailHost(const FText& Reason)
+{
+	UE_LOG(LogFPSRL, Warning, TEXT("[Session] Host failed: %s"), *Reason.ToString());
+	GetGameInstance()->GetTimerManager().ClearTimer(HostTimeoutTimer);
+	bHosting = false;
+	OnHostStatus.Broadcast(Reason, true);
 }
 
 #undef LOCTEXT_NAMESPACE

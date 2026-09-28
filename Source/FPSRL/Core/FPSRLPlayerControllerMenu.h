@@ -31,6 +31,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Menu")
 	void OpenServerBrowser();
 
+	/** Test: press the Host button (same as clicking it). */
+	UFUNCTION(Exec)
+	void FPSRLHost();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -43,6 +47,22 @@ private:
 	/** Point the Menu widget's "JoinButton" at OpenServerBrowser (its Blueprint handler joined the first result). */
 	void TakeOverJoinButton();
 
+	/** Point the Menu widget's "CreateButton" (Host) at the C++ Host flow (UFPSRLSessionSubsystem::HostSession). */
+	void TakeOverHostButton();
+
+	UFUNCTION()
+	void HandleHostClicked();
+
+	void HandleHostStatus(const FText& Message, bool bError);
+
 	UPROPERTY(Transient)
 	TObjectPtr<UFPSRLServerBrowserWidget> ServerBrowser;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UButton> HostButton;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UFPSRLMenuStatusWidget> StatusWidget;
+
+	FDelegateHandle HostStatusHandle;
 };

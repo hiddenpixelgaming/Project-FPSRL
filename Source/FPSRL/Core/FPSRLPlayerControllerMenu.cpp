@@ -7,6 +7,7 @@
 #include "Components/Button.h"
 #include "Core/FPSRLSessionSubsystem.h"
 #include "Engine/GameInstance.h"
+#include "UI/FPSRLMenuStatusWidget.h"
 #include "UI/FPSRLServerBrowserWidget.h"
 #include "FPSRL.h"
 
@@ -29,6 +30,7 @@ void AFPSRLPlayerControllerMenu::BeginPlay()
 		SetShowMouseCursor(true);
 
 		TakeOverJoinButton();
+		TakeOverHostButton();
 
 		// Back from a join the host refused (or that couldn't connect): straight back to the list, with the reason.
 		const UGameInstance* GameInstance = GetGameInstance();
@@ -47,6 +49,10 @@ void AFPSRLPlayerControllerMenu::BeginPlay()
 
 void AFPSRLPlayerControllerMenu::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UFPSRLSessionSubsystem* Sessions = GetGameInstance() ? GetGameInstance()->GetSubsystem<UFPSRLSessionSubsystem>() : nullptr)
+	{
+		Sessions->OnHostStatus.Remove(HostStatusHandle);
+	}
 	if (IsLocalController())
 	{
 		SetInputMode(FInputModeGameOnly());
@@ -87,4 +93,63 @@ void AFPSRLPlayerControllerMenu::OpenServerBrowser()
 		ServerBrowser->AddToViewport(10);
 		ServerBrowser->SetKeyboardFocus();
 	}
+}
+
+void AFPSRLPlayerControllerMenu::TakeOverHostButton()
+{
+	// Done from C++ so the Menu Blueprint needs no edit; its old handler (Create Advanced Session) is unbound.
+	TArray<UUserWidget*> Widgets;
+	UWidgetBlueprintLibrary::GetAllWidgetsOfClass(this, Widgets, UUserWidget::StaticClass(), true);
+	for (UUserWidget* Widget : Widgets)
+	{
+		HostButton = Widget && Widget->WidgetTree ? Widget->WidgetTree->FindWidget<UButton>(TEXT("CreateButton")) : nullptr;
+		if (HostButton)
+		{
+			HostButton->OnClicked.Clear();
+			HostButton->OnClicked.AddDynamic(this, &ThisClass::HandleHostClicked);
+			if (UFPSRLSessionSubsystem* Sessions = GetGameInstance()->GetSubsystem<UFPSRLSessionSubsystem>())
+			{
+				HostStatusHandle = Sessions->OnHostStatus.AddUObject(this, &ThisClass::HandleHostStatus);
+				HostButton->SetIsEnabled(!Sessions->IsHosting());
+			}
+			UE_LOG(LogFPSRL, Log, TEXT("[Menu] %s CreateButton hosts through the C++ flow"), *Widget->GetClass()->GetName());
+			return;
+		}
+	}
+	UE_LOG(LogFPSRL, Warning, TEXT("[Menu] No CreateButton found on the Menu widget; hosting is unreachable"));
+}
+
+void AFPSRLPlayerControllerMenu::HandleHostClicked()
+{
+	if (UFPSRLSessionSubsystem* Sessions = GetGameInstance()->GetSubsystem<UFPSRLSessionSubsystem>())
+	{
+		Sessions->HostSession();
+	}
+}
+
+void AFPSRLPlayerControllerMenu::HandleHostStatus(const FText& Message, bool bError)
+{
+	// One click at a time: the button stays off while a game is being created, and comes back if it fails.
+	const UFPSRLSessionSubsystem* Sessions = GetGameInstance()->GetSubsystem<UFPSRLSessionSubsystem>();
+	if (HostButton)
+	{
+		HostButton->SetIsEnabled(!Sessions || !Sessions->IsHosting());
+	}
+	if (!StatusWidget)
+	{
+		StatusWidget = CreateWidget<UFPSRLMenuStatusWidget>(this, UFPSRLMenuStatusWidget::StaticClass());
+		if (StatusWidget)
+		{
+			StatusWidget->AddToViewport(20);
+		}
+	}
+	if (StatusWidget)
+	{
+		StatusWidget->SetStatus(Message, bError);
+	}
+}
+
+void AFPSRLPlayerControllerMenu::FPSRLHost()
+{
+	HandleHostClicked();
 }

@@ -76,8 +76,20 @@ public:
 	/** A join that failed after leaving the Menu (e.g. the host refused it); empty if none. Clears it. */
 	FText ConsumePendingJoinError();
 
+	/**
+	 * Host a game: create the Steam session (same settings the old Blueprint flow used), then open the Lobby as a
+	 * listen server. Clicks while a create is in flight are ignored; a leftover session is cleared first; a create
+	 * Steam never answers is abandoned after HostTimeoutSeconds and tried once more before giving up.
+	 * OnHostStatus reports progress and failures for the Menu to show.
+	 */
+	void HostSession();
+	bool IsHosting() const { return bHosting; }
+
 	FFPSRLSessionsFoundEvent OnSessionsFound;
 	FFPSRLJoinFailedEvent OnJoinFailed;
+	/** Hosting progress (bError = false) or failure (bError = true, hosting stopped). */
+	DECLARE_MULTICAST_DELEGATE_TwoParams(FFPSRLHostStatusEvent, const FText& /*Message*/, bool /*bError*/);
+	FFPSRLHostStatusEvent OnHostStatus;
 
 	/** Session setting key for the host's status, and its two values. */
 	static const FName StatusKey;
@@ -104,6 +116,19 @@ private:
 
 	/** Leave our copy of a session we tried to join, so the next Join doesn't fail with "already in a session". */
 	void LeaveJoinedSession();
+
+	// Hosting.
+	void StartCreate();
+	void HandleDestroyBeforeHostComplete(FName SessionName, bool bWasSuccessful);
+	void HandleCreateSessionComplete(FName SessionName, bool bWasSuccessful);
+	void HandleHostTimeout();
+	void FailHost(const FText& Reason);
+	bool bHosting = false;
+	int32 HostAttempt = 0;
+	FTimerHandle HostTimeoutTimer;
+	FDelegateHandle CreateCompleteHandle;
+	FDelegateHandle DestroyBeforeHostHandle;
+	static constexpr float HostTimeoutSeconds = 12.f;
 
 	TSharedPtr<FOnlineSessionSearch> Search;
 	TArray<FFPSRLSessionRow> Rows;
