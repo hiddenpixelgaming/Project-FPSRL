@@ -101,7 +101,7 @@ public:
 	/**
 	 * Client -> server: this player swung their melee. The character Blueprint's melee runs on the machine that pressed
 	 * the key, and a client's damage never counts, so for clients the server swings instead: the same sphere trace from
-	 * the server's copy of the player (reach and damage read from the character's MeleeRange / MeleeDamage).
+	 * the server's copy of the player.
 	 */
 	UFUNCTION(Server, Reliable)
 	void ServerMelee();
@@ -109,6 +109,16 @@ public:
 	/** The melee input (IA_Melee), also bound here so a client's press reaches the server. */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee")
 	TSoftObjectPtr<UInputAction> MeleeAction = TSoftObjectPtr<UInputAction>(FSoftObjectPath(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee")));
+
+	/** Melee swing: how far it reaches, how wide it is (sphere radius), and its damage. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
+	float MeleeRange = 225.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "1"))
+	float MeleeRadius = 60.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
+	float MeleeDamage = 75.f;
 
 	/** Server: fastest a client can melee. */
 

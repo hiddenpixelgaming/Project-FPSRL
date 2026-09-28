@@ -1420,28 +1420,15 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	}
 	LastServerMeleeTime = Now;
 
-	// The character Blueprint's swing (a 30-radius sphere along the facing, MeleeRange long) but on the Pawn channel: its
-	// Visibility trace never hit a character body, so melee never damaged anyone (host included).
-	auto ReadNumber = [Attacker](const TCHAR* Name, double Default)
-	{
-		const FProperty* Property = Attacker->GetClass()->FindPropertyByName(Name);
-		if (const FDoubleProperty* AsDouble = CastField<FDoubleProperty>(Property))
-		{
-			return AsDouble->GetPropertyValue_InContainer(Attacker);
-		}
-		if (const FFloatProperty* AsFloat = CastField<FFloatProperty>(Property))
-		{
-			return static_cast<double>(AsFloat->GetPropertyValue_InContainer(Attacker));
-		}
-		return Default;
-	};
-	const float Range = static_cast<float>(ReadNumber(TEXT("MeleeRange"), 150.0));
-	const float Damage = static_cast<float>(ReadNumber(TEXT("MeleeDamage"), 25.0));
+	// A MeleeRadius sphere along the facing, MeleeRange long. (The character Blueprint's own swing traced on Visibility, which
+	// character bodies don't block, so it never damaged anyone; it still runs, harmlessly.)
+	const float Range = MeleeRange;
+	const float Damage = MeleeDamage;
 	const FVector Start = Attacker->GetActorLocation();
 	const FVector End = Start + Attacker->GetActorForwardVector() * Range;
 	// Characters only: bullets in flight, props and walls must not use up the swing.
 	TArray<FHitResult> Hits;
-	UKismetSystemLibrary::SphereTraceMultiForObjects(this, Start, End, 30.f, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
+	UKismetSystemLibrary::SphereTraceMultiForObjects(this, Start, End, MeleeRadius, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
 		false, { Attacker }, EDrawDebugTrace::None, Hits, true);
 	const FHitResult* Hit = Hits.FindByPredicate([](const FHitResult& Candidate)
 	{
