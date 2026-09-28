@@ -389,6 +389,12 @@ bool UFPSRLAutopilotSubsystem::StepWeaponTest(float DeltaTime)
 	AFPSRLWeapon* Weapon = FindWeapon();
 	if (!Weapon)
 	{
+		if (WeaponStep > 1050)
+		{
+			UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] done (the player went down on purpose; solo = party wipe)"));
+			PC->ConsoleCommand(TEXT("quit"));
+			return false;
+		}
 		UE_LOG(LogFPSRL, Error, TEXT("[WeaponTest] FAILED: the player holds no C++ weapon"));
 		PC->ConsoleCommand(TEXT("quit"));
 		return false;
@@ -447,7 +453,12 @@ bool UFPSRLAutopilotSubsystem::StepWeaponTest(float DeltaTime)
 		Press(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee"));	// 1.25 s: allowed again
 		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] melee pressed at 1.25 s"));
 		break;
+	case 1044:
+		Press(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Dash.IA_Dash"));
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] dash pressed"));
+		break;
 	case 1045:
+		UE_LOG(LogFPSRL, Log, TEXT("[WeaponTest] 0.25 s after dash: HUD: %s"), *HUDState());
 		PC->ServerTestCommand(TEXT("God"), FString(), FString());	// god mode off
 		break;
 	case 1046:

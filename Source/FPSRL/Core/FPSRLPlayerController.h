@@ -110,6 +110,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee")
 	TSoftObjectPtr<UInputAction> MeleeAction = TSoftObjectPtr<UInputAction>(FSoftObjectPath(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Melee.IA_Melee")));
 
+	/** The dash input (IA_Dash), bound here only to wake the HUD's dash square; the dash itself is the character's. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD")
+	TSoftObjectPtr<UInputAction> DashAction = TSoftObjectPtr<UInputAction>(FSoftObjectPath(TEXT("/Game/Variant_Shooter/Input/Actions/IA_Dash.IA_Dash")));
+
 	/** Melee swing: how far it reaches, how wide it is (sphere radius), and its damage. */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
 	float MeleeRange = 225.f;
@@ -273,6 +277,7 @@ public:
 	void FPSRLGod();
 
 	void HandleMeleePressed();
+	void HandleDashPressed();
 
 	/** The local player's combat HUD (null for others). */
 	class UFPSRLCombatHUDWidget* GetCombatHUD() const { return CombatHUD; }

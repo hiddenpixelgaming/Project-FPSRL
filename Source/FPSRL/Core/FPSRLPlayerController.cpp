@@ -1236,6 +1236,10 @@ void AFPSRLPlayerController::SetupInputComponent()
 		{
 			EnhancedInput->BindAction(Melee, ETriggerEvent::Started, this, &ThisClass::HandleMeleePressed);
 		}
+		if (UInputAction* Dash = DashAction.LoadSynchronous())
+		{
+			EnhancedInput->BindAction(Dash, ETriggerEvent::Started, this, &ThisClass::HandleDashPressed);
+		}
 	}
 #if !UE_BUILD_SHIPPING
 	if (InputComponent)
@@ -1481,4 +1485,12 @@ float AFPSRLPlayerController::GetMeleeCooldownFraction() const
 	}
 	const double Remaining = MeleeCooldown - (GetWorld()->GetTimeSeconds() - LastLocalMeleeTime);
 	return FMath::Clamp(static_cast<float>(Remaining / MeleeCooldown), 0.f, 1.f);
+}
+
+void AFPSRLPlayerController::HandleDashPressed()
+{
+	if (CombatHUD)
+	{
+		CombatHUD->NotifyDashPressed();
+	}
 }

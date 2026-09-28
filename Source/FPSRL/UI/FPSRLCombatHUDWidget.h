@@ -34,6 +34,9 @@ public:
 	/** The player just swung (starts the melee square's cooldown shade at once). */
 	void NotifyMeleeSwung() { StartAnimating(); }
 
+	/** The dash key was pressed (the dash square watches the character's cooldown from here). */
+	void NotifyDashPressed() { StartAnimating(); }
+
 	/** Test: what the HUD shows right now, as text. */
 	FString DescribeForTest() const;
 
@@ -54,14 +57,21 @@ protected:
 	TObjectPtr<USizeBox> MeleeShade;
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD", meta = (BindWidgetOptional))
+	TObjectPtr<USizeBox> DashShade;
+
+	UPROPERTY(BlueprintReadOnly, Category = "HUD", meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> ReloadBar;
 
 	UPROPERTY(BlueprintReadOnly, Category = "HUD", meta = (BindWidgetOptional))
 	TObjectPtr<UImage> DamageFlash;
 
-	/** Size of the melee square (the shade's full height). */
+	/** Size of the ability squares (dash, melee; the shade's full height). */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD")
 	float MeleeIconSize = 64.f;
+
+	/** Fixed width of the ammo counter's slot, so the ability squares never move. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD")
+	float AmmoSlotWidth = 170.f;
 
 	/** Opacity the damage flash starts at, and how long it takes to fade. */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD")
@@ -88,4 +98,9 @@ private:
 	FTimerHandle AnimTimer;
 	double LastHealth = -1.0;
 	double FlashStartTime = -1000.0;
+	/** When the character's dash went on cooldown (bCanDash false); -1 while ready. */
+	double DashLockStart = -1.0;
+
+	/** The dash is character Blueprint logic: its bCanDash / DashCooldown, read by name (-1 if missing). */
+	float GetDashCooldownFraction();
 };
