@@ -1439,16 +1439,22 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	const float Damage = static_cast<float>(ReadNumber(TEXT("MeleeDamage"), 25.0));
 	const FVector Start = Attacker->GetActorLocation();
 	const FVector End = Start + Attacker->GetActorForwardVector() * Range;
-	FHitResult Hit;
-	const bool bHit = UKismetSystemLibrary::SphereTraceSingle(this, Start, End, 30.f, UEngineTypes::ConvertToTraceType(ECC_Pawn),
-		false, { Attacker }, EDrawDebugTrace::None, Hit, true);
-	if (bHit && Hit.GetActor())
+	// Characters only: bullets in flight, props and walls must not use up the swing.
+	TArray<FHitResult> Hits;
+	UKismetSystemLibrary::SphereTraceMultiForObjects(this, Start, End, 30.f, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
+		false, { Attacker }, EDrawDebugTrace::None, Hits, true);
+	const FHitResult* Hit = Hits.FindByPredicate([](const FHitResult& Candidate)
 	{
-		UGameplayStatics::ApplyDamage(Hit.GetActor(), Damage, this, Attacker, nullptr);
-		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *GetNameSafe(PlayerState), *Hit.GetActor()->GetName(), Damage);
+		const UFPSRLHealthComponent* Health = Candidate.GetActor() ? Candidate.GetActor()->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+		return Health && !Health->IsDead();
+	});
+	if (Hit)
+	{
+		UGameplayStatics::ApplyDamage(Hit->GetActor(), Damage, this, Attacker, nullptr);
+		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))), *Hit->GetActor()->GetName(), Damage);
 	}
 	else
 	{
-		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *GetNameSafe(PlayerState));
+		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))));
 	}
 }
