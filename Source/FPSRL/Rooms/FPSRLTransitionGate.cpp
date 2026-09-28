@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Core/FPSRLDepthLayoutComponent.h"
 #include "Core/FPSRLGameState.h"
+#include "Rooms/FPSRLDoor.h"
 #include "Engine/CollisionProfile.h"
 #include "Engine/StaticMesh.h"
 #include "UObject/ConstructorHelpers.h"
@@ -73,12 +74,34 @@ void AFPSRLTransitionGate::Refresh()
 
 void AFPSRLTransitionGate::SetOpen(bool bNewOpen)
 {
-	if (bOpen == bNewOpen && HasActorBegunPlay())
+	if (bOpen == bNewOpen && bStateApplied)
 	{
 		return;
 	}
 	bOpen = bNewOpen;
-	Blocker->SetCollisionEnabled(bOpen ? ECollisionEnabled::NoCollision : ECollisionEnabled::QueryAndPhysics);
-	Barrier->SetVisibility(!bOpen);
-	UE_LOG(LogFPSRL, Verbose, TEXT("[Gate %s] %s"), *GetActorNameOrLabel(), bOpen ? TEXT("open") : TEXT("closed"));
+	bStateApplied = true;
+	if (Door)
+	{
+		// The door does the blocking (and replicates its state); the server drives it.
+		Blocker->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Barrier->SetVisibility(false);
+		if (HasAuthority())
+		{
+			if (bOpen)
+			{
+				Door->Unlock();
+				Door->Open();
+			}
+			else
+			{
+				Door->Lock();
+			}
+		}
+	}
+	else
+	{
+		Blocker->SetCollisionEnabled(bOpen ? ECollisionEnabled::NoCollision : ECollisionEnabled::QueryAndPhysics);
+		Barrier->SetVisibility(!bOpen);
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Gate %s] %s%s"), *GetActorNameOrLabel(), bOpen ? TEXT("open") : TEXT("closed"), Door ? (Door->DoorState == EDoorState::Locked ? TEXT(" (door locked)") : TEXT(" (door open)")) : TEXT(""));
 }

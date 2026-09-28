@@ -490,6 +490,15 @@ void UFPSRLHealthComponent::ScaleMaxHealth(float Multiplier)
 	}
 }
 
+void UFPSRLHealthComponent::ApplyEnvironmentDamage(float Amount)
+{
+	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied || Amount <= 0.f)
+	{
+		return;
+	}
+	ApplyHealthEffect(UFPSRLDamageEffect::StaticClass(), FPSRLGameplayTags::SetByCaller_Damage, Amount, nullptr, nullptr);
+}
+
 void UFPSRLHealthComponent::Kill()
 {
 	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied)

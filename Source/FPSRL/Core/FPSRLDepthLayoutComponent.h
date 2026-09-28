@@ -124,6 +124,9 @@ public:
 	/** Server: a client has loaded and shown this placement. */
 	void ReportRoomShown(APlayerController* Player, int32 Index);
 
+	/** Server: where to put back a player who fell from around FellFrom (the start of the nearest loaded room). */
+	bool FindSafeSpot(const FVector& FellFrom, FTransform& OutSpot) const;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
@@ -176,6 +179,7 @@ private:
 	TMap<TWeakObjectPtr<APlayerController>, TSet<int32>> ShownByClient;
 	TMap<int32, FBox> PlacementBounds;
 	TMap<int32, TWeakObjectPtr<AActor>> RewardActors;
+	TWeakObjectPtr<AActor> FallVolume;
 	FTimerHandle OccupancyTimer;
 	/** Rooms before this index may be unloaded (everyone has moved past them). Only grows. */
 	int32 KeepFrom = 0;

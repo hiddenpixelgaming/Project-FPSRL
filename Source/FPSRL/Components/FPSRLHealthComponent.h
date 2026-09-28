@@ -102,6 +102,9 @@ public:
 	/** Server: multiply max health (and refill to it), e.g. an Elite / Final Level Boss encounter. Works before or after BeginPlay. */
 	void ScaleMaxHealth(float Multiplier);
 
+	/** Server: damage from the world itself (a fall), not from anyone, so the friendly-fire filter doesn't apply. */
+	void ApplyEnvironmentDamage(float Amount);
+
 	/** Alive and not downed: can fight, revive teammates, vote at the portal. */
 	static bool IsPawnUp(const APawn* Pawn);
 

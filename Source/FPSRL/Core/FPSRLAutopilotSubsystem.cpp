@@ -15,9 +15,10 @@
 #include "Rooms/FPSRLRoom.h"
 #include "FPSRL.h"
 
-void UFPSRLAutopilotSubsystem::Start()
+void UFPSRLAutopilotSubsystem::Start(bool bTestFall)
 {
 #if !UE_BUILD_SHIPPING
+	bFallPending = bTestFall;
 	if (!TickerHandle.IsValid())
 	{
 		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] started"));
@@ -135,6 +136,15 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	{
 		Pawn->TeleportTo(Target, Layout->Placements[Next].Transform.Rotator());
 		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] moved into room %d (%s)"), Next, *GetNameSafe(Layout->Placements[Next].Room));
+		return true;
+	}
+
+	if (bFallPending)
+	{
+		bFallPending = false;
+		const FVector Off = Target + Layout->Placements[Next].Transform.TransformVector(FVector(0.f, 3000.f, 0.f)) - FVector(0.f, 0.f, 1100.f);
+		Pawn->TeleportTo(Off, Pawn->GetActorRotation(), false, true);
+		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] dropped off the level at %s"), *Off.ToCompactString());
 		return true;
 	}
 

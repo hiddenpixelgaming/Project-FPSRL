@@ -12,6 +12,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
+#include "Rooms/FPSRLFallVolume.h"
 #include "Rooms/FPSRLRewardSpawnPoint.h"
 #include "Rooms/FPSRLRoomConnector.h"
 #include "TimerManager.h"
@@ -264,7 +265,56 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 	}
 	GetWorld()->GetTimerManager().SetTimer(OccupancyTimer, this, &ThisClass::CheckOccupancy,
 		UFPSRLRunSettings::Get().RoomUnloadCheckInterval, true);
+
+	// One wide fall volume under the whole Depth: every room origin and exit, plus a generous margin.
+	const UFPSRLRunSettings& Settings = UFPSRLRunSettings::Get();
+	FBox Area(ForceInit);
+	for (const FFPSRLRoomPlacement& Placement : Placements)
+	{
+		Area += Placement.Transform.GetLocation();
+		Area += (Placement.Room->ExitTransform * Placement.Transform).GetLocation();
+	}
+	Area += FindEntryTransform().GetLocation();
+	const FVector Min(Area.Min.X - Settings.FallVolumeMargin, Area.Min.Y - Settings.FallVolumeMargin, Area.Min.Z - Settings.FallVolumeDepth - 4000.f);
+	const FVector Max(Area.Max.X + Settings.FallVolumeMargin, Area.Max.Y + Settings.FallVolumeMargin, Area.Min.Z - Settings.FallVolumeDepth);
+	if (AFPSRLFallVolume* Volume = GetWorld()->SpawnActor<AFPSRLFallVolume>())
+	{
+		Volume->Cover(FBox(Min, Max));
+		FallVolume = Volume;
+	}
+
 	UpdateWindow();
+	return true;
+}
+
+bool UFPSRLDepthLayoutComponent::FindSafeSpot(const FVector& FellFrom, FTransform& OutSpot) const
+{
+	// The loaded room whose floor plan is closest to where the player went over the edge.
+	int32 Best = INDEX_NONE;
+	double BestDistance = TNumericLimits<double>::Max();
+	for (const TPair<int32, FBox>& Entry : PlacementBounds)
+	{
+		if (!Placements.IsValidIndex(Entry.Key) || !Entry.Value.IsValid)
+		{
+			continue;
+		}
+		const FVector Center = Entry.Value.GetCenter();
+		const FVector Extent = Entry.Value.GetExtent();
+		const double DX = FMath::Max(0.0, FMath::Abs(FellFrom.X - Center.X) - Extent.X);
+		const double DY = FMath::Max(0.0, FMath::Abs(FellFrom.Y - Center.Y) - Extent.Y);
+		const double Distance = DX * DX + DY * DY + FVector::DistSquared2D(FellFrom, Center) * 1e-6;	// inside several: nearest centre
+		if (Distance < BestDistance)
+		{
+			BestDistance = Distance;
+			Best = Entry.Key;
+		}
+	}
+	if (Best == INDEX_NONE)
+	{
+		return false;
+	}
+	const FTransform& Room = Placements[Best].Transform;
+	OutSpot = FTransform(Room.Rotator(), Room.TransformPosition(FVector(200.f, 0.f, 120.f)));	// just inside its entrance
 	return true;
 }
 

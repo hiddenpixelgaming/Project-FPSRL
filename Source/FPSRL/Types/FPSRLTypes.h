@@ -47,6 +47,14 @@ enum class ERoomType : uint8
 	Preparation		// safe room before the Final Level Boss (altars, future Merchant)
 };
 
+/** What happens to a player who falls out of the level (AFPSRLFallVolume). */
+UENUM(BlueprintType)
+enum class EFPSRLFallResponse : uint8
+{
+	ReturnToSafety,		// back on the floor of the room they fell from, minus a share of max health (the real game)
+	InstantDeath		// killed outright (playtesting)
+};
+
 /** What a Traversal space holds, rolled per traversal from the Depth's data. Future = reserved for later interactables. */
 UENUM(BlueprintType)
 enum class EFPSRLTraversalReward : uint8

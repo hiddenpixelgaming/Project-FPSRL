@@ -36,6 +36,22 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Rooms", meta = (ClampMin = "0.1"))
 	float RoomUnloadCheckInterval = 1.f;
 
+	/** A player who falls out of the level: back to safety with damage (the real game) or killed (playtesting). */
+	UPROPERTY(Config, EditAnywhere, Category = "Falling")
+	EFPSRLFallResponse FallResponse = EFPSRLFallResponse::ReturnToSafety;
+
+	/** ReturnToSafety: share of max health lost per fall (can down the player). */
+	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "0", ClampMax = "1"))
+	float FallDamageFraction = 0.2f;
+
+	/** How far below the lowest room the fall volume's top sits. */
+	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "100"))
+	float FallVolumeDepth = 1500.f;
+
+	/** How far the fall volume reaches past the Depth's rooms on every side. */
+	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "0"))
+	float FallVolumeMargin = 10000.f;
+
 	/** Seconds between the Depth completing and the portal accepting players (activation VFX window). */
 	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0"))
 	float PortalActivationDelay = 1.f;
