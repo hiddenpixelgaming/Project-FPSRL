@@ -58,6 +58,10 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Lobby")
 	bool bIsReady = false;
 
+	/** Playtesting (F1 / FPSRLGod, not in Shipping): no damage, can't die, falls put you back on the floor. Kept for the run. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Test")
+	bool bGodMode = false;
+
 	/** Lobby-selected weapon (a Weapon.* tag). Carried across travel into the run. */
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Lobby")
 	FGameplayTag SelectedWeapon;

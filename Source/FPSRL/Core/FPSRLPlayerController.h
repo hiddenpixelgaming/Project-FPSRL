@@ -239,6 +239,14 @@ public:
 	UFUNCTION(Exec)
 	void FPSRLAltarTest(int32 MinPlayers = 2);
 
+	/** Playtesting: god mode on/off for this player (also F6). Not in Shipping. */
+	UFUNCTION(Exec)
+	void FPSRLGod();
+
+	/** Server -> this player: a short message on screen. */
+	UFUNCTION(Client, Reliable)
+	void ClientShowNotice(const FText& Message);
+
 	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
 	UFUNCTION(Server, Reliable)
 	void ServerTestCommand(FName Command, const FString& Arg1, const FString& Arg2);

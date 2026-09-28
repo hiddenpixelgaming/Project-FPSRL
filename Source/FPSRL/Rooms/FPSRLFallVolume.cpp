@@ -64,7 +64,7 @@ void AFPSRLFallVolume::CatchPlayer(APawn* Pawn)
 {
 	UFPSRLHealthComponent* Health = Pawn->FindComponentByClass<UFPSRLHealthComponent>();
 	const UFPSRLRunSettings& Settings = UFPSRLRunSettings::Get();
-	if (Settings.FallResponse == EFPSRLFallResponse::InstantDeath)
+	if (Settings.FallResponse == EFPSRLFallResponse::InstantDeath && !(Health && Health->IsGodMode()))	// god mode: always back on the floor
 	{
 		UE_LOG(LogFPSRL, Log, TEXT("[Fall] %s fell out of the level: killed (playtest setting)"), *Pawn->GetName());
 		if (Health)
@@ -99,6 +99,6 @@ void AFPSRLFallVolume::CatchPlayer(APawn* Pawn)
 	{
 		Health->ApplyEnvironmentDamage(Health->GetMaxHealth() * Settings.FallDamageFraction);
 	}
-	UE_LOG(LogFPSRL, Log, TEXT("[Fall] %s fell out of the level: back at %s, -%.0f%% health"), *Pawn->GetName(),
-		*Spot.GetLocation().ToCompactString(), Settings.FallDamageFraction * 100.f);
+	UE_LOG(LogFPSRL, Log, TEXT("[Fall] %s fell out of the level: back at %s, %s"), *Pawn->GetName(), *Spot.GetLocation().ToCompactString(),
+		Health && Health->IsGodMode() ? TEXT("no damage (god mode)") : *FString::Printf(TEXT("-%.0f%% health"), Settings.FallDamageFraction * 100.f));
 }

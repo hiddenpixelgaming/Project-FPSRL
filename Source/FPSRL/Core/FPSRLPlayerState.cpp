@@ -49,6 +49,7 @@ void AFPSRLPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AFPSRLPlayerState, bIsReady);
+	DOREPLIFETIME(AFPSRLPlayerState, bGodMode);
 	DOREPLIFETIME(AFPSRLPlayerState, SelectedWeapon);
 	DOREPLIFETIME(AFPSRLPlayerState, EquippedWeapon);
 	DOREPLIFETIME(AFPSRLPlayerState, SecondaryItem);
@@ -65,6 +66,7 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 	if (AFPSRLPlayerState* NewState = Cast<AFPSRLPlayerState>(PlayerState))
 	{
 		NewState->SelectedWeapon = SelectedWeapon;
+		NewState->bGodMode = bGodMode;
 		NewState->SecondaryItem = SecondaryItem;
 		NewState->AbilityItem = AbilityItem;
 		NewState->TalentEssence = TalentEssence;

@@ -93,6 +93,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Health")
 	bool IsDowned() const;
 
+	/** Playtesting god mode is on for this player (their PlayerState's bGodMode): no damage, no death. */
+	bool IsGodMode() const;
+
 	/** Server: a teammate revived this player. Back up with Fraction of max health. */
 	void Revive(float HealthFraction);
 

@@ -260,6 +260,12 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 	{
 		bDone = Boons->BeginUpgradeSelection();
 	}
+	else if (Command == TEXT("God"))
+	{
+		PS->bGodMode = !PS->bGodMode;
+		bDone = true;
+		ClientShowNotice(PS->bGodMode ? NSLOCTEXT("FPSRL", "GodOn", "God mode ON") : NSLOCTEXT("FPSRL", "GodOff", "God mode OFF"));
+	}
 	else if (Command == TEXT("GiveRelic"))
 	{
 		UFPSRLRelicComponent* Relics = PS->GetRelicComponent();
@@ -1190,6 +1196,12 @@ void AFPSRLPlayerController::SetupInputComponent()
 			EnhancedInput->BindAction(PauseAction, ETriggerEvent::Started, this, &ThisClass::TogglePauseMenu);
 		}
 	}
+#if !UE_BUILD_SHIPPING
+	if (InputComponent)
+	{
+		InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &ThisClass::FPSRLGod);	// F1-F5 are the engine's debug view modes
+	}
+#endif
 }
 
 void AFPSRLPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -1351,4 +1363,14 @@ void AFPSRLPlayerController::RefreshEncounterBar(AFPSRLRoom* Room)
 		EncounterBar->RemoveFromParent();
 		EncounterBarRoom.Reset();
 	}
+}
+
+void AFPSRLPlayerController::FPSRLGod()
+{
+	ServerTestCommand(TEXT("God"), FString(), FString());
+}
+
+void AFPSRLPlayerController::ClientShowNotice_Implementation(const FText& Message)
+{
+	ShowNotice(Message);
 }

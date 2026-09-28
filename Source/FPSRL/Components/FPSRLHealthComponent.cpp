@@ -21,6 +21,7 @@
 #include "GameFramework/PlayerState.h"
 #include "Rooms/FPSRLReviveMarker.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Core/FPSRLPlayerState.h"
 #include "Combat/FPSRLProjectile.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "HAL/IConsoleManager.h"
@@ -203,6 +204,10 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 	if (Damage <= 0.f || !GetOwner()->HasAuthority() || bDied)
 	{
 		return;	// nothing to do, or a corpse being shot
+	}
+	if (IsGodMode())
+	{
+		return;
 	}
 	if (!ShouldAcceptDamageFrom(InstigatedBy, DamageCauser))
 	{
@@ -492,7 +497,7 @@ void UFPSRLHealthComponent::ScaleMaxHealth(float Multiplier)
 
 void UFPSRLHealthComponent::ApplyEnvironmentDamage(float Amount)
 {
-	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied || Amount <= 0.f)
+	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied || Amount <= 0.f || IsGodMode())
 	{
 		return;
 	}
@@ -501,7 +506,7 @@ void UFPSRLHealthComponent::ApplyEnvironmentDamage(float Amount)
 
 void UFPSRLHealthComponent::Kill()
 {
-	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied)
+	if (!AbilitySystemComponent || !GetOwner()->HasAuthority() || bDied || IsGodMode())
 	{
 		return;
 	}
@@ -703,4 +708,15 @@ void UFPSRLHealthComponent::ApplyDownedCamera(bool bDowned)
 			}
 		}
 	}
+}
+
+bool UFPSRLHealthComponent::IsGodMode() const
+{
+#if UE_BUILD_SHIPPING
+	return false;
+#else
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	const AFPSRLPlayerState* PlayerState = Pawn ? Pawn->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+	return PlayerState && PlayerState->bGodMode;
+#endif
 }
