@@ -203,6 +203,14 @@ void AFPSRLPlayerController::FPSRLAutoRun(int32 TestFall, int32 MinPlayers)
 	}
 }
 
+void AFPSRLPlayerController::FPSRLAltarTest(int32 MinPlayers)
+{
+	if (HasAuthority() && GetGameInstance())
+	{
+		GetGameInstance()->GetSubsystem<UFPSRLAutopilotSubsystem>()->StartAltarTest(MinPlayers);
+	}
+}
+
 namespace
 {
 	/** A pool entry by asset name (DA_Boon_X), or any asset by full path. */

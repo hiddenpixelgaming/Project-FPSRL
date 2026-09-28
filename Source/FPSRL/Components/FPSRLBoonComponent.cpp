@@ -6,6 +6,7 @@
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
 #include "Data/FPSRLBoonSettings.h"
+#include "GameFramework/GameStateBase.h"
 #include "Net/UnrealNetwork.h"
 #include "Types/FPSRLGameplayTags.h"
 #include "FPSRL.h"
@@ -315,24 +316,59 @@ TArray<UFPSRLAspectDefinition*> UFPSRLBoonComponent::GenerateAspectOptions(const
 		}
 	}
 
-	// A reroll should look like a new set: leave out the new Aspects just shown, as long as enough others remain. The
-	// player's own Aspects are never left out, so they keep their higher chance on every reroll.
+	// A reroll should feel like a new set: the new Aspects just shown are less likely (not left out, which with few
+	// Aspects made a reroll always "the other ones"). The player's own Aspects keep their full weight.
 	const int32 Count = Settings.AspectOptionsPerAltar;
-	auto IsShownNew = [this, &Avoid](const FCandidate& Candidate)
+	for (FCandidate& Candidate : Candidates)
 	{
-		return Avoid.Contains(Candidate.Aspect) && FindAspectChannel(Candidate.Aspect) == EFPSRLBoonChannel::MAX;
-	};
-	const int32 Kept = Candidates.FilterByPredicate([&IsShownNew](const FCandidate& Candidate) { return !IsShownNew(Candidate); }).Num();
-	if (!Avoid.IsEmpty() && Kept >= Count)
-	{
-		Candidates.RemoveAll(IsShownNew);
+		if (Avoid.Contains(Candidate.Aspect) && FindAspectChannel(Candidate.Aspect) == EFPSRLBoonChannel::MAX)
+		{
+			Candidate.Weight *= Settings.RerollRepeatWeight;
+		}
 	}
 
-	while (Options.Num() < Count && !Candidates.IsEmpty())
+	// Sets this roll must not repeat exactly: the one being rerolled, and every teammate's open Aspect choices (each
+	// player rolls their own; two players at the same altar should never see the identical set).
+	auto SameSet = [](const TArray<UFPSRLAspectDefinition*>& A, const TArray<TObjectPtr<UFPSRLAspectDefinition>>& B)
 	{
-		const int32 Pick = FPSRLBoons::PickWeighted(Candidates, [](const FCandidate& Candidate) { return Candidate.Weight; });
-		Options.Add(Candidates[Pick].Aspect);
-		Candidates.RemoveAtSwap(Pick);
+		return A.Num() == B.Num() && !A.ContainsByPredicate([&B](UFPSRLAspectDefinition* Aspect) { return !B.Contains(Aspect); });
+	};
+	TArray<const TArray<TObjectPtr<UFPSRLAspectDefinition>>*> Forbidden;
+	if (!Avoid.IsEmpty())
+	{
+		Forbidden.Add(&Avoid);
+	}
+	const AFPSRLPlayerState* Self = GetOwningPlayerState();
+	const AGameStateBase* GameState = Self && Self->GetWorld() ? Self->GetWorld()->GetGameState() : nullptr;
+	if (GameState)
+	{
+		for (const APlayerState* Other : GameState->PlayerArray)
+		{
+			const AFPSRLPlayerState* Teammate = Cast<AFPSRLPlayerState>(Other);
+			const UFPSRLBoonComponent* TeammateBoons = Teammate && Teammate != Self ? Teammate->GetBoonComponent() : nullptr;
+			if (TeammateBoons && TeammateBoons->PendingKind == EFPSRLBoonSelectionKind::Blessing && !TeammateBoons->AspectOptions.IsEmpty())
+			{
+				Forbidden.Add(&TeammateBoons->AspectOptions);
+			}
+		}
+	}
+
+	// Roll; if the set matches a forbidden one, roll again (a few tries, then accept: with only 3 Aspects possible
+	// there may be no other set).
+	for (int32 Attempt = 0; Attempt < 20; ++Attempt)
+	{
+		TArray<FCandidate> Remaining = Candidates;
+		Options.Reset();
+		while (Options.Num() < Count && !Remaining.IsEmpty())
+		{
+			const int32 Pick = FPSRLBoons::PickWeighted(Remaining, [](const FCandidate& Candidate) { return Candidate.Weight; });
+			Options.Add(Remaining[Pick].Aspect);
+			Remaining.RemoveAtSwap(Pick);
+		}
+		if (!Forbidden.ContainsByPredicate([&](const TArray<TObjectPtr<UFPSRLAspectDefinition>>* Set) { return SameSet(Options, *Set); }))
+		{
+			break;
+		}
 	}
 	FPSRLBoons::Shuffle(Options);
 	return Options;

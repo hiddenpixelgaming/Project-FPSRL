@@ -239,6 +239,9 @@ public:
 
 	bool TrySelectUpgrade(int32 EventId, int32 OptionIndex);
 
+	/** Test only: close any open choice without picking (headless checks). */
+	void TestCancelSelection() { EndSelection(); }
+
 	/** Grants a Blessing outside an altar (rewards, test command), with the same rules as an altar pick. */
 	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "Blessings")
 	bool GrantBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChannel Channel);

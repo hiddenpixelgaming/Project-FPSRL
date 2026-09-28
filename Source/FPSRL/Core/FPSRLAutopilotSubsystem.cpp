@@ -1,7 +1,10 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Core/FPSRLAutopilotSubsystem.h"
+#include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLHealthComponent.h"
+#include "Core/FPSRLPlayerState.h"
+#include "Data/FPSRLAspectDefinition.h"
 #include "Core/FPSRLDepthLayoutComponent.h"
 #include "Core/FPSRLGameState.h"
 #include "Core/FPSRLRunSubsystem.h"
@@ -68,6 +71,12 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 			if (!LobbyState || LobbyState->PlayerArray.Num() < MinPlayers)
 			{
 				return true;	// waiting for the other test players to join
+			}
+			if (bAltarTest)
+			{
+				RunAltarTest();
+				Finish(TEXT("altar test done"));
+				return false;
 			}
 			bStartedRun = Run->StartRun(World);
 			UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] start run: %s"), bStartedRun ? TEXT("ok") : TEXT("FAILED"));
@@ -179,4 +188,83 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 		}
 	}
 	return true;
+}
+
+void UFPSRLAutopilotSubsystem::StartAltarTest(int32 InMinPlayers)
+{
+	bAltarTest = true;
+	Start(false, InMinPlayers);
+}
+
+void UFPSRLAutopilotSubsystem::RunAltarTest()
+{
+	const AGameStateBase* GameState = GetGameInstance()->GetWorld()->GetGameState();
+	TArray<UFPSRLBoonComponent*> Players;
+	for (APlayerState* PlayerState : GameState->PlayerArray)
+	{
+		if (const AFPSRLPlayerState* PS = Cast<AFPSRLPlayerState>(PlayerState))
+		{
+			Players.Add(PS->GetBoonComponent());
+		}
+	}
+	auto SetOf = [](const UFPSRLBoonComponent* Boons)
+	{
+		TArray<FString> Names;
+		for (const UFPSRLAspectDefinition* Aspect : Boons->AspectOptions)
+		{
+			Names.Add(GetNameSafe(Aspect).Replace(TEXT("DA_Aspect_"), TEXT("")));
+		}
+		Names.Sort();
+		return FString::Join(Names, TEXT(","));
+	};
+
+	int32 SameAsTeammate = 0, Rerolls = 0, RerollSame = 0, RerollMirror = 0;
+	TMap<FString, int32> RerollResults;
+	for (int32 Trial = 0; Trial < 40; ++Trial)
+	{
+		for (UFPSRLBoonComponent* Boons : Players)
+		{
+			Boons->TestCancelSelection();
+		}
+		TArray<FString> Sets;
+		for (UFPSRLBoonComponent* Boons : Players)
+		{
+			Boons->BeginAltar();
+			Sets.Add(SetOf(Boons));
+		}
+		for (int32 A = 0; A < Sets.Num(); ++A)
+		{
+			for (int32 B = A + 1; B < Sets.Num(); ++B)
+			{
+				SameAsTeammate += Sets[A] == Sets[B] ? 1 : 0;
+			}
+		}
+		if (Trial < 3)
+		{
+			UE_LOG(LogFPSRL, Log, TEXT("[AltarTest] trial %d: %s"), Trial, *FString::Join(Sets, TEXT("  vs  ")));
+		}
+		// Rerolls on the first player: never the same set, and not always the mirror ("the other three").
+		UFPSRLBoonComponent* First = Players[0];
+		for (int32 Reroll = 0; Reroll < 3; ++Reroll)
+		{
+			const FString Before = SetOf(First);
+			if (!First->TryReroll(First->SelectionEventId))
+			{
+				break;
+			}
+			const FString After = SetOf(First);
+			++Rerolls;
+			RerollSame += After == Before ? 1 : 0;
+			TArray<FString> BeforeNames;
+			Before.ParseIntoArray(BeforeNames, TEXT(","));
+			bool bDisjoint = true;
+			for (const FString& Name : BeforeNames)
+			{
+				bDisjoint &= !After.Contains(Name);
+			}
+			RerollMirror += bDisjoint ? 1 : 0;
+		}
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[AltarTest] %d players, 40 altars: identical teammate sets %d; %d rerolls: same set %d, fully different set %d"),
+		Players.Num(), SameAsTeammate, Rerolls, RerollSame, RerollMirror);
 }

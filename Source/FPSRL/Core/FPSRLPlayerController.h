@@ -235,6 +235,10 @@ public:
 	UFUNCTION(Exec)
 	void FPSRLAutoRun(int32 TestFall = 0, int32 MinPlayers = 1);
 
+	/** Listen host, in the Lobby: once MinPlayers are in, check that teammates never get identical Aspect choices. Test only. */
+	UFUNCTION(Exec)
+	void FPSRLAltarTest(int32 MinPlayers = 2);
+
 	/** Runs a test command on the server for this player. Does nothing in Shipping builds. */
 	UFUNCTION(Server, Reliable)
 	void ServerTestCommand(FName Command, const FString& Arg1, const FString& Arg2);

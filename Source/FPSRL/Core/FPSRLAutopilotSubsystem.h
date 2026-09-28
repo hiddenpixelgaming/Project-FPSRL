@@ -23,15 +23,21 @@ public:
 	/** bTestFall: once in the first encounter room, drop the host off the side of the level (checks the fall volume). */
 	void Start(bool bTestFall = false, int32 InMinPlayers = 1);
 
+	/** Once MinPlayers are in the Lobby: open a Blessing altar for every player 40 times (plus rerolls) and log how often
+	 *  two players got the identical Aspect set, or a reroll repeated or mirrored the set before it. Then quits. */
+	void StartAltarTest(int32 InMinPlayers);
+
 	virtual void Deinitialize() override;
 
 private:
 	bool Step(float DeltaTime);
 	void Finish(const TCHAR* Result);
+	void RunAltarTest();
 
 	FTSTicker::FDelegateHandle TickerHandle;
 	bool bStartedRun = false;
 	bool bFallPending = false;
+	bool bAltarTest = false;
 	int32 MinPlayers = 1;
 	int32 Steps = 0;
 	int32 MaxSteps = 900;

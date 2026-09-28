@@ -39,6 +39,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
 	float AssignedAspectWeight = 3.f;
 
+	/** On a reroll, how likely the new Aspects just shown are to come back (1 = as likely as any, 0 = never). */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0", ClampMax = "1"))
+	float RerollRepeatWeight = 0.25f;
+
 	/** Blessing choices after an Aspect (and slot) is picked. */
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
 	int32 BoonOptionsPerSelection = 2;
