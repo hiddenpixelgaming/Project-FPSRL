@@ -25,4 +25,8 @@ public:
 
 protected:
 	virtual bool BeginPlayerSelection(AFPSRLPlayerState* Player) override;
+
+public:
+	/** Already an Upgrade Altar: always looks and reads like one. */
+	virtual void RefreshLocalAppearance() override {}
 };

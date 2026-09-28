@@ -176,6 +176,11 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	int32 SelectionEventId = 0;
 
+	/** Nothing left to pick at a Blessing altar (every open slot full or out of Blessings, no free slot a new Aspect could
+	 *  take). From then on Blessing altars act as Upgrade Altars for this player for the rest of the run. */
+	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
+	bool bAllBlessingsChosen = false;
+
 	/** Free rerolls left THIS RUN (all altars share them); refilled only when the run ends (ClearRunState). */
 	UPROPERTY(ReplicatedUsing = OnRep_BoonState, BlueprintReadOnly, Category = "Blessings")
 	int32 FreeRerollsRemaining = 0;
@@ -205,6 +210,10 @@ public:
 	static FText GetChannelName(EFPSRLBoonChannel Channel);
 
 	// --- Server API (altars / AFPSRLPlayerController) -------------------------------------------------------------
+
+	/** A Blessing altar was used: its three-step Blessing choice, or an upgrade choice once bAllBlessingsChosen. False
+	 *  if a selection is already open or there is nothing to offer. */
+	bool BeginAltar();
 
 	/** Blessing altar used: offer this player's Aspect choices. False if a selection is already open or nothing fits. */
 	bool BeginSelection();
@@ -299,6 +308,8 @@ private:
 	void UpgradeBoon(EFPSRLBoonChannel Channel, int32 OwnedIndex);
 
 	void EndSelection();
+	/** Server: recompute bAllBlessingsChosen (after any change to the build). */
+	void RefreshAllBlessingsChosen();
 	void LogOptions(const TCHAR* What) const;
 	void BroadcastChanged();
 };

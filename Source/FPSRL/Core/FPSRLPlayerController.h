@@ -148,9 +148,13 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerUseBoonAltar(AFPSRLBoonTerminal* Altar);
 
-	/** Server -> owning client: the altar refused (locked, out of range, already used, nothing to offer). */
+	/** Server -> owning client: the altar refused (locked, out of range, already used, nothing to offer). Reason is
+	 *  shown briefly on screen when not empty, e.g. "Nothing left to offer". */
 	UFUNCTION(Client, Reliable)
-	void ClientBoonAltarRejected();
+	void ClientBoonAltarRejected(const FText& Reason);
+
+	/** Local: a short message on screen (in the revive bar's place), e.g. "Nothing left to offer". */
+	void ShowNotice(const FText& Message);
 
 	// --- Death ---------------------------------------------------------------------------------------------------
 

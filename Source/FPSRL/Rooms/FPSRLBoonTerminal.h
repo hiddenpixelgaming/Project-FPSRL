@@ -11,6 +11,7 @@ class AFPSRLPlayerState;
 class AFPSRLRoom;
 class APlayerState;
 class USphereComponent;
+class UMaterialInterface;
 class UStaticMeshComponent;
 
 /**
@@ -39,8 +40,13 @@ public:
 	/** Local: open, and this machine's player either hasn't used it or still has its choice open. */
 	virtual bool CanInteract() const override;
 
-	/** Server: give this player their choice. False if locked, out of range, already used, or nothing to offer. */
-	bool TryOffer(AFPSRLPlayerController* PC);
+	/** Server: give this player their choice. False if locked, out of range, already used, or nothing to offer;
+	 *  OutReason then holds what to tell the player (empty = say nothing). */
+	bool TryOffer(AFPSRLPlayerController* PC, FText& OutReason);
+
+	/** Local: a Blessing altar looks and reads like an Upgrade Altar for a player who has taken every Blessing they can
+	 *  (their Blessing altars upgrade instead for the rest of the run). Called when this player's build changes. */
+	virtual void RefreshLocalAppearance();
 
 	UFUNCTION(BlueprintPure, Category = "Terminal")
 	bool IsUnlocked() const { return bUnlocked; }
@@ -49,7 +55,8 @@ public:
 	bool HasBeenUsedBy(const APlayerState* Player) const;
 
 protected:
-	/** Server: open this altar's kind of choice for the player (a Blessing choice here; AFPSRLUpgradeAltar: upgrades). */
+	/** Server: open this altar's kind of choice for the player (Blessings, or upgrades once they have every Blessing;
+	 *  AFPSRLUpgradeAltar: always upgrades). */
 	virtual bool BeginPlayerSelection(AFPSRLPlayerState* Player);
 
 	virtual void BeginPlay() override;
@@ -70,6 +77,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Terminal")
 	TObjectPtr<USphereComponent> InteractionRange;
 
+	/** Look and prompt this Blessing altar takes for a player who has taken every Blessing (see RefreshLocalAppearance). */
+	UPROPERTY(EditDefaultsOnly, Category = "Terminal")
+	TSoftObjectPtr<UMaterialInterface> UpgradeLookMaterial;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Terminal")
+	FString UpgradePromptText = TEXT("Press E to Upgrade a Blessing");
+
 private:
 	UFUNCTION()
 	void HandleRoomCompleted();
@@ -88,4 +102,11 @@ private:
 	/** Players who have used this altar. */
 	UPROPERTY(ReplicatedUsing = OnRep_ClaimedBy)
 	TArray<TObjectPtr<APlayerState>> ClaimedBy;
+
+	/** Local: the altar's own look, restored when it is a Blessing altar again (next run). */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInterface> OriginalMaterial;
+
+	FString OriginalPromptText;
+	bool bShowingUpgradeLook = false;
 };

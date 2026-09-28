@@ -9,6 +9,7 @@
 #include "Engine/CollisionProfile.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
+#include "Materials/MaterialInterface.h"
 #include "Net/UnrealNetwork.h"
 #include "Rooms/FPSRLRoom.h"
 #include "FPSRL.h"
@@ -17,6 +18,7 @@ AFPSRLBoonTerminal::AFPSRLBoonTerminal()
 {
 	bReplicates = true;
 	PromptText = TEXT("Press E to Choose a Blessing");
+	UpgradeLookMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/Game/MainProject/Contents/Materials/Debug/MI_UpgradeAltar_Gold.MI_UpgradeAltar_Gold")));
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	Mesh->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
@@ -43,6 +45,10 @@ void AFPSRLBoonTerminal::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 void AFPSRLBoonTerminal::BeginPlay()
 {
 	Super::BeginPlay();
+
+	OriginalMaterial = Mesh->GetMaterial(0);
+	OriginalPromptText = PromptText;
+	RefreshLocalAppearance();	// a player who arrives with every Blessing taken sees an Upgrade Altar
 
 	K2_OnUnlockedChanged(bUnlocked);
 	if (!HasAuthority())
@@ -124,12 +130,23 @@ void AFPSRLBoonTerminal::Interact_Implementation(APlayerController* User)
 	}
 }
 
-bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC)
+bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC, FText& OutReason)
 {
+	OutReason = FText::GetEmpty();
 	AFPSRLPlayerState* PS = PC ? PC->GetPlayerState<AFPSRLPlayerState>() : nullptr;
 	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
-	if (!HasAuthority() || !bUnlocked || !PS || !Pawn || HasBeenUsedBy(PS))
+	if (!HasAuthority() || !PS || !Pawn)
 	{
+		return false;
+	}
+	if (!bUnlocked)
+	{
+		OutReason = NSLOCTEXT("FPSRL", "AltarLocked", "Clear the room first");
+		return false;
+	}
+	if (HasBeenUsedBy(PS))
+	{
+		OutReason = NSLOCTEXT("FPSRL", "AltarUsed", "You have already used this altar");
 		return false;
 	}
 
@@ -143,7 +160,12 @@ bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC)
 
 	if (!BeginPlayerSelection(PS))
 	{
-		return false;	// a choice is already open elsewhere, or nothing is eligible
+		// A choice already open elsewhere reopens on the client; otherwise there is truly nothing to pick or upgrade.
+		if (!PS->GetBoonComponent()->HasPendingSelection())
+		{
+			OutReason = NSLOCTEXT("FPSRL", "NothingLeft", "Nothing left to offer");
+		}
+		return false;
 	}
 	ClaimedBy.Add(PS);
 	ForceNetUpdate();
@@ -153,5 +175,23 @@ bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC)
 
 bool AFPSRLBoonTerminal::BeginPlayerSelection(AFPSRLPlayerState* Player)
 {
-	return Player && Player->GetBoonComponent()->BeginSelection();
+	return Player && Player->GetBoonComponent()->BeginAltar();	// Blessings, or upgrades once every Blessing is taken
+}
+
+void AFPSRLBoonTerminal::RefreshLocalAppearance()
+{
+	// Purely local: other players may still have Blessings to pick at this same altar.
+	const UWorld* World = GetWorld();
+	const AFPSRLPlayerController* PC = World ? Cast<AFPSRLPlayerController>(World->GetFirstPlayerController()) : nullptr;
+	const AFPSRLPlayerState* PS = PC ? PC->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+	const bool bUpgradeLook = PS && PS->GetBoonComponent()->bAllBlessingsChosen;
+	if (bUpgradeLook == bShowingUpgradeLook)
+	{
+		return;
+	}
+	bShowingUpgradeLook = bUpgradeLook;
+
+	UMaterialInterface* UpgradeMaterial = bUpgradeLook ? UpgradeLookMaterial.LoadSynchronous() : nullptr;
+	Mesh->SetMaterial(0, bUpgradeLook && UpgradeMaterial ? UpgradeMaterial : OriginalMaterial.Get());
+	PromptText = bUpgradeLook ? UpgradePromptText : OriginalPromptText;
 }

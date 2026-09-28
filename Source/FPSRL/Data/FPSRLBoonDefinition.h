@@ -100,7 +100,7 @@ public:
 
 	/** Times the Upgrade Altar can improve it; upgrades stack (0 = never offered). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Stacking", meta = (ClampMin = "0"))
-	int32 MaxUpgradeLevel = 3;
+	int32 MaxUpgradeLevel = 10;
 
 	// --- Effect ---
 	/** Applied once per stack (abilities, tags and cue only with the first). */

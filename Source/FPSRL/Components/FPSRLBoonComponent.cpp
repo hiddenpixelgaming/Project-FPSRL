@@ -84,6 +84,7 @@ void UFPSRLBoonComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& 
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, UpgradeOptions, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, SelectionEventId, COND_OwnerOnly);
 	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, FreeRerollsRemaining, COND_OwnerOnly);
+	DOREPLIFETIME_CONDITION(UFPSRLBoonComponent, bAllBlessingsChosen, COND_OwnerOnly);
 }
 
 void UFPSRLBoonComponent::OnRep_BoonState()
@@ -405,6 +406,20 @@ TArray<FFPSRLUpgradeOffer> UFPSRLBoonComponent::GenerateUpgradeOptions() const
 
 // --- Blessing altar ----------------------------------------------------------------------------------------------
 
+bool UFPSRLBoonComponent::BeginAltar()
+{
+	// Once there is nothing left to pick, a Blessing altar becomes an Upgrade Altar for this player.
+	return bAllBlessingsChosen ? BeginUpgradeSelection() : BeginSelection();
+}
+
+void UFPSRLBoonComponent::RefreshAllBlessingsChosen()
+{
+	if (GetOwner()->HasAuthority())
+	{
+		bAllBlessingsChosen = GenerateAspectOptions({}).IsEmpty();
+	}
+}
+
 bool UFPSRLBoonComponent::BeginSelection()
 {
 	if (!GetOwner()->HasAuthority() || HasPendingSelection())
@@ -691,6 +706,7 @@ void UFPSRLBoonComponent::ApplyBoon(UFPSRLBoonDefinition* Boon, EFPSRLBoonChanne
 	GiveBoonStack(Channel, OwnedIndex, Track.Boons[OwnedIndex].Stacks == 0);
 	++Track.Boons[OwnedIndex].Stacks;
 	++Track.Count;
+	RefreshAllBlessingsChosen();
 }
 
 void UFPSRLBoonComponent::GiveAspect(EFPSRLBoonChannel Channel)
@@ -800,6 +816,7 @@ void UFPSRLBoonComponent::ClearRunState()
 	PendingRestore.Reset();
 	EndSelection();
 	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerRun;	// the run is over: free rerolls come back
+	bAllBlessingsChosen = false;
 	BroadcastChanged();
 }
 
@@ -842,6 +859,7 @@ void UFPSRLBoonComponent::RestoreRunState()
 			}
 		}
 	}
+	RefreshAllBlessingsChosen();
 	UE_LOG(LogFPSRL, Log, TEXT("[Blessings] %s: restored %d Blessing stack(s) after travel"), *GetNameSafe(GetOwner()), Restored);
 	BroadcastChanged();
 }

@@ -233,7 +233,7 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 	}
 	else if (Command == TEXT("OfferBoon"))
 	{
-		bDone = Boons->BeginSelection();
+		bDone = Boons->BeginAltar();	// like a Blessing altar: upgrades once every Blessing is taken
 	}
 	else if (Command == TEXT("OfferUpgrade"))
 	{
@@ -256,7 +256,9 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 		bDone ? TEXT("done") : TEXT("refused (unknown asset, not eligible, a choice already open, or nothing to offer)"));
 	if (!bDone)
 	{
-		ClientBoonAltarRejected();
+		// An altar command with nothing to open (and no choice already open) says so, like a real altar.
+		const bool bNothingLeft = (Command == TEXT("OfferBoon") || Command == TEXT("OfferUpgrade")) && !Boons->HasPendingSelection();
+		ClientBoonAltarRejected(bNothingLeft ? NSLOCTEXT("FPSRL", "NothingLeft", "Nothing left to offer") : FText::GetEmpty());
 	}
 #endif
 }
@@ -525,17 +527,39 @@ void AFPSRLPlayerController::UseBoonAltar(AFPSRLBoonTerminal* Altar)
 
 void AFPSRLPlayerController::ServerUseBoonAltar_Implementation(AFPSRLBoonTerminal* Altar)
 {
-	if (!Altar || !Altar->TryOffer(this))
+	FText Reason;
+	if (!Altar || !Altar->TryOffer(this, Reason))
 	{
-		ClientBoonAltarRejected();
+		ClientBoonAltarRejected(Reason);
 	}
 }
 
-void AFPSRLPlayerController::ClientBoonAltarRejected_Implementation()
+void AFPSRLPlayerController::ClientBoonAltarRejected_Implementation(const FText& Reason)
 {
 	if (!HasPendingBoonSelection())
 	{
 		bBoonSelectionOpen = false;
+	}
+	if (!Reason.IsEmpty())
+	{
+		ShowNotice(Reason);
+	}
+}
+
+void AFPSRLPlayerController::ShowNotice(const FText& Message)
+{
+	if (!IsLocalController() || Message.IsEmpty())
+	{
+		return;
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Notice] %s"), *Message.ToString());
+	if (!ReviveWidget)
+	{
+		ReviveWidget = CreateWidget<UFPSRLReviveWidget>(this, ReviveWidgetClass ? ReviveWidgetClass : TSubclassOf<UFPSRLReviveWidget>(UFPSRLReviveWidget::StaticClass()));
+	}
+	if (ReviveWidget)
+	{
+		ReviveWidget->HideRevive(Message);	// flashes the message briefly, then hides
 	}
 }
 
@@ -622,9 +646,11 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 	const UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
 	if (IsLocalController())
 	{
-		// An altar's prompt depends on whether this player still has its choice open.
+		// An altar's prompt depends on whether this player still has its choice open, and a Blessing altar turns into an
+		// Upgrade Altar (look and prompt) once this player has taken every Blessing.
 		for (TActorIterator<AFPSRLBoonTerminal> It(GetWorld()); It; ++It)
 		{
+			It->RefreshLocalAppearance();
 			It->RefreshLocalInteractor();
 		}
 	}
