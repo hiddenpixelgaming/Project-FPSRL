@@ -10,6 +10,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/UnrealType.h"
+#include "FPSRL.h"
 
 AFPSRLProjectile::AFPSRLProjectile()
 {

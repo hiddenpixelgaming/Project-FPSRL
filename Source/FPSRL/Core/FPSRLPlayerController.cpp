@@ -291,6 +291,19 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 			}
 		}
 	}
+	else if (Command == TEXT("SpawnTestAI"))
+	{
+		// An enemy with its AI controller (Inactive until its encounter starts, like in a room), Distance ahead, Side right.
+		UClass* EnemyClass = LoadClass<APawn>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/AI/BP_ShooterNPC.BP_ShooterNPC_C"));
+		APawn* Me = GetPawn();
+		if (EnemyClass && Me)
+		{
+			const float Distance = Arg1.IsEmpty() ? 1000.f : FCString::Atof(*Arg1);
+			const float Side = Arg2.IsEmpty() ? 0.f : FCString::Atof(*Arg2);
+			const FTransform At(Me->GetActorRotation() + FRotator(0.f, 180.f, 0.f), Me->GetActorLocation() + Me->GetActorForwardVector() * Distance + Me->GetActorRightVector() * Side);
+			bDone = GetWorld()->SpawnActor<APawn>(EnemyClass, At, FActorSpawnParameters()) != nullptr;
+		}
+	}
 	else if (Command == TEXT("Hurt"))
 	{
 		// Damage this player (downed / damage-flash checks).
@@ -1465,30 +1478,17 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	}
 	LastServerMeleeTime = Now;
 
-	// A MeleeRadius sphere along the facing, MeleeRange long. (The character Blueprint's own swing traced on Visibility, which
-	// character bodies don't block, so it never damaged anyone; it still runs, harmlessly.)
+	// A MeleeRadius sphere along the facing, MeleeRange long (FPSRLCombat::MeleeSweep, shared with enemies). (The character
+	// Blueprint's own swing traced on Visibility, which character bodies don't block, so it never damaged anyone; it still
+	// runs, harmlessly.)
 	const float Range = MeleeRange;
 	const float Damage = MeleeDamage;
-	const FVector Start = Attacker->GetActorLocation();
-	const FVector End = Start + Attacker->GetActorForwardVector() * Range;
-	// Characters only: bullets in flight, props and walls must not use up the swing.
-	TArray<FHitResult> Hits;
-	UKismetSystemLibrary::SphereTraceMultiForObjects(this, Start, End, MeleeRadius, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
-		false, { Attacker }, EDrawDebugTrace::None, Hits, true);
 	// One swing = one attack (Event.Attack, hit or miss); every enemy it hits shares the attack id.
 	CurrentMeleeAttackId = FPSRLCombat::NewAttackId();
 	FPSRLCombat::NotifyAttack(Attacker, EFPSRLItemSource::Melee, CurrentMeleeAttackId);
-	TSet<AActor*> Struck;
-	for (const FHitResult& Candidate : Hits)
+	const TArray<AActor*> Struck = FPSRLCombat::MeleeSweep(Attacker, this, Range, MeleeRadius, Damage, MeleeMaxTargets);
+	for (const AActor* Victim : Struck)
 	{
-		AActor* Victim = Candidate.GetActor();
-		const UFPSRLHealthComponent* Health = Victim ? Victim->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
-		if (!Health || Health->IsDead() || Struck.Contains(Victim) || Struck.Num() >= MeleeMaxTargets)
-		{
-			continue;
-		}
-		Struck.Add(Victim);
-		UGameplayStatics::ApplyDamage(Victim, Damage, this, Attacker, nullptr);
 		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))), *Victim->GetName(), Damage);
 	}
 	if (Struck.IsEmpty())

@@ -34,6 +34,7 @@ namespace FPSRLGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Dashing,		"Status.Dashing",		"Actor is mid-dash.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Downed,		"Status.Downed",		"Player is down: out of health, crawling, can be revived by a teammate.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Downable,	"Status.Downable",	"Reaching 0 health downs this player instead of killing them (granted during a run).");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Status_Stunned,	"Status.Stunned",	"Enemy AI: stunned / disabled (no movement, targeting or attacks) while it has this.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Dash,	"Ability.Dash",		"Dash ability.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Ability_Melee,	"Ability.Melee",	"Melee attack ability.");

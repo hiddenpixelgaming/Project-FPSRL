@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Combat/FPSRLWeapon.h"
+#include "AI/FPSRLEnemyAIController.h"
 #include "Combat/FPSRLProjectile.h"
 #include "Combat/FPSRLCombatRules.h"
 #include "Animation/AnimMontage.h"
@@ -106,7 +107,14 @@ void AFPSRLWeapon::Fire()
 		return;
 	}
 	FVector Target = GetActorLocation() + GetActorForwardVector() * 10000.f;
-	CallHolder(TEXT("GetWeaponTargetLocation"), [](UFunction*, uint8*) {}, &Target);
+	if (const AFPSRLEnemyAIController* AI = PawnOwner.IsValid() ? Cast<AFPSRLEnemyAIController>(PawnOwner->GetController()) : nullptr)
+	{
+		Target = AI->GetAimPoint();	// an enemy aims where its AI says
+	}
+	else
+	{
+		CallHolder(TEXT("GetWeaponTargetLocation"), [](UFunction*, uint8*) {}, &Target);
+	}
 	FireShot(Target);
 
 	TimeOfLastShot = GetWorld()->GetTimeSeconds();
@@ -128,6 +136,14 @@ void AFPSRLWeapon::Fire()
 
 void AFPSRLWeapon::HandleSemiRefireReady()
 {
+	if (const AFPSRLEnemyAIController* AI = PawnOwner.IsValid() ? Cast<AFPSRLEnemyAIController>(PawnOwner->GetController()) : nullptr)
+	{
+		if (bIsFiring && AI->WantsToKeepFiring())
+		{
+			Fire();	// an enemy keeps pulling the trigger while its attack lasts
+		}
+		return;
+	}
 	CallHolder(TEXT("OnSemiWeaponRefire"), [](UFunction*, uint8*) {});
 }
 

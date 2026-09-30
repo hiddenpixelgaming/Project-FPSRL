@@ -25,6 +25,14 @@
 #include "GameFramework/PlayerController.h"
 #include "Rooms/FPSRLExitPortal.h"
 #include "Rooms/FPSRLRoom.h"
+#include "AI/FPSRLEnemyAIController.h"
+#include "HAL/IConsoleManager.h"
+
+namespace FPSRLAutopilot
+{
+	static TAutoConsoleVariable<float> CVarFightSeconds(TEXT("fpsrl.Autopilot.FightSeconds"), 0.f,
+		TEXT("Autopilot: seconds each encounter's enemies fight (host in god mode) before being killed (0 = at once)."));
+}
 #include "FPSRL.h"
 
 void UFPSRLAutopilotSubsystem::Start(bool bTestFall, int32 InMinPlayers)
@@ -184,6 +192,16 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	if (!RoomActor->bCombatStarted)
 	{
 		RoomActor->StartCombat();
+		FightStartTime = World->GetTimeSeconds();
+		FightRoom = Next;
+		if (FPSRLAutopilot::CVarFightSeconds.GetValueOnGameThread() > 0.f && !bFightGodSet)
+		{
+			bFightGodSet = true;
+			if (AFPSRLPlayerController* FightPC = Cast<AFPSRLPlayerController>(PC))
+			{
+				FightPC->ServerTestCommand(TEXT("God"), FString(), FString());	// watch the AI fight without losing the run
+			}
+		}
 		return true;
 	}
 	for (TActorIterator<APawn> It(World); It; ++It)
@@ -191,6 +209,14 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 		UFPSRLHealthComponent* Health = It->FindComponentByClass<UFPSRLHealthComponent>();
 		if (!It->IsPlayerControlled() && FVector::Dist(It->GetActorLocation(), RoomActor->GetActorLocation()) < 2500.f && Health && !Health->IsDead())
 		{
+			if (FightRoom == Next && World->GetTimeSeconds() - FightStartTime < FPSRLAutopilot::CVarFightSeconds.GetValueOnGameThread())
+			{
+				continue;	// still fighting
+			}
+			if (const AFPSRLEnemyAIController* AI = Cast<AFPSRLEnemyAIController>(It->GetController()))
+			{
+				UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] AI before the kill: %s, path failures %d"), *AI->Describe(), AI->GetMoveFailures());
+			}
 			UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] killing %s in room %d (max health %.0f, scale %.2f)"), *It->GetName(), Next,
 				Health->GetMaxHealth(), It->GetActorScale3D().X);
 			Health->Kill();

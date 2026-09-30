@@ -205,6 +205,7 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 	FPSRLCombat::FPlayerHit PlayerHit = FPSRLCombat::ResolvePlayerHit(InstigatedBy, DamageCauser, GetOwner(), Damage);
 
 	ApplyHealthEffect(UFPSRLDamageEffect::StaticClass(), FPSRLGameplayTags::SetByCaller_Damage, Damage, InstigatedBy, DamageCauser);
+	OnDamagedBy.Broadcast(Damage, const_cast<APawn*>(Attacker));
 
 	if (PlayerHit.AttackerASC)
 	{

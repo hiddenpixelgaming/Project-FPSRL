@@ -29,6 +29,7 @@ namespace FPSRLGameplayTags
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Status_Dashing);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Status_Downed);	// out of health but revivable (co-op)
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Status_Downable);	// in a run: reaching 0 health downs instead of kills
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Status_Stunned);	// enemy AI: Disabled while it has this
 
 	// --- Gameplay Ability System ---
 	// GameplayCue.* tags are added alongside their first cue asset, since each cue is found by its tag.

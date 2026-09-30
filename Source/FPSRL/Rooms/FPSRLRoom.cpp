@@ -1,6 +1,7 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Rooms/FPSRLRoom.h"
+#include "AI/FPSRLEnemyAIController.h"
 #include "Core/FPSRLEnemyScalingRules.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -186,6 +187,11 @@ void AFPSRLRoom::StartCombat()
 		if (UAbilitySystemComponent* EnemyASC = Rank.IsValid() ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Enemy) : nullptr)
 		{
 			EnemyASC->AddLooseGameplayTag(Rank, 1, EGameplayTagReplicationState::TagOnly);
+		}
+		// Its AI was Inactive until now: the encounter has started.
+		if (AFPSRLEnemyAIController* AI = Cast<APawn>(Enemy) ? Cast<AFPSRLEnemyAIController>(Cast<APawn>(Enemy)->GetController()) : nullptr)
+		{
+			AI->SetEncounterActive(true);
 		}
 	}
 	UE_LOG(LogFPSRL, Log, TEXT("[Scaling] Room %s: %s"), *GetActorNameOrLabel(), *Scaling.Describe());

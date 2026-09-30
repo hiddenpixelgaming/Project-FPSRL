@@ -17,6 +17,8 @@ struct FOnAttributeChangeData;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FFPSRLHealthChangedEvent, double, CurrentHealth, double, MaxHealth);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FFPSRLDeathEvent, AController*, Instigator, AActor*, Causer);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FFPSRLDownedEvent, bool, bIsDowned);
+/** Server: damage landed (after scaling), and the pawn that dealt it (null for environment damage). */
+DECLARE_MULTICAST_DELEGATE_TwoParams(FFPSRLDamagedByEvent, float /*Damage*/, APawn* /*Attacker*/);
 
 /**
  * Health for any damageable pawn, backed by GAS. BP_HealthComponent derives from this.
@@ -51,6 +53,12 @@ public:
 	/** Fires once on the server when Health reaches 0. */
 	UPROPERTY(BlueprintAssignable, Category = "Health")
 	FFPSRLDeathEvent OnDeath;
+
+	/** Server: after each hit lands (AI reactions, threat). */
+	FFPSRLDamagedByEvent OnDamagedBy;
+
+	/** Player side (a human player's controller or pawn) vs enemy side. */
+	static bool IsPlayerSide(const AController* Controller, const AActor* Actor);
 
 	/** Bridge from the engine damage path: forward an actor's Event AnyDamage here. Server-only; ignored on clients. */
 	UFUNCTION(BlueprintCallable, Category = "Health")
@@ -173,8 +181,6 @@ private:
 	/** Damage filter: no friendly fire (player vs player, enemy vs enemy, self) and nothing from downed attackers. */
 	bool ShouldAcceptDamageFrom(const AController* InstigatedBy, const AActor* DamageCauser) const;
 
-	/** Player side (a human player's controller or pawn) vs enemy side. */
-	static bool IsPlayerSide(const AController* Controller, const AActor* Actor);
 	bool IsAnyOtherPlayerUp() const;
 	void ApplyHealthEffect(TSubclassOf<class UGameplayEffect> EffectClass, const struct FGameplayTag& MagnitudeTag, float Magnitude,
 		AController* InstigatedBy, AActor* Causer);

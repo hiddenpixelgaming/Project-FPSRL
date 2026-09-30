@@ -33,6 +33,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy", meta = (ClampMin = "0"))
 	float BaseDamageMultiplier = 1.f;
 
+	/** How it behaves (AI). Empty = the AI controller's default profile. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy")
+	TObjectPtr<class UFPSRLEnemyBehaviorProfile> BehaviorProfile;
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override { return FPrimaryAssetId(TEXT("Enemy"), GetFName()); }
 };
 

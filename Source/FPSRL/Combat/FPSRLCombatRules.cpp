@@ -5,6 +5,10 @@
 #include "AbilitySystemComponent.h"
 #include "Combat/FPSRLProjectile.h"
 #include "Components/FPSRLBoonComponent.h"
+#include "Components/FPSRLHealthComponent.h"
+#include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetSystemLibrary.h"
 #include "Core/FPSRLPlayerController.h"
 #include "Core/FPSRLPlayerState.h"
 #include "GameFramework/Controller.h"
@@ -125,5 +129,38 @@ namespace FPSRLCombat
 		Boons->EventAttackId = AttackId;
 		ASC->HandleGameplayEvent(FPSRLGameplayTags::Event_Attack, &Payload);
 		Boons->EventAttackId = PreviousAttack;
+	}
+}
+
+namespace FPSRLCombat
+{
+	TArray<AActor*> MeleeSweep(APawn* Attacker, AController* InstigatedBy, float Range, float Radius, float Damage, int32 MaxTargets)
+	{
+		TArray<AActor*> Struck;
+		UWorld* World = Attacker ? Attacker->GetWorld() : nullptr;
+		if (!World || !Attacker->HasAuthority())
+		{
+			return Struck;
+		}
+		// Characters only: bullets in flight, props and walls must not use up the swing.
+		const FVector Start = Attacker->GetActorLocation();
+		const FVector End = Start + Attacker->GetActorForwardVector() * Range;
+		TArray<FHitResult> Hits;
+		UKismetSystemLibrary::SphereTraceMultiForObjects(Attacker, Start, End, Radius, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
+			false, { Attacker }, EDrawDebugTrace::None, Hits, true);
+		const bool bAttackerIsPlayer = UFPSRLHealthComponent::IsPlayerSide(InstigatedBy, Attacker);
+		for (const FHitResult& Candidate : Hits)
+		{
+			AActor* Victim = Candidate.GetActor();
+			const UFPSRLHealthComponent* Health = Victim ? Victim->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+			if (!Health || Health->IsDead() || Struck.Contains(Victim) || Struck.Num() >= MaxTargets
+				|| UFPSRLHealthComponent::IsPlayerSide(nullptr, Victim) == bAttackerIsPlayer)
+			{
+				continue;
+			}
+			Struck.Add(Victim);
+			UGameplayStatics::ApplyDamage(Victim, Damage, InstigatedBy, Attacker, nullptr);
+		}
+		return Struck;
 	}
 }

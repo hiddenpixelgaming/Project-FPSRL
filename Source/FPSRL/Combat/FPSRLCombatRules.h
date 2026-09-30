@@ -46,6 +46,10 @@ namespace FPSRLCombat
 	 *  the same attack, e.g. each pellet of a shotgun blast, are ignored). */
 	FPSRL_API void NotifyAttack(APawn* Attacker, EFPSRLItemSource Source, int32 AttackId);
 
+	/** Server: one melee swing: a Radius sphere swept Range in front of Attacker, damaging up to MaxTargets living pawns of
+	 *  the other side (players hit enemies, enemies hit players). Returns the pawns hit. */
+	FPSRL_API TArray<AActor*> MeleeSweep(APawn* Attacker, AController* InstigatedBy, float Range, float Radius, float Damage, int32 MaxTargets);
+
 	/** A fresh attack id (unique on this machine; an attacker's attacks all come from one machine). */
 	FPSRL_API int32 NewAttackId();
 

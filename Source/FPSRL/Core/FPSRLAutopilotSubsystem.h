@@ -50,6 +50,11 @@ private:
 	bool bStartedRun = false;
 	bool bFallPending = false;
 	bool bAltarTest = false;
+
+	/** fpsrl.Autopilot.FightSeconds: let each encounter's AI fight (host in god mode) before the autopilot kills it. */
+	double FightStartTime = -1.0;
+	int32 FightRoom = INDEX_NONE;
+	bool bFightGodSet = false;
 	int32 MinPlayers = 1;
 	int32 Steps = 0;
 	int32 MaxSteps = 900;
