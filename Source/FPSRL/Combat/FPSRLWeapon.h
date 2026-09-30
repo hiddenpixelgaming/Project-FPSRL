@@ -180,7 +180,11 @@ public:
 	FFPSRLWeaponStateEvent OnWeaponStateChanged;
 
 	UFUNCTION(BlueprintPure, Category = "Weapon")
-	float GetRefireRate() const { return bIsAiming ? BaseRefireRate * AimingRefireMultiplier : BaseRefireRate; }
+	float GetRefireRate() const;
+
+	/** Seconds this reload takes (ReloadDuration / the holder's ReloadSpeedMultiplier). */
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	float GetReloadDuration() const;
 
 	/** Rounds left in the magazine. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Weapon|Ammo")
@@ -223,6 +227,10 @@ private:
 	bool bIsReloading = false;
 	double TimeOfLastShot = -1000.0;
 	double ReloadStartTime = 0.0;
+	float CurrentReloadDuration = 0.f;
+
+	/** A player holder's combat stat (Blessings, relics); 1 for enemies. */
+	float GetHolderStat(const struct FGameplayAttribute& Attribute) const;
 	FName NoiseTag;
 	TWeakObjectPtr<APawn> PawnOwner;
 	FTimerHandle RefireTimer;

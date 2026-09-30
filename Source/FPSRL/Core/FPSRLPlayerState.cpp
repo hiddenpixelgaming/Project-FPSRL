@@ -12,6 +12,8 @@
 #include "Core/FPSRLPlayerController.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
 #include "Types/FPSRLGameplayTags.h"
@@ -254,6 +256,7 @@ void AFPSRLPlayerState::PostInitializeComponents()
 	Super::PostInitializeComponents();
 
 	OnPawnSet.AddDynamic(this, &ThisClass::HandlePawnSet);
+	AbilitySystemComponent->GetGameplayAttributeValueChangeDelegate(UFPSRLCombatSet::GetMoveSpeedMultiplierAttribute()).AddUObject(this, &ThisClass::HandleMoveSpeedChanged);
 }
 
 void AFPSRLPlayerState::StopFirstPersonAnimationIfRemote(APawn* InPawn) const
@@ -298,6 +301,7 @@ void AFPSRLPlayerState::HandlePawnSet(APlayerState* Player, APawn* NewPawn, APaw
 		}
 
 		EquipWeaponLocally();	// client: the pawn may arrive after EquippedWeapon did
+		ApplyMoveSpeed();
 		StopFirstPersonAnimationIfRemote(NewPawn);
 	}
 	else if (AbilitySystemComponent->GetAvatarActor() == OldPawn)
@@ -312,4 +316,17 @@ void AFPSRLPlayerState::HandlePawnSet(APlayerState* Player, APawn* NewPawn, APaw
 		HasAuthority() ? TEXT("Server") : TEXT("Client"),
 		*GetPlayerName(),
 		*GetNameSafe(AbilitySystemComponent->GetAvatarActor()));
+}
+
+void AFPSRLPlayerState::ApplyMoveSpeed()
+{
+	ACharacter* Character = Cast<ACharacter>(GetPawn());
+	UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Movement || AbilitySystemComponent->HasMatchingGameplayTag(FPSRLGameplayTags::Status_Downed))
+	{
+		return;
+	}
+	const ACharacter* Defaults = Character->GetClass()->GetDefaultObject<ACharacter>();
+	const float BaseSpeed = Defaults && Defaults->GetCharacterMovement() ? Defaults->GetCharacterMovement()->MaxWalkSpeed : Movement->MaxWalkSpeed;
+	Movement->MaxWalkSpeed = BaseSpeed * AbilitySystemComponent->GetNumericAttribute(UFPSRLCombatSet::GetMoveSpeedMultiplierAttribute());
 }

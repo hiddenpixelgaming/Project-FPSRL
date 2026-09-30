@@ -23,6 +23,7 @@
 #include "Core/FPSRLPlayerController.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Combat/FPSRLProjectile.h"
+#include "Combat/FPSRLCombatRules.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "Materials/MaterialInstanceDynamic.h"
@@ -186,7 +187,15 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 		return;
 	}
 
+	// A player's attack: scaled by their combat stats for that source, maybe a critical, and reported to their Blessings.
+	FPSRLCombat::FPlayerHit PlayerHit = FPSRLCombat::ResolvePlayerHit(InstigatedBy, DamageCauser, GetOwner(), Damage);
+
 	ApplyHealthEffect(UFPSRLDamageEffect::StaticClass(), FPSRLGameplayTags::SetByCaller_Damage, Damage, InstigatedBy, DamageCauser);
+
+	if (PlayerHit.AttackerASC)
+	{
+		FPSRLCombat::SendHitEvents(PlayerHit, GetOwner(), Damage, IsDead() || GetCurrentHealth() <= 0.f);
+	}
 
 	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s took %.0f damage. HP now %.0f"),
 		*GetOwner()->GetActorNameOrLabel(), Damage, GetCurrentHealth()), FColor::Cyan);

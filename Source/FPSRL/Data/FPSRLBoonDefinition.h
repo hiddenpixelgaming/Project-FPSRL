@@ -6,6 +6,7 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 #include "Data/FPSRLGrantSet.h"
+#include "Data/FPSRLBlessingEffects.h"
 #include "Types/FPSRLTypes.h"
 #include "FPSRLBoonDefinition.generated.h"
 
@@ -119,6 +120,15 @@ public:
 	/** Added on top of Grants once per upgrade level (per stack; abilities, tags and cue only with the first). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
 	FFPSRLGrantSet UpgradedGrants;
+
+	/** Reacts to this slot's combat events (hit, kill, ...): conditions, then Gameplay Effects on the target, self or an
+	 *  area. Scales with upgrades and stacks. See FPSRLBlessingEffects.h. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Behaviour")
+	TArray<FFPSRLBlessingTrigger> Triggers;
+
+	/** Extra damage on this slot's hits when the conditions pass (e.g. +50% against burning enemies). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Behaviour")
+	TArray<FFPSRLBlessingDamageBonus> DamageBonuses;
 
 	int32 GetMaxStacks() const { return FMath::Max(1, MaxStacks); }
 

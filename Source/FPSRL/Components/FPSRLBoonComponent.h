@@ -13,6 +13,7 @@ class UAbilitySystemComponent;
 class UFPSRLAspectDefinition;
 class UFPSRLBoonDefinition;
 class AFPSRLPlayerState;
+namespace FPSRLCombat { struct FPlayerHit; }
 
 /** One owned Blessing on a channel. */
 USTRUCT(BlueprintType)
@@ -202,6 +203,9 @@ public:
 	/** What kind of attack the channel's equipped item makes (BoonSettings.ItemSources, else the channel's default). */
 	EFPSRLItemSource GetChannelSource(EFPSRLBoonChannel Channel) const;
 
+	/** Server, during one of this player's hits: owned Blessings adjust its damage (conditional bonuses). */
+	void ModifyOutgoingDamage(const FPSRLCombat::FPlayerHit& Hit, AActor* Target, float& InOutDamage) const;
+
 	/** Cost of the next reroll in Soul Fragments (0 while free rerolls remain). */
 	UFUNCTION(BlueprintPure, Category = "Blessings")
 	int32 GetNextRerollCost() const;
@@ -278,6 +282,19 @@ private:
 
 	AFPSRLPlayerState* GetOwningPlayerState() const;
 	UAbilitySystemComponent* GetAbilitySystem() const;
+
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** Server: a combat event (Event.Hit, Event.Kill, ...) for this player; runs the owned Blessings' Triggers. */
+	void HandleCombatEvent(FGameplayTag EventTag, const struct FGameplayEventData* Payload);
+
+	/** Runs one action of a Blessing trigger (server). */
+	void RunBlessingAction(const struct FFPSRLBlessingAction& Action, const FFPSRLOwnedBoon& Owned, const struct FGameplayEventData& Payload) const;
+
+	/** Every-Nth counters, per owned Blessing trigger. */
+	TMap<uint32, int32> TriggerCounters;
+	FDelegateHandle CombatEventHandle;
 	FFPSRLBoonTrack& GetMutableTrack(EFPSRLBoonChannel Channel) { return Tracks[static_cast<int32>(Channel)]; }
 
 	/** Can take Blessings at all: holds an item and isn't full. */

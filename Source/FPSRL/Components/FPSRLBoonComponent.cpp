@@ -1,6 +1,12 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Components/FPSRLBoonComponent.h"
+#include "Combat/FPSRLCombatRules.h"
+#include "AbilitySystemGlobals.h"
+#include "Data/FPSRLBlessingEffects.h"
+#include "EngineUtils.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerState.h"
 #include "AbilitySystemComponent.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Data/FPSRLAspectDefinition.h"
@@ -927,4 +933,180 @@ EFPSRLItemSource UFPSRLBoonComponent::GetChannelSource(EFPSRLBoonChannel Channel
 		}
 	}
 	return Source;
+}
+
+
+// --- Blessing behaviour: conditional damage and triggers (server) ---------------------------------------------------
+
+namespace FPSRLBoons
+{
+	/** The hit enemy's tags meet the requirements (no requirements = always). */
+	bool TargetMeets(const FGameplayTagRequirements& Requirements, const AActor* Target)
+	{
+		if (Requirements.IsEmpty())
+		{
+			return true;
+		}
+		const UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+		return TargetASC && Requirements.RequirementsMet(TargetASC->GetOwnedGameplayTags());
+	}
+}
+
+void UFPSRLBoonComponent::BeginPlay()
+{
+	Super::BeginPlay();
+	UAbilitySystemComponent* ASC = GetAbilitySystem();
+	if (ASC && GetOwner()->HasAuthority())
+	{
+		// Every combat event (Event.Hit, Event.Kill, anything under Event) reaches the Blessings' triggers.
+		CombatEventHandle = ASC->AddGameplayEventTagContainerDelegate(FGameplayTagContainer(FGameplayTag::RequestGameplayTag(TEXT("Event"))),
+			FGameplayEventTagMulticastDelegate::FDelegate::CreateUObject(this, &ThisClass::HandleCombatEvent));
+	}
+}
+
+void UFPSRLBoonComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UAbilitySystemComponent* ASC = GetAbilitySystem(); ASC && CombatEventHandle.IsValid())
+	{
+		ASC->RemoveGameplayEventTagContainerDelegate(FGameplayTagContainer(FGameplayTag::RequestGameplayTag(TEXT("Event"))), CombatEventHandle);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void UFPSRLBoonComponent::ModifyOutgoingDamage(const FPSRLCombat::FPlayerHit& Hit, AActor* Target, float& InOutDamage) const
+{
+	// Only the Blessings on slots whose item made this kind of attack (Fire on the gun boosts gun hits, not melee).
+	float Bonus = 0.f;
+	for (const FFPSRLBoonTrack& Track : Tracks)
+	{
+		if (Track.Boons.IsEmpty() || GetChannelSource(Track.Channel) != Hit.Source)
+		{
+			continue;
+		}
+		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
+		{
+			for (const FFPSRLBlessingDamageBonus& Entry : Owned.Boon ? Owned.Boon->DamageBonuses : TArray<FFPSRLBlessingDamageBonus>())
+			{
+				if ((!Entry.bCriticalOnly || Hit.bCritical) && FPSRLBoons::TargetMeets(Entry.TargetRequirements, Target))
+				{
+					Bonus += (Entry.Bonus + Entry.BonusPerUpgrade * Owned.UpgradeLevel) * FMath::Max(1, Owned.Stacks);
+				}
+			}
+		}
+	}
+	InOutDamage *= FMath::Max(0.f, 1.f + Bonus);
+}
+
+void UFPSRLBoonComponent::HandleCombatEvent(FGameplayTag EventTag, const FGameplayEventData* Payload)
+{
+	if (!Payload || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	const bool bCritical = Payload->TargetTags.HasTag(FPSRLGameplayTags::Hit_Critical);
+	const AActor* Target = Payload->Target.Get();
+	for (const FFPSRLBoonTrack& Track : Tracks)
+	{
+		// A slot's Blessings react to that slot's own source (events without a source reach every slot).
+		const FGameplayTag SlotSource = FPSRLCombat::GetSourceTag(GetChannelSource(Track.Channel));
+		if (Track.Boons.IsEmpty() || (Payload->InstigatorTags.HasTag(FGameplayTag::RequestGameplayTag(TEXT("Source"))) && !Payload->InstigatorTags.HasTagExact(SlotSource)))
+		{
+			continue;
+		}
+		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
+		{
+			if (!Owned.Boon)
+			{
+				continue;
+			}
+			for (int32 Index = 0; Index < Owned.Boon->Triggers.Num(); ++Index)
+			{
+				const FFPSRLBlessingTrigger& Trigger = Owned.Boon->Triggers[Index];
+				if (!EventTag.MatchesTag(Trigger.Event) || (Trigger.bCriticalOnly && !bCritical) || !FPSRLBoons::TargetMeets(Trigger.TargetRequirements, Target))
+				{
+					continue;
+				}
+				if (Trigger.EveryNth > 1)
+				{
+					int32& Count = TriggerCounters.FindOrAdd(HashCombine(HashCombine(GetTypeHash(Owned.Boon.Get()), GetTypeHash(Index)), GetTypeHash(Track.Channel)));
+					if (++Count < Trigger.EveryNth)
+					{
+						continue;
+					}
+					Count = 0;
+				}
+				const float Chance = Trigger.Chance + Trigger.ChancePerUpgrade * Owned.UpgradeLevel;
+				if (Chance < 1.f && FMath::FRand() >= Chance)
+				{
+					continue;
+				}
+				UE_LOG(LogFPSRL, Verbose, TEXT("[Blessings] %s triggered on %s (%s)"), *Owned.Boon->GetName(), *EventTag.ToString(), *GetNameSafe(Target));
+				for (const FFPSRLBlessingAction& Action : Trigger.Actions)
+				{
+					RunBlessingAction(Action, Owned, *Payload);
+				}
+			}
+		}
+	}
+}
+
+void UFPSRLBoonComponent::RunBlessingAction(const FFPSRLBlessingAction& Action, const FFPSRLOwnedBoon& Owned, const FGameplayEventData& Payload) const
+{
+	UAbilitySystemComponent* SourceASC = GetAbilitySystem();
+	if (!SourceASC || !Action.Effect)
+	{
+		return;
+	}
+	AActor* HitTarget = const_cast<AActor*>(Payload.Target.Get());
+	AActor* Self = SourceASC->GetAvatarActor();
+
+	TArray<AActor*> Recipients;
+	switch (Action.Target)
+	{
+	case EFPSRLBlessingActionTarget::HitTarget:
+		Recipients.Add(HitTarget);
+		break;
+	case EFPSRLBlessingActionTarget::Self:
+		Recipients.Add(Self);
+		break;
+	default:
+	{
+		// Every enemy (never a player) within the radius of the hit enemy or the player.
+		const AActor* Center = Action.Target == EFPSRLBlessingActionTarget::AreaAroundTarget ? HitTarget : Self;
+		if (!Center || !GetWorld())
+		{
+			break;
+		}
+		for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+		{
+			const APlayerState* PawnState = It->GetPlayerState();
+			if ((!PawnState || PawnState->IsABot()) && FVector::DistSquared(It->GetActorLocation(), Center->GetActorLocation()) <= FMath::Square(Action.Radius))
+			{
+				Recipients.Add(*It);
+			}
+		}
+		break;
+	}
+	}
+
+	const float Magnitude = (Action.Magnitude + Action.MagnitudePerUpgrade * Owned.UpgradeLevel + Action.HitDamageFraction * Payload.EventMagnitude)
+		* FMath::Max(1, Owned.Stacks);
+	FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
+	Context.AddInstigator(Self, Self);
+	const FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(Action.Effect, Owned.UpgradeLevel + 1, Context);
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	if (Action.MagnitudeTag.IsValid())
+	{
+		Spec.Data->SetSetByCallerMagnitude(Action.MagnitudeTag, Magnitude);
+	}
+	for (AActor* Recipient : Recipients)
+	{
+		if (UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Recipient))
+		{
+			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
+		}
+	}
 }

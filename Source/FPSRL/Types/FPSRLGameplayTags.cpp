@@ -42,6 +42,11 @@ namespace FPSRLGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Hit,	"Event.Hit",	"Sent to the attacker's ASC when their damage lands.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Kill,	"Event.Kill",	"Sent to the attacker's ASC when their damage kills.");
 
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Source_Ranged,	"Source.Ranged",	"Damage from a gun or projectile.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Source_Melee,	"Source.Melee",		"Damage from a melee attack.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Source_Ability,	"Source.Ability",	"Damage from an ability.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Hit_Critical,	"Hit.Critical",		"The hit was a critical (in Event.Hit payload target tags).");
+
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Damage,		"SetByCaller.Damage",		"Base damage amount for GE_Damage.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Healing,		"SetByCaller.Healing",		"Heal amount for the heal effect.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(SetByCaller_Corruption,	"SetByCaller.Corruption",	"Run corruption level for enemy scaling effects.");

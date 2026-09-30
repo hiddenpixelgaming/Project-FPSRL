@@ -125,6 +125,10 @@ private:
 	UFUNCTION()
 	void HandlePawnSet(APlayerState* Player, APawn* NewPawn, APawn* OldPawn);
 
+	/** Pawn walk speed = its class default x MoveSpeedMultiplier (skipped while downed: the crawl owns the speed then). */
+	void ApplyMoveSpeed();
+	void HandleMoveSpeedChanged(const struct FOnAttributeChangeData& ChangeData) { ApplyMoveSpeed(); }
+
 	void PersistTalentEssence();
 
 	UFUNCTION()

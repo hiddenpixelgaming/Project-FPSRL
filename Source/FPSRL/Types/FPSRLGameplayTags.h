@@ -42,6 +42,12 @@ namespace FPSRLGameplayTags
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Hit);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Kill);
 
+	// What kind of attack dealt damage (in Event.Hit / Event.Kill payloads; Blessings filter on it).
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Source_Ranged);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Source_Melee);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Source_Ability);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Hit_Critical);
+
 	// Runtime magnitudes passed into Gameplay Effects by code.
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Damage);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(SetByCaller_Healing);

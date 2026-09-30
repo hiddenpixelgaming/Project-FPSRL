@@ -3,6 +3,9 @@
 #include "Combat/FPSRLWeapon.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Abilities/Attributes/FPSRLCombatSet.h"
+#include "AbilitySystemComponent.h"
+#include "Core/FPSRLPlayerState.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/KismetMathLibrary.h"
@@ -194,9 +197,10 @@ void AFPSRLWeapon::Reload()
 	StopFiring();
 	ReloadStartTime = GetWorld()->GetTimeSeconds();
 	OnWeaponStateChanged.Broadcast();
-	if (ReloadDuration > 0.f)
+	CurrentReloadDuration = GetReloadDuration();
+	if (CurrentReloadDuration > 0.f)
 	{
-		GetWorldTimerManager().SetTimer(ReloadTimer, this, &ThisClass::FinishReload, ReloadDuration, false);
+		GetWorldTimerManager().SetTimer(ReloadTimer, this, &ThisClass::FinishReload, CurrentReloadDuration, false);
 	}
 	else
 	{
@@ -351,9 +355,28 @@ bool AFPSRLWeapon::CallHolder(const TCHAR* FunctionName, TFunctionRef<void(UFunc
 
 float AFPSRLWeapon::GetReloadProgress() const
 {
-	if (!bIsReloading || ReloadDuration <= 0.f)
+	if (!bIsReloading || CurrentReloadDuration <= 0.f)
 	{
 		return 1.f;
 	}
-	return FMath::Clamp(static_cast<float>((GetWorld()->GetTimeSeconds() - ReloadStartTime) / ReloadDuration), 0.f, 1.f);
+	return FMath::Clamp(static_cast<float>((GetWorld()->GetTimeSeconds() - ReloadStartTime) / CurrentReloadDuration), 0.f, 1.f);
+}
+
+float AFPSRLWeapon::GetHolderStat(const FGameplayAttribute& Attribute) const
+{
+	const APawn* Pawn = PawnOwner.Get();
+	const AFPSRLPlayerState* State = Pawn ? Pawn->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+	const UAbilitySystemComponent* ASC = State ? State->GetAbilitySystemComponent() : nullptr;
+	return ASC && ASC->HasAttributeSetForAttribute(Attribute) ? FMath::Max(0.1f, ASC->GetNumericAttribute(Attribute)) : 1.f;
+}
+
+float AFPSRLWeapon::GetRefireRate() const
+{
+	const float Base = bIsAiming ? BaseRefireRate * AimingRefireMultiplier : BaseRefireRate;
+	return Base / GetHolderStat(UFPSRLCombatSet::GetFireRateMultiplierAttribute());
+}
+
+float AFPSRLWeapon::GetReloadDuration() const
+{
+	return ReloadDuration / GetHolderStat(UFPSRLCombatSet::GetReloadSpeedMultiplierAttribute());
 }

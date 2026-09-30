@@ -40,6 +40,8 @@
 #include "GameFramework/Pawn.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Abilities/Attributes/FPSRLCombatSet.h"
+#include "AbilitySystemComponent.h"
 #include "FPSRL.h"
 
 // --- Lobby -------------------------------------------------------------------------------------------------------
@@ -268,7 +270,9 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 		APawn* Me = GetPawn();
 		if (EnemyClass && Me)
 		{
-			const FTransform At(Me->GetActorRotation() + FRotator(0.f, 180.f, 0.f), Me->GetActorLocation() + Me->GetActorForwardVector() * 120.f);
+			const float Distance = Arg1.IsEmpty() ? 120.f : FCString::Atof(*Arg1);
+			const float Side = Arg2.IsEmpty() ? 0.f : FCString::Atof(*Arg2);
+			const FTransform At(Me->GetActorRotation() + FRotator(0.f, 180.f, 0.f), Me->GetActorLocation() + Me->GetActorForwardVector() * Distance + Me->GetActorRightVector() * Side);
 			if (APawn* Enemy = GetWorld()->SpawnActorDeferred<APawn>(EnemyClass, At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn))
 			{
 				Enemy->AutoPossessAI = EAutoPossessAI::Disabled;
@@ -1445,7 +1449,7 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 		return;	// downed or dead
 	}
 	const double Now = World->GetTimeSeconds();
-	if (LastServerMeleeTime >= 0.0 && Now - LastServerMeleeTime < MeleeCooldown * 0.8f)
+	if (LastServerMeleeTime >= 0.0 && Now - LastServerMeleeTime < GetEffectiveMeleeCooldown() * 0.8f)
 	{
 		return;	// faster than anyone can swing
 	}
@@ -1479,12 +1483,13 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 
 float AFPSRLPlayerController::GetMeleeCooldownFraction() const
 {
-	if (MeleeCooldown <= 0.f || !GetWorld())
+	const float Cooldown = GetEffectiveMeleeCooldown();
+	if (Cooldown <= 0.f || !GetWorld())
 	{
 		return 0.f;
 	}
-	const double Remaining = MeleeCooldown - (GetWorld()->GetTimeSeconds() - LastLocalMeleeTime);
-	return FMath::Clamp(static_cast<float>(Remaining / MeleeCooldown), 0.f, 1.f);
+	const double Remaining = Cooldown - (GetWorld()->GetTimeSeconds() - LastLocalMeleeTime);
+	return FMath::Clamp(static_cast<float>(Remaining / Cooldown), 0.f, 1.f);
 }
 
 void AFPSRLPlayerController::HandleDashPressed()
@@ -1493,4 +1498,13 @@ void AFPSRLPlayerController::HandleDashPressed()
 	{
 		CombatHUD->NotifyDashPressed();
 	}
+}
+
+float AFPSRLPlayerController::GetEffectiveMeleeCooldown() const
+{
+	const AFPSRLPlayerState* State = GetPlayerState<AFPSRLPlayerState>();
+	const UAbilitySystemComponent* ASC = State ? State->GetAbilitySystemComponent() : nullptr;
+	const float Multiplier = ASC && ASC->HasAttributeSetForAttribute(UFPSRLCombatSet::GetMeleeCooldownMultiplierAttribute())
+		? ASC->GetNumericAttribute(UFPSRLCombatSet::GetMeleeCooldownMultiplierAttribute()) : 1.f;
+	return MeleeCooldown * FMath::Max(0.1f, Multiplier);
 }

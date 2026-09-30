@@ -128,6 +128,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
 	float MeleeCooldown = 1.f;
 
+	/** MeleeCooldown x the player's MeleeCooldownMultiplier (Blessings). */
+	float GetEffectiveMeleeCooldown() const;
+
 	/** 0 = ready, 1 = just swung (HUD). */
 	float GetMeleeCooldownFraction() const;
 
