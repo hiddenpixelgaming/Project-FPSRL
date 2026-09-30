@@ -60,37 +60,128 @@ struct FPSRL_API FFPSRLBlessingAction
 	float HitDamageFraction = 0.f;
 };
 
-/** When something happens (Event.Hit, Event.Kill, ...) and the conditions pass, run the actions. */
+/**
+ * How a Blessing's proc decides to fire. Each Blessing picks the model its reference behaviour uses; there is no global
+ * default (not everything is "chance per hit", not everything is normalized).
+ */
+UENUM(BlueprintType)
+enum class EFPSRLProcModel : uint8
+{
+	/** Chance per eligible event (Chance + ChancePerUpgrade). Faster weapons / more pellets proc more often. */
+	ChancePerEvent,
+	/** Normalized frequency: chance = ProcsPerSecond x the source's CURRENT event interval (fire rate, melee speed...),
+	 *  clamped to MinChance..MaxChance, so a fast and a slow weapon proc about equally often per second. */
+	Normalized,
+	/** Accumulation: each eligible event adds 1 (or its damage) to a per-player counter; at Threshold it procs and resets. */
+	Accumulate,
+	/** Periodic: procs on its own every Interval seconds while owned (a timer, no events, no Tick). */
+	Periodic
+};
+
+/** What one eligible event is. */
+UENUM(BlueprintType)
+enum class EFPSRLProcScope : uint8
+{
+	/** Every event counts: each pellet / projectile / melee target hit is its own roll. */
+	EachEvent,
+	/** Once per attack: the first event of an attack is evaluated, the rest of that attack (other pellets, cleave
+	 *  targets) are ignored. A shotgun blast = one roll. */
+	OncePerAttack
+};
+
+/** Accumulate model: what the counter adds up. */
+UENUM(BlueprintType)
+enum class EFPSRLProcAccumulation : uint8
+{
+	Events,		// +1 per eligible event
+	Damage		// + the event's damage (Event.Hit / Event.Kill)
+};
+
+/**
+ * One proc of a Blessing (its proc definition). The Blessing owns it; the state (counters, cooldown) is kept per player
+ * per owned Blessing on the server. Events reach it from that Blessing's own slot source only.
+ *
+ *   Event (Event.Attack / Event.Hit / Event.Kill / any Event.*) -> scope (each event / once per attack) -> conditions
+ *   (critical, min damage, target tags) -> internal cooldown -> model (chance / normalized / accumulate / periodic)
+ *   -> server roll -> actions (Gameplay Effects).
+ *
+ * Event.Attack = an attack was made (a trigger pull, a melee swing, an ability cast), hit or miss; Event.Hit = damage
+ * landed (one per pellet / target); Event.Kill = the hit killed.
+ */
 USTRUCT(BlueprintType)
 struct FPSRL_API FFPSRLBlessingTrigger
 {
 	GENERATED_BODY()
 
-	/** The combat event (Event.Hit, Event.Kill, or any other event sent to the player's ability system). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing", meta = (Categories = "Event"))
+	/** The event it reacts to (ignored by the Periodic model). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (Categories = "Event"))
 	FGameplayTag Event;
 
-	/** Only on critical hits. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing")
-	bool bCriticalOnly = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc")
+	EFPSRLProcModel Model = EFPSRLProcModel::ChancePerEvent;
 
-	/** Chance per qualifying event (0..1), plus this per upgrade level. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing", meta = (ClampMin = "0", ClampMax = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc")
+	EFPSRLProcScope Scope = EFPSRLProcScope::EachEvent;
+
+	/** ChancePerEvent: chance per eligible event (0..1), plus this per upgrade level. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "Model == EFPSRLProcModel::ChancePerEvent"))
 	float Chance = 1.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing", meta = (ClampMin = "0"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", EditCondition = "Model == EFPSRLProcModel::ChancePerEvent"))
 	float ChancePerUpgrade = 0.f;
 
-	/** Only every Nth qualifying event (1 = every one). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing", meta = (ClampMin = "1"))
-	int32 EveryNth = 1;
+	/** Normalized: target procs per second (plus this per upgrade level). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", EditCondition = "Model == EFPSRLProcModel::Normalized"))
+	float ProcsPerSecond = 1.f;
 
-	/** Tags the hit enemy must / must not have (e.g. require Status.Burning). */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", EditCondition = "Model == EFPSRLProcModel::Normalized"))
+	float ProcsPerSecondPerUpgrade = 0.f;
+
+	/** Normalized: limits on the per-event chance. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "Model == EFPSRLProcModel::Normalized"))
+	float MinChance = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", ClampMax = "1", EditCondition = "Model == EFPSRLProcModel::Normalized"))
+	float MaxChance = 1.f;
+
+	/** Normalized: event interval (s) to assume when the source has no measurable rate (e.g. no ability cooldown yet). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0.01", EditCondition = "Model == EFPSRLProcModel::Normalized"))
+	float FallbackInterval = 1.f;
+
+	/** Accumulate: procs when the counter reaches this (stacks, hits, damage...), then resets. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0", EditCondition = "Model == EFPSRLProcModel::Accumulate"))
+	float Threshold = 10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (EditCondition = "Model == EFPSRLProcModel::Accumulate"))
+	EFPSRLProcAccumulation AccumulateBy = EFPSRLProcAccumulation::Events;
+
+	/** Periodic: seconds between procs. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0.05", EditCondition = "Model == EFPSRLProcModel::Periodic"))
+	float Interval = 1.f;
+
+	/** Internal cooldown (s): after a proc, eligible events are ignored for this long (0 = none). Any model. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc", meta = (ClampMin = "0"))
+	float InternalCooldown = 0.f;
+
+	/** Conditions: only on critical hits. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc|Conditions")
+	bool bCriticalOnly = false;
+
+	/** Conditions: the event's damage must be at least this (Event.Hit / Event.Kill; 0 = any). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc|Conditions", meta = (ClampMin = "0"))
+	float MinDamage = 0.f;
+
+	/** Conditions: tags the hit enemy must / must not have (e.g. require Status.Burning). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc|Conditions")
 	FGameplayTagRequirements TargetRequirements;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Blessing")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Proc")
 	TArray<FFPSRLBlessingAction> Actions;
+
+	/** Design note: the reference behaviour this reproduces (Trigger / Proc model / Cooldown / Frequency / Source, and
+	 *  whether it is verified or a project balancing parameter). */
+	UPROPERTY(EditAnywhere, Category = "Proc", meta = (MultiLine = "true"))
+	FString ReferenceBehaviour;
 };
 
 /** Extra damage on this slot's hits when the conditions pass (e.g. +50% against burning enemies). */

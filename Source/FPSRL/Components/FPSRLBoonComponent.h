@@ -6,6 +6,8 @@
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
 #include "Data/FPSRLGrantSet.h"
+#include "Combat/FPSRLProcRules.h"
+#include "Engine/TimerHandle.h"
 #include "Types/FPSRLTypes.h"
 #include "FPSRLBoonComponent.generated.h"
 
@@ -206,6 +208,22 @@ public:
 	/** Server, during one of this player's hits: owned Blessings adjust its damage (conditional bonuses). */
 	void ModifyOutgoingDamage(const FPSRLCombat::FPlayerHit& Hit, AActor* Target, float& InOutDamage) const;
 
+	/** Server: the attack the combat event being handled belongs to (set by FPSRLCombat around Event.Attack / Hit / Kill). */
+	int32 EventAttackId = INDEX_NONE;
+
+	/** Server: true the first time an attack is announced for this source (later pellets of the same shot: false). */
+	bool ClaimAttack(EFPSRLItemSource Source, int32 AttackId);
+
+	/** Server: seconds between this player's events of a source right now (the weapon's current refire, per pellet for
+	 *  per-hit procs; the current melee cooldown); 0 = no measurable rate. Read at every roll, so fire-rate changes apply at once. */
+	float GetEventInterval(EFPSRLItemSource Source, bool bPerHit) const;
+
+	/** Server: an owned Blessing trigger's proc state (null until its first event). */
+	const FPSRLProcs::FProcState* FindProcState(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel) const;
+
+	/** Server: the chance an event of this trigger would roll right now (tests / debug). */
+	float GetCurrentProcChance(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel) const;
+
 	/** Cost of the next reroll in Soul Fragments (0 while free rerolls remain). */
 	UFUNCTION(BlueprintPure, Category = "Blessings")
 	int32 GetNextRerollCost() const;
@@ -292,8 +310,20 @@ private:
 	/** Runs one action of a Blessing trigger (server). */
 	void RunBlessingAction(const struct FFPSRLBlessingAction& Action, const FFPSRLOwnedBoon& Owned, const struct FGameplayEventData& Payload) const;
 
-	/** Every-Nth counters, per owned Blessing trigger. */
-	TMap<uint32, int32> TriggerCounters;
+	/** Proc state per owned Blessing trigger (this player only). */
+	TMap<uint32, FPSRLProcs::FProcState> ProcStates;
+
+	/** Last attack announced per source (Event.Attack once per attack). */
+	int32 LastClaimedAttack[3] = { INDEX_NONE, INDEX_NONE, INDEX_NONE };
+
+	/** Periodic procs' timers, per owned Blessing trigger. */
+	TMap<uint32, FTimerHandle> PeriodicTimers;
+
+	/** Server: start / stop the timers of owned Periodic triggers to match the build (running ones keep their rhythm). */
+	void RefreshPeriodicProcs();
+	void RunPeriodicProc(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel);
+
+	static uint32 ProcKey(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel);
 	FDelegateHandle CombatEventHandle;
 	FFPSRLBoonTrack& GetMutableTrack(EFPSRLBoonChannel Channel) { return Tracks[static_cast<int32>(Channel)]; }
 

@@ -38,6 +38,11 @@ public:
 	TArray<FString> ExportSpawnSettings() const;
 	void ImportSpawnSettings(const TArray<FString>& Settings);
 
+	/** The attack this projectile belongs to (every pellet of one shot shares it; set by the weapon, sent along with a
+	 *  client's shot). Blessings use it to tell one attack from its hits. */
+	UPROPERTY(BlueprintReadOnly, Category = "Projectile", meta = (ExposeOnSpawn = "true"))
+	int32 AttackId = INDEX_NONE;
+
 	/** Server: fired on behalf of a client that already shows its own copy; not replicated to that client. */
 	bool bHiddenFromInstigator = false;
 

@@ -124,12 +124,19 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
 	float MeleeDamage = 75.f;
 
+	/** Enemies one swing can hit (1 = the first in the arc; more = a cleave). All of them are one attack. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Melee", meta = (ClampMin = "1"))
+	int32 MeleeMaxTargets = 1;
+
 	/** Seconds between swings (the swing's recovery). Checked locally, and on the server with a little slack for lag. */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
 	float MeleeCooldown = 1.f;
 
 	/** MeleeCooldown x the player's MeleeCooldownMultiplier (Blessings). */
 	float GetEffectiveMeleeCooldown() const;
+
+	/** Server: the attack id of the swing being resolved (its hits share it). */
+	int32 GetCurrentMeleeAttackId() const { return CurrentMeleeAttackId; }
 
 	/** 0 = ready, 1 = just swung (HUD). */
 	float GetMeleeCooldownFraction() const;
@@ -394,6 +401,7 @@ private:
 	/** Server: time of the last projectile fired for this client (rate sanity check). */
 	double LastServerShotTime = -1.0;
 	double LastServerMeleeTime = -1.0;
+	int32 CurrentMeleeAttackId = INDEX_NONE;
 	double LastLocalMeleeTime = -1000.0;
 
 	/** Local: weapon inputs are currently removed (downed); priority to restore them at. */

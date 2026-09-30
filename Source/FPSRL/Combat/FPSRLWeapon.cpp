@@ -2,6 +2,7 @@
 
 #include "Combat/FPSRLWeapon.h"
 #include "Combat/FPSRLProjectile.h"
+#include "Combat/FPSRLCombatRules.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Abilities/Attributes/FPSRLCombatSet.h"
@@ -143,12 +144,23 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 {
 	if (BulletClass)
 	{
-		const FTransform Shot = CalculateShotTransform(Target);
-		if (AActor* Projectile = GetWorld()->SpawnActorDeferred<AActor>(BulletClass, Shot, GetOwner(), PawnOwner.Get(), ESpawnActorCollisionHandlingMethod::AlwaysSpawn))
+		// One attack: every pellet carries the same attack id (Blessings decide whether they react per attack or per hit).
+		const int32 AttackId = FPSRLCombat::NewAttackId();
+		for (int32 Pellet = 0; Pellet < FMath::Max(1, ProjectilesPerShot); ++Pellet)
 		{
+			const FTransform Shot = CalculateShotTransform(Target);
+			AActor* Projectile = GetWorld()->SpawnActorDeferred<AActor>(BulletClass, Shot, GetOwner(), PawnOwner.Get(), ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+			if (!Projectile)
+			{
+				continue;
+			}
 			if (ShotDamage > 0.f)
 			{
 				AFPSRLProjectile::SetProjectileDamage(Projectile, ShotDamage);
+			}
+			if (AFPSRLProjectile* Tracked = Cast<AFPSRLProjectile>(Projectile))
+			{
+				Tracked->AttackId = AttackId;
 			}
 			Projectile->FinishSpawning(Shot);
 		}

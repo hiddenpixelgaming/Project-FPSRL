@@ -2,6 +2,10 @@
 
 #include "Components/FPSRLBoonComponent.h"
 #include "Combat/FPSRLCombatRules.h"
+#include "Combat/FPSRLWeapon.h"
+#include "Components/FPSRLHealthComponent.h"
+#include "Core/FPSRLPlayerController.h"
+#include "TimerManager.h"
 #include "AbilitySystemGlobals.h"
 #include "Data/FPSRLBlessingEffects.h"
 #include "EngineUtils.h"
@@ -106,6 +110,10 @@ void UFPSRLBoonComponent::BroadcastChanged()
 		Owner->ForceNetUpdate();
 	}
 	OnBoonStateChanged.Broadcast();	// server-side listeners (and the listen host's own UI)
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		RefreshPeriodicProcs();	// a Periodic Blessing gained or lost
+	}
 }
 
 AFPSRLPlayerState* UFPSRLBoonComponent::GetOwningPlayerState() const
@@ -853,6 +861,7 @@ void UFPSRLBoonComponent::ClearRunState()
 		Track = FFPSRLBoonTrack();
 		Track.Channel = Channel;
 	}
+	ProcStates.Reset();	// the run is over: proc progress goes with it
 	PendingRestore.Reset();
 	EndSelection();
 	FreeRerollsRemaining = UFPSRLBoonSettings::Get().FreeRerollsPerRun;	// the run is over: free rerolls come back
@@ -868,6 +877,13 @@ void UFPSRLBoonComponent::CopyRunStateTo(UFPSRLBoonComponent* Other) const
 	{
 		Other->PendingRestore = PendingRestore.IsEmpty() ? Tracks : PendingRestore;
 		Other->FreeRerollsRemaining = FreeRerollsRemaining;	// free rerolls are per run, not per Depth
+		// Proc progress (stacks, counters) belongs to the run; cooldowns restart (the new level has its own clock).
+		Other->ProcStates = ProcStates;
+		for (TPair<uint32, FPSRLProcs::FProcState>& Entry : Other->ProcStates)
+		{
+			Entry.Value.LastProcTime = -1.0e9;
+			Entry.Value.LastAttackId = INDEX_NONE;
+		}
 	}
 }
 
@@ -970,6 +986,14 @@ void UFPSRLBoonComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		ASC->RemoveGameplayEventTagContainerDelegate(FGameplayTagContainer(FGameplayTag::RequestGameplayTag(TEXT("Event"))), CombatEventHandle);
 	}
+	if (UWorld* World = GetWorld())
+	{
+		for (TPair<uint32, FTimerHandle>& Timer : PeriodicTimers)
+		{
+			World->GetTimerManager().ClearTimer(Timer.Value);
+		}
+	}
+	PeriodicTimers.Reset();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -997,56 +1021,189 @@ void UFPSRLBoonComponent::ModifyOutgoingDamage(const FPSRLCombat::FPlayerHit& Hi
 	InOutDamage *= FMath::Max(0.f, 1.f + Bonus);
 }
 
+uint32 UFPSRLBoonComponent::ProcKey(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel)
+{
+	return HashCombine(HashCombine(GetTypeHash(Boon), GetTypeHash(TriggerIndex)), GetTypeHash(Channel));
+}
+
+bool UFPSRLBoonComponent::ClaimAttack(EFPSRLItemSource Source, int32 AttackId)
+{
+	int32& Last = LastClaimedAttack[FMath::Clamp(static_cast<int32>(Source), 0, 2)];
+	if (AttackId != INDEX_NONE && AttackId == Last)
+	{
+		return false;
+	}
+	Last = AttackId;
+	return true;
+}
+
+float UFPSRLBoonComponent::GetEventInterval(EFPSRLItemSource Source, bool bPerHit) const
+{
+	const AFPSRLPlayerState* State = GetOwningPlayerState();
+	APawn* Pawn = State ? State->GetPawn() : nullptr;
+	if (!Pawn)
+	{
+		return 0.f;
+	}
+	switch (Source)
+	{
+	case EFPSRLItemSource::Ranged:
+		// The held gun (weapons are local actors on every machine, so the server has this player's too).
+		for (TActorIterator<AFPSRLWeapon> It(GetWorld()); It; ++It)
+		{
+			if (It->GetOwner() == Pawn && !It->IsHidden())
+			{
+				const float Refire = It->GetRefireRate();	// already divided by the player's current fire rate
+				return bPerHit ? Refire / FMath::Max(1, It->ProjectilesPerShot) : Refire;
+			}
+		}
+		return 0.f;
+	case EFPSRLItemSource::Melee:
+		if (const AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(Pawn->GetController()))
+		{
+			return PC->GetEffectiveMeleeCooldown();	// the current melee speed
+		}
+		return 0.f;
+	default:
+		return 0.f;	// abilities: no cast rate yet (the trigger's FallbackInterval applies)
+	}
+}
+
+const FPSRLProcs::FProcState* UFPSRLBoonComponent::FindProcState(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel) const
+{
+	return ProcStates.Find(ProcKey(Boon, TriggerIndex, Channel));
+}
+
+float UFPSRLBoonComponent::GetCurrentProcChance(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel) const
+{
+	if (!Boon || !Boon->Triggers.IsValidIndex(TriggerIndex))
+	{
+		return 0.f;
+	}
+	const FFPSRLBlessingTrigger& Trigger = Boon->Triggers[TriggerIndex];
+	const FFPSRLOwnedBoon* Owned = GetTrack(Channel).Boons.FindByPredicate([Boon](const FFPSRLOwnedBoon& Entry) { return Entry.Boon == Boon; });
+	FPSRLProcs::FProcEvent Event;
+	Event.UpgradeLevel = Owned ? Owned->UpgradeLevel : 0;
+	Event.EventInterval = GetEventInterval(GetChannelSource(Channel), !Trigger.Event.MatchesTagExact(FPSRLGameplayTags::Event_Attack) && Trigger.Scope == EFPSRLProcScope::EachEvent);
+	return FPSRLProcs::GetChance(Trigger, Event);
+}
+
 void UFPSRLBoonComponent::HandleCombatEvent(FGameplayTag EventTag, const FGameplayEventData* Payload)
 {
 	if (!Payload || !GetOwner()->HasAuthority())
 	{
 		return;
 	}
-	const bool bCritical = Payload->TargetTags.HasTag(FPSRLGameplayTags::Hit_Critical);
 	const AActor* Target = Payload->Target.Get();
+	const bool bAttackEvent = EventTag.MatchesTagExact(FPSRLGameplayTags::Event_Attack);
 	for (const FFPSRLBoonTrack& Track : Tracks)
 	{
 		// A slot's Blessings react to that slot's own source (events without a source reach every slot).
-		const FGameplayTag SlotSource = FPSRLCombat::GetSourceTag(GetChannelSource(Track.Channel));
-		if (Track.Boons.IsEmpty() || (Payload->InstigatorTags.HasTag(FGameplayTag::RequestGameplayTag(TEXT("Source"))) && !Payload->InstigatorTags.HasTagExact(SlotSource)))
+		const EFPSRLItemSource SlotSource = GetChannelSource(Track.Channel);
+		if (Track.Boons.IsEmpty() || (Payload->InstigatorTags.HasTag(FGameplayTag::RequestGameplayTag(TEXT("Source")))
+			&& !Payload->InstigatorTags.HasTagExact(FPSRLCombat::GetSourceTag(SlotSource))))
 		{
 			continue;
 		}
 		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
 		{
-			if (!Owned.Boon)
-			{
-				continue;
-			}
-			for (int32 Index = 0; Index < Owned.Boon->Triggers.Num(); ++Index)
+			for (int32 Index = 0; Owned.Boon && Index < Owned.Boon->Triggers.Num(); ++Index)
 			{
 				const FFPSRLBlessingTrigger& Trigger = Owned.Boon->Triggers[Index];
-				if (!EventTag.MatchesTag(Trigger.Event) || (Trigger.bCriticalOnly && !bCritical) || !FPSRLBoons::TargetMeets(Trigger.TargetRequirements, Target))
+				if (Trigger.Model == EFPSRLProcModel::Periodic || !EventTag.MatchesTag(Trigger.Event) || !FPSRLBoons::TargetMeets(Trigger.TargetRequirements, Target))
 				{
 					continue;
 				}
-				if (Trigger.EveryNth > 1)
+				FPSRLProcs::FProcEvent Event;
+				Event.Now = GetWorld()->GetTimeSeconds();
+				Event.AttackId = EventAttackId;
+				Event.Damage = bAttackEvent ? 0.f : Payload->EventMagnitude;
+				Event.bCritical = Payload->TargetTags.HasTag(FPSRLGameplayTags::Hit_Critical);
+				Event.UpgradeLevel = Owned.UpgradeLevel;
+				if (Trigger.Model == EFPSRLProcModel::Normalized)
 				{
-					int32& Count = TriggerCounters.FindOrAdd(HashCombine(HashCombine(GetTypeHash(Owned.Boon.Get()), GetTypeHash(Index)), GetTypeHash(Track.Channel)));
-					if (++Count < Trigger.EveryNth)
-					{
-						continue;
-					}
-					Count = 0;
+					Event.EventInterval = GetEventInterval(SlotSource, !bAttackEvent && Trigger.Scope == EFPSRLProcScope::EachEvent);
 				}
-				const float Chance = Trigger.Chance + Trigger.ChancePerUpgrade * Owned.UpgradeLevel;
-				if (Chance < 1.f && FMath::FRand() >= Chance)
+				FPSRLProcs::FProcState& State = ProcStates.FindOrAdd(ProcKey(Owned.Boon, Index, Track.Channel));
+				if (!FPSRLProcs::Evaluate(Trigger, State, Event))
 				{
 					continue;
 				}
-				UE_LOG(LogFPSRL, Verbose, TEXT("[Blessings] %s triggered on %s (%s)"), *Owned.Boon->GetName(), *EventTag.ToString(), *GetNameSafe(Target));
+				UE_LOG(LogFPSRL, Verbose, TEXT("[Blessings] %s proc %d on %s (%s)"), *Owned.Boon->GetName(), State.ProcCount, *EventTag.ToString(), *GetNameSafe(Target));
 				for (const FFPSRLBlessingAction& Action : Trigger.Actions)
 				{
 					RunBlessingAction(Action, Owned, *Payload);
 				}
 			}
 		}
+	}
+}
+
+void UFPSRLBoonComponent::RefreshPeriodicProcs()
+{
+	UWorld* World = GetWorld();
+	if (!World || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+	TSet<uint32> Wanted;
+	for (const FFPSRLBoonTrack& Track : Tracks)
+	{
+		for (const FFPSRLOwnedBoon& Owned : Track.Boons)
+		{
+			for (int32 Index = 0; Owned.Boon && Index < Owned.Boon->Triggers.Num(); ++Index)
+			{
+				const FFPSRLBlessingTrigger& Trigger = Owned.Boon->Triggers[Index];
+				if (Trigger.Model != EFPSRLProcModel::Periodic)
+				{
+					continue;
+				}
+				const uint32 Key = ProcKey(Owned.Boon, Index, Track.Channel);
+				Wanted.Add(Key);
+				if (!PeriodicTimers.Contains(Key))
+				{
+					FTimerHandle& Handle = PeriodicTimers.Add(Key);
+					TWeakObjectPtr<const UFPSRLBoonDefinition> Boon = Owned.Boon.Get();
+					const EFPSRLBoonChannel Channel = Track.Channel;
+					World->GetTimerManager().SetTimer(Handle, FTimerDelegate::CreateWeakLambda(this, [this, Boon, Index, Channel]()
+					{
+						RunPeriodicProc(Boon.Get(), Index, Channel);
+					}), FMath::Max(0.05f, Trigger.Interval), true);
+				}
+			}
+		}
+	}
+	for (auto It = PeriodicTimers.CreateIterator(); It; ++It)
+	{
+		if (!Wanted.Contains(It.Key()))
+		{
+			World->GetTimerManager().ClearTimer(It.Value());
+			It.RemoveCurrent();
+		}
+	}
+}
+
+void UFPSRLBoonComponent::RunPeriodicProc(const UFPSRLBoonDefinition* Boon, int32 TriggerIndex, EFPSRLBoonChannel Channel)
+{
+	const FFPSRLOwnedBoon* Owned = Boon ? GetTrack(Channel).Boons.FindByPredicate([Boon](const FFPSRLOwnedBoon& Entry) { return Entry.Boon == Boon; }) : nullptr;
+	const AFPSRLPlayerState* State = GetOwningPlayerState();
+	if (!Owned || !Boon->Triggers.IsValidIndex(TriggerIndex) || !State || !UFPSRLHealthComponent::IsPawnUp(State->GetPawn()))
+	{
+		return;	// gone, or the player is downed / dead
+	}
+	const FFPSRLBlessingTrigger& Trigger = Boon->Triggers[TriggerIndex];
+	FPSRLProcs::FProcEvent Event;
+	Event.Now = GetWorld()->GetTimeSeconds();
+	Event.UpgradeLevel = Owned->UpgradeLevel;
+	if (!FPSRLProcs::Evaluate(Trigger, ProcStates.FindOrAdd(ProcKey(Boon, TriggerIndex, Channel)), Event))
+	{
+		return;
+	}
+	FGameplayEventData Payload;
+	Payload.Instigator = State->GetPawn();
+	for (const FFPSRLBlessingAction& Action : Trigger.Actions)
+	{
+		RunBlessingAction(Action, *Owned, Payload);
 	}
 }
 

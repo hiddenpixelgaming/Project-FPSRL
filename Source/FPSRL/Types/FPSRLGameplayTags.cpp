@@ -41,6 +41,7 @@ namespace FPSRLGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Hit,	"Event.Hit",	"Sent to the attacker's ASC when their damage lands.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Kill,	"Event.Kill",	"Sent to the attacker's ASC when their damage kills.");
+	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Event_Attack,	"Event.Attack",	"Sent to the attacker's ASC once per attack made (trigger pull, melee swing, ability cast), hit or miss.");
 
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Source_Ranged,	"Source.Ranged",	"Damage from a gun or projectile.");
 	UE_DEFINE_GAMEPLAY_TAG_COMMENT(Source_Melee,	"Source.Melee",		"Damage from a melee attack.");

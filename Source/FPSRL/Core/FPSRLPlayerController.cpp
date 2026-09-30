@@ -29,6 +29,7 @@
 #include "UI/FPSRLDeathMenuWidget.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Combat/FPSRLProjectile.h"
+#include "Combat/FPSRLCombatRules.h"
 #include "InputMappingContext.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
@@ -1465,20 +1466,27 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	TArray<FHitResult> Hits;
 	UKismetSystemLibrary::SphereTraceMultiForObjects(this, Start, End, MeleeRadius, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
 		false, { Attacker }, EDrawDebugTrace::None, Hits, true);
-	const FHitResult* Hit = Hits.FindByPredicate([](const FHitResult& Candidate)
+	// One swing = one attack (Event.Attack, hit or miss); every enemy it hits shares the attack id.
+	CurrentMeleeAttackId = FPSRLCombat::NewAttackId();
+	FPSRLCombat::NotifyAttack(Attacker, EFPSRLItemSource::Melee, CurrentMeleeAttackId);
+	TSet<AActor*> Struck;
+	for (const FHitResult& Candidate : Hits)
 	{
-		const UFPSRLHealthComponent* Health = Candidate.GetActor() ? Candidate.GetActor()->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
-		return Health && !Health->IsDead();
-	});
-	if (Hit)
-	{
-		UGameplayStatics::ApplyDamage(Hit->GetActor(), Damage, this, Attacker, nullptr);
-		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))), *Hit->GetActor()->GetName(), Damage);
+		AActor* Victim = Candidate.GetActor();
+		const UFPSRLHealthComponent* Health = Victim ? Victim->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+		if (!Health || Health->IsDead() || Struck.Contains(Victim) || Struck.Num() >= MeleeMaxTargets)
+		{
+			continue;
+		}
+		Struck.Add(Victim);
+		UGameplayStatics::ApplyDamage(Victim, Damage, this, Attacker, nullptr);
+		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))), *Victim->GetName(), Damage);
 	}
-	else
+	if (Struck.IsEmpty())
 	{
 		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))));
 	}
+	CurrentMeleeAttackId = INDEX_NONE;
 }
 
 float AFPSRLPlayerController::GetMeleeCooldownFraction() const

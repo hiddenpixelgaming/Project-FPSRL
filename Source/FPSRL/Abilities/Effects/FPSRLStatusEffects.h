@@ -40,3 +40,23 @@ class FPSRL_API UFPSRLTestRangedDamageEffect : public UGameplayEffect
 public:
 	UFPSRLTestRangedDamageEffect();
 };
+
+/** TEST ONLY (proc checks): +1 FireRateMultiplier (double fire rate) while applied. */
+UCLASS(NotBlueprintable)
+class FPSRL_API UFPSRLTestFireRateEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UFPSRLTestFireRateEffect();
+};
+
+/** TEST ONLY (proc checks): MeleeCooldownMultiplier -2/3 (three times the melee speed) while applied. */
+UCLASS(NotBlueprintable)
+class FPSRL_API UFPSRLTestMeleeSpeedEffect : public UGameplayEffect
+{
+	GENERATED_BODY()
+
+public:
+	UFPSRLTestMeleeSpeedEffect();
+};

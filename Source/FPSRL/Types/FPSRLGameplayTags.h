@@ -41,6 +41,7 @@ namespace FPSRLGameplayTags
 	// Gameplay events sent to an ASC; passive boon/relic abilities listen for these (e.g. Explosive Rounds on Event.Hit).
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Hit);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Kill);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Attack);
 
 	// What kind of attack dealt damage (in Event.Hit / Event.Kill payloads; Blessings filter on it).
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Source_Ranged);

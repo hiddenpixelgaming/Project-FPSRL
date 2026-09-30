@@ -3,7 +3,9 @@
 #include "Combat/FPSRLCombatRules.h"
 #include "Abilities/Attributes/FPSRLCombatSet.h"
 #include "AbilitySystemComponent.h"
+#include "Combat/FPSRLProjectile.h"
 #include "Components/FPSRLBoonComponent.h"
+#include "Core/FPSRLPlayerController.h"
 #include "Core/FPSRLPlayerState.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
@@ -41,6 +43,14 @@ namespace FPSRLCombat
 		Hit.AttackerPawn = Attacker;
 		Hit.AttackerState = State;
 		Hit.Source = DamageCauser == Attacker ? EFPSRLItemSource::Melee : EFPSRLItemSource::Ranged;
+		if (const AFPSRLProjectile* Projectile = Cast<AFPSRLProjectile>(DamageCauser))
+		{
+			Hit.AttackId = Projectile->AttackId;
+		}
+		else if (const AFPSRLPlayerController* PC = Hit.Source == EFPSRLItemSource::Melee ? Cast<AFPSRLPlayerController>(Attacker->GetController()) : nullptr)
+		{
+			Hit.AttackId = PC->GetCurrentMeleeAttackId();
+		}
 
 		auto Stat = [ASC](const FGameplayAttribute& Attribute) { return ASC->GetNumericAttribute(Attribute); };
 		const bool bRanged = Hit.Source == EFPSRLItemSource::Ranged;
@@ -71,6 +81,13 @@ namespace FPSRLCombat
 		{
 			Payload.TargetTags.AddTag(FPSRLGameplayTags::Hit_Critical);
 		}
+		// The Blessings read which attack this belongs to while the events are handled (synchronously).
+		UFPSRLBoonComponent* Boons = Hit.AttackerState ? Hit.AttackerState->GetBoonComponent() : nullptr;
+		const int32 PreviousAttack = Boons ? Boons->EventAttackId : INDEX_NONE;
+		if (Boons)
+		{
+			Boons->EventAttackId = Hit.AttackId;
+		}
 		Payload.EventTag = FPSRLGameplayTags::Event_Hit;
 		Hit.AttackerASC->HandleGameplayEvent(FPSRLGameplayTags::Event_Hit, &Payload);
 		if (bKilled)
@@ -78,5 +95,35 @@ namespace FPSRLCombat
 			Payload.EventTag = FPSRLGameplayTags::Event_Kill;
 			Hit.AttackerASC->HandleGameplayEvent(FPSRLGameplayTags::Event_Kill, &Payload);
 		}
+		if (Boons)
+		{
+			Boons->EventAttackId = PreviousAttack;
+		}
+	}
+
+	int32 NewAttackId()
+	{
+		static int32 LastAttackId = 0;
+		LastAttackId = LastAttackId == MAX_int32 ? 1 : LastAttackId + 1;
+		return LastAttackId;
+	}
+
+	void NotifyAttack(APawn* Attacker, EFPSRLItemSource Source, int32 AttackId)
+	{
+		AFPSRLPlayerState* State = Attacker && Attacker->HasAuthority() ? Attacker->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+		UAbilitySystemComponent* ASC = State ? State->GetAbilitySystemComponent() : nullptr;
+		UFPSRLBoonComponent* Boons = State ? State->GetBoonComponent() : nullptr;
+		if (!ASC || !Boons || !Boons->ClaimAttack(Source, AttackId))
+		{
+			return;	// not a player, or this attack was already announced (another pellet of the same shot)
+		}
+		FGameplayEventData Payload;
+		Payload.EventTag = FPSRLGameplayTags::Event_Attack;
+		Payload.Instigator = Attacker;
+		Payload.InstigatorTags.AddTag(GetSourceTag(Source));
+		const int32 PreviousAttack = Boons->EventAttackId;
+		Boons->EventAttackId = AttackId;
+		ASC->HandleGameplayEvent(FPSRLGameplayTags::Event_Attack, &Payload);
+		Boons->EventAttackId = PreviousAttack;
 	}
 }

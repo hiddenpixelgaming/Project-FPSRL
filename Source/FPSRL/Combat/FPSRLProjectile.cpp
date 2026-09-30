@@ -1,10 +1,13 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Combat/FPSRLProjectile.h"
+#include "Combat/FPSRLCombatRules.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLPlayerController.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "Components/PrimitiveComponent.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/UnrealType.h"
 
@@ -47,6 +50,22 @@ void AFPSRLProjectile::BeginPlay()
 		return;
 	}
 
+	// Pellets of the same shot start in the same spot: they must not block each other (every machine, every copy).
+	if (UPrimitiveComponent* Body = AttackId != INDEX_NONE ? Cast<UPrimitiveComponent>(GetRootComponent()) : nullptr)
+	{
+		for (TActorIterator<AFPSRLProjectile> It(World); It; ++It)
+		{
+			if (*It != this && It->AttackId == AttackId && It->GetInstigator() == Shooter)
+			{
+				Body->IgnoreActorWhenMoving(*It, true);
+				if (UPrimitiveComponent* OtherBody = Cast<UPrimitiveComponent>(It->GetRootComponent()))
+				{
+					OtherBody->IgnoreActorWhenMoving(this, true);
+				}
+			}
+		}
+	}
+
 	if (World->GetNetMode() == NM_Client)
 	{
 		// Authority on a client = spawned locally by this client's own weapon (replicated ones arrive as simulated).
@@ -70,7 +89,9 @@ void AFPSRLProjectile::BeginPlay()
 	if (!CanPawnShoot(Shooter))
 	{
 		Destroy();
+		return;
 	}
+	FPSRLCombat::NotifyAttack(Shooter, EFPSRLItemSource::Ranged, AttackId);	// once per shot (a player's; enemies are ignored)
 }
 
 bool AFPSRLProjectile::IsNetRelevantFor(const AActor* RealViewer, const AActor* ViewTarget, const FVector& SrcLocation) const

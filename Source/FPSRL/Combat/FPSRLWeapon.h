@@ -46,6 +46,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo", meta = (ClampMin = "0"))
 	float ShotDamage = 0.f;
 
+	/** Projectiles per shot (a shotgun: its pellets). All of them are one attack. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo", meta = (ClampMin = "1"))
+	int32 ProjectilesPerShot = 1;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo", meta = (ClampMin = "1"))
 	int32 MagSize = 10;
 

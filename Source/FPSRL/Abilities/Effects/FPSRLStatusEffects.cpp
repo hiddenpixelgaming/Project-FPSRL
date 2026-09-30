@@ -43,3 +43,26 @@ UFPSRLTestRangedDamageEffect::UFPSRLTestRangedDamageEffect()
 	Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(0.5f));
 	Modifiers.Add(Modifier);
 }
+
+namespace
+{
+	void AddInfiniteModifier(UGameplayEffect* Effect, const FGameplayAttribute& Attribute, float Value)
+	{
+		Effect->DurationPolicy = EGameplayEffectDurationType::Infinite;
+		FGameplayModifierInfo Modifier;
+		Modifier.Attribute = Attribute;
+		Modifier.ModifierOp = EGameplayModOp::Additive;
+		Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(Value));
+		Effect->Modifiers.Add(Modifier);
+	}
+}
+
+UFPSRLTestFireRateEffect::UFPSRLTestFireRateEffect()
+{
+	AddInfiniteModifier(this, UFPSRLCombatSet::GetFireRateMultiplierAttribute(), 1.f);
+}
+
+UFPSRLTestMeleeSpeedEffect::UFPSRLTestMeleeSpeedEffect()
+{
+	AddInfiniteModifier(this, UFPSRLCombatSet::GetMeleeCooldownMultiplierAttribute(), -2.f / 3.f);
+}
