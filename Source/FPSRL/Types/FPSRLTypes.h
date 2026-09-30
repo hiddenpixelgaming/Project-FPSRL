@@ -165,12 +165,24 @@ enum class EFPSRLBoonChannel : uint8
 };
 ENUM_RANGE_BY_COUNT(EFPSRLBoonChannel, EFPSRLBoonChannel::MAX);
 
-/** Every Blessing is one of two categories: Minor (common) or Major (rarer, stronger). There is no other kind. */
+/** A Blessing's kind. Which kind a slot position offers is data (BoonSettings.PositionTypes; default 3rd = Minor,
+ *  6th = Major, every other position Normal), so Minor and Major Blessings only ever appear at their positions. */
 UENUM(BlueprintType)
 enum class EFPSRLBoonType : uint8
 {
-	Minor,
-	Major
+	Normal,
+	Minor,	// offered at the slot positions set as Minor (default: the 3rd Blessing)
+	Major	// offered at the slot positions set as Major (default: the 6th Blessing)
+};
+
+/** What kind of attack an equipped item makes, for Blessing compatibility (a Blessing lists the sources it supports;
+ *  none listed = Universal). Items map to a source in Project Settings > FPSRL Blessings (ItemSources). */
+UENUM(BlueprintType)
+enum class EFPSRLItemSource : uint8
+{
+	Ranged,
+	Melee,
+	Ability
 };
 
 /** Who a Blessing affects. Only Self is implemented; the others are reserved for explicitly team-wide designs. */

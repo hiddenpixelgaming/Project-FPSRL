@@ -51,17 +51,18 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "1"))
 	int32 MaxBoonsPerChannel = 11;
 
-	/** Relative chance each Blessing choice is a Minor (Minors are the common category). */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
-	float MinorWeight = 4.f;
+	/** Which kind of Blessing a slot position offers (1 = a slot's first Blessing). Positions not listed offer Normal
+	 *  Blessings. Default: the 3rd is a Minor, the 6th a Major. */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings")
+	TMap<int32, EFPSRLBoonType> PositionTypes = { { 3, EFPSRLBoonType::Minor }, { 6, EFPSRLBoonType::Major } };
 
-	/** Relative chance each Blessing choice is a Major (4 : 1 = 80% Minor, 20% Major). */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
-	float MajorWeight = 1.f;
+	/** Blessing kind offered at a slot position (1-based). */
+	EFPSRLBoonType GetTypeForPosition(int32 Position) const { const EFPSRLBoonType* Type = PositionTypes.Find(Position); return Type ? *Type : EFPSRLBoonType::Normal; }
 
-	/** Blessings a slot must already have before its Major can be offered. */
-	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (ClampMin = "0"))
-	int32 MajorMinBlessings = 3;
+	/** What each equipped item is, for Blessing source compatibility (matched by tag, parents included: Weapon covers
+	 *  Weapon.Rifle). An item not listed takes its slot's default: Primary Ranged, Secondary Melee, Ability Ability. */
+	UPROPERTY(Config, EditAnywhere, Category = "Blessings")
+	TMap<FGameplayTag, EFPSRLItemSource> ItemSources;
 
 	/** Secondary-channel item every player starts with (the built-in melee). */
 	UPROPERTY(Config, EditAnywhere, Category = "Blessings", meta = (Categories = "Secondary"))

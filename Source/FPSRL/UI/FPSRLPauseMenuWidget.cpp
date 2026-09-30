@@ -200,7 +200,7 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 			{
 				continue;
 			}
-			const TCHAR* Kind = Owned.Boon->BoonType == EFPSRLBoonType::Major ? TEXT("MAJOR: ") : TEXT("MINOR: ");
+			const TCHAR* Kind = Owned.Boon->BoonType == EFPSRLBoonType::Major ? TEXT("MAJOR: ") : Owned.Boon->BoonType == EFPSRLBoonType::Minor ? TEXT("MINOR: ") : TEXT("");
 			const FString Stacks = Owned.Stacks > 1 ? FString::Printf(TEXT(" x%d"), Owned.Stacks) : FString();
 			// Upgrades stack: one star per upgrade level.
 			FString Upgrades;

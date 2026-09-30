@@ -2,6 +2,8 @@
 
 #include "Core/FPSRLAutopilotSubsystem.h"
 #include "Components/FPSRLBoonComponent.h"
+#include "Data/FPSRLBoonDefinition.h"
+#include "Data/FPSRLBoonSettings.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Combat/FPSRLWeapon.h"
 #include "UI/FPSRLCombatHUDWidget.h"
@@ -526,4 +528,72 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLHurtCommand(TEXT("FPSRL.HurtMe"
 			}
 			return true;
 		}), 1.f);
+	}));
+
+// Host test: fill Primary with Fire and Secondary with Water through the real altar flow, one position at a time, and
+// check each position offers the right kind (3rd Minor, 6th Major, others Normal) and only source-compatible Blessings.
+static FAutoConsoleCommandWithWorld GFPSRLProgressionTestCommand(TEXT("FPSRL.ProgressionTest"),
+	TEXT("Host test: Blessing positions and source compatibility through the altar ([ProgressionTest])."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		AFPSRLPlayerState* PS = PC ? PC->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+		UFPSRLBoonComponent* Boons = PS ? PS->GetBoonComponent() : nullptr;
+		if (!Boons)
+		{
+			UE_LOG(LogFPSRL, Error, TEXT("[ProgressionTest] no player"));
+			return;
+		}
+		const UFPSRLBoonSettings& Settings = UFPSRLBoonSettings::Get();
+		int32 Problems = 0;
+		const TPair<EFPSRLBoonChannel, const TCHAR*> Plan[] = { { EFPSRLBoonChannel::Primary, TEXT("DA_Aspect_Fire") }, { EFPSRLBoonChannel::Secondary, TEXT("DA_Aspect_Water") } };
+		for (const TPair<EFPSRLBoonChannel, const TCHAR*>& Step : Plan)
+		{
+			const EFPSRLBoonChannel Channel = Step.Key;
+			const EFPSRLItemSource Source = Boons->GetChannelSource(Channel);
+			for (int32 Position = 1; Position <= Settings.MaxBoonsPerChannel; ++Position)
+			{
+				Boons->TestCancelSelection();
+				Boons->BeginAltar();
+				int32 AspectIndex = INDEX_NONE;
+				for (int32 Try = 0; Try < 40 && AspectIndex == INDEX_NONE; ++Try)
+				{
+					AspectIndex = Boons->AspectOptions.IndexOfByPredicate([&](const UFPSRLAspectDefinition* A) { return A && A->GetName() == Step.Value; });
+					if (AspectIndex == INDEX_NONE)
+					{
+						Boons->TryReroll(Boons->SelectionEventId);
+					}
+				}
+				if (AspectIndex == INDEX_NONE || !Boons->TryChooseAspect(Boons->SelectionEventId, AspectIndex))
+				{
+					UE_LOG(LogFPSRL, Log, TEXT("[ProgressionTest] %s position %d: %s no longer offered (no compatible Blessing of the right kind left)"), *UFPSRLBoonComponent::GetChannelName(Channel).ToString(), Position, Step.Value);
+					break;
+				}
+				if (Boons->AltarStep == EFPSRLAltarStep::ChooseSlot)
+				{
+					Boons->TryChooseSlot(Boons->SelectionEventId, Boons->SlotOptions.IndexOfByKey(Channel));
+				}
+				const EFPSRLBoonType Wanted = Settings.GetTypeForPosition(Position);
+				FString Line;
+				bool bOk = !Boons->CurrentOptions.IsEmpty();
+				for (const FFPSRLBoonOffer& Offer : Boons->CurrentOptions)
+				{
+					const bool bKind = Offer.Boon && Offer.Boon->BoonType == Wanted;
+					const bool bSource = Offer.Boon && Offer.Boon->SupportsSource(Source) && Offer.Channel == Channel;
+					bOk &= bKind && bSource;
+					FString Sources;
+					for (EFPSRLItemSource S : Offer.Boon->SupportedSources)
+					{
+						Sources += UEnum::GetDisplayValueAsText(S).ToString() + TEXT(" ");
+					}
+					Line += FString::Printf(TEXT("%s(%s, %s) "), *GetNameSafe(Offer.Boon).Replace(TEXT("DA_Boon_"), TEXT("")),
+						*UEnum::GetDisplayValueAsText(Offer.Boon->BoonType).ToString(), Sources.IsEmpty() ? TEXT("Universal") : *Sources.TrimEnd());
+				}
+				Problems += bOk ? 0 : 1;
+				UE_LOG(LogFPSRL, Log, TEXT("[ProgressionTest] %s (%s) pos %2d wants %-6s: %s%s"), *UFPSRLBoonComponent::GetChannelName(Channel).ToString(),
+					*UEnum::GetDisplayValueAsText(Source).ToString(), Position, *UEnum::GetDisplayValueAsText(Wanted).ToString(), *Line, bOk ? TEXT("OK") : TEXT("<-- WRONG"));
+				Boons->TrySelect(Boons->SelectionEventId, 0);
+			}
+		}
+		UE_LOG(LogFPSRL, Log, TEXT("[ProgressionTest] done: %d problem(s)"), Problems);
 	}));

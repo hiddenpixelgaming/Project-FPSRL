@@ -188,6 +188,12 @@ bool UFPSRLBoonComponent::IsEligible(const UFPSRLBoonDefinition* Boon, EFPSRLBoo
 		return false;
 	}
 
+	// It must work with the kind of attack the channel's item makes (Ranged / Melee / Ability; none listed = Universal).
+	if (!Boon->SupportsSource(GetChannelSource(Channel)))
+	{
+		return false;
+	}
+
 	// The item in the channel must support it (e.g. a melee-only Blessing needs Secondary.Melee).
 	const FGameplayTag Item = GetChannelItem(Channel);
 	if (!Boon->RequiredItemTags.IsEmpty() && !(Item.IsValid() && Item.MatchesAny(Boon->RequiredItemTags)))
@@ -301,10 +307,8 @@ TArray<UFPSRLAspectDefinition*> UFPSRLBoonComponent::GenerateAspectOptions(const
 		const EFPSRLBoonChannel Channel = FindAspectChannel(Aspect);
 		if (Channel != EFPSRLBoonChannel::MAX)
 		{
-			const bool bHasNext = IsChannelOpen(Channel) && Pool->Boons.ContainsByPredicate([this, Aspect, Channel](const UFPSRLBoonDefinition* Boon)
-			{
-				return Boon && Boon->Aspect == Aspect && IsEligible(Boon, Channel, false);
-			});
+			// Only if its next position has something to offer (same rules as the Blessing step).
+			const bool bHasNext = IsChannelOpen(Channel) && !GenerateBlessingOptions(Aspect, Channel).IsEmpty();
 			if (bHasNext)
 			{
 				Candidates.Add({ Aspect, Settings.AssignedAspectWeight });
@@ -384,43 +388,37 @@ TArray<FFPSRLBoonOffer> UFPSRLBoonComponent::GenerateBlessingOptions(UFPSRLAspec
 		return Options;
 	}
 
-	// This Aspect's Blessings the channel can take, split into the only two categories. Majors need MajorMinBlessings
-	// on the slot first.
+	// The next position on this slot decides the kind (BoonSettings.PositionTypes: 3rd = Minor, 6th = Major by default,
+	// the rest Normal). A Minor or Major position with none left falls back to Normal (a missing Minor never blocks
+	// progress); a Normal position never offers a Minor or Major. Nothing left = no options (the Aspect isn't offered).
 	const FFPSRLBoonTrack& Track = GetTrack(Channel);
-	TArray<UFPSRLBoonDefinition*> Minor, Major;
+	const EFPSRLBoonType Wanted = Settings.GetTypeForPosition(Track.Count + 1);
+	TArray<UFPSRLBoonDefinition*> OfKind, Normal;
 	for (UFPSRLBoonDefinition* Boon : Pool->Boons)
 	{
 		if (!Boon || Boon->Aspect != Aspect || !IsEligible(Boon, Channel, false))
 		{
 			continue;
 		}
-		if (Boon->BoonType == EFPSRLBoonType::Major)
+		if (Boon->BoonType == Wanted)
 		{
-			if (Track.Count >= Settings.MajorMinBlessings)
-			{
-				Major.Add(Boon);
-			}
+			OfKind.Add(Boon);
 		}
-		else
+		if (Boon->BoonType == EFPSRLBoonType::Normal)
 		{
-			Minor.Add(Boon);
+			Normal.Add(Boon);
 		}
 	}
-
-	// Each choice is a Minor or a Major by weight (Minors commoner), then a Blessing of that category by its own weight.
-	// If the rolled category has nothing left, the other one fills in; no Blessing appears twice in one set.
-	while (Options.Num() < Settings.BoonOptionsPerSelection && !(Minor.IsEmpty() && Major.IsEmpty()))
+	TArray<UFPSRLBoonDefinition*>& From = !OfKind.IsEmpty() || Wanted == EFPSRLBoonType::Normal ? OfKind : Normal;
+	while (Options.Num() < Settings.BoonOptionsPerSelection && !From.IsEmpty())
 	{
-		const float MinorShare = Minor.IsEmpty() ? 0.f : Settings.MinorWeight;
-		const float MajorShare = Major.IsEmpty() ? 0.f : Settings.MajorWeight;
-		const bool bMajor = MajorShare > 0.f && (MinorShare <= 0.f || FMath::FRandRange(0.f, MinorShare + MajorShare) >= MinorShare);
-		TArray<UFPSRLBoonDefinition*>& From = bMajor ? Major : Minor;
 		const int32 Pick = FPSRLBoons::PickWeighted(From, [](const UFPSRLBoonDefinition* Boon) { return Boon->SelectionWeight; });
 		Options.Add({ From[Pick], Channel, Track.Aspect == nullptr });
 		From.RemoveAtSwap(Pick);
 	}
 	return Options;
 }
+
 
 TArray<FFPSRLUpgradeOffer> UFPSRLBoonComponent::GenerateUpgradeOptions() const
 {
@@ -901,3 +899,32 @@ void UFPSRLBoonComponent::RestoreRunState()
 }
 
 #undef LOCTEXT_NAMESPACE
+
+EFPSRLItemSource UFPSRLBoonComponent::GetChannelSource(EFPSRLBoonChannel Channel) const
+{
+	// The most specific listed tag wins (Weapon.Rifle over Weapon).
+	const FGameplayTag Item = GetChannelItem(Channel);
+	int32 BestDepth = -1;
+	EFPSRLItemSource Source = Channel == EFPSRLBoonChannel::Primary ? EFPSRLItemSource::Ranged
+		: Channel == EFPSRLBoonChannel::Secondary ? EFPSRLItemSource::Melee : EFPSRLItemSource::Ability;
+	if (Item.IsValid())
+	{
+		for (const TPair<FGameplayTag, EFPSRLItemSource>& Entry : UFPSRLBoonSettings::Get().ItemSources)
+		{
+			if (Item.MatchesTag(Entry.Key))
+			{
+				int32 Depth = 0;
+				for (const TCHAR* Char = *Entry.Key.ToString(); *Char; ++Char)
+				{
+					Depth += *Char == TEXT('.') ? 1 : 0;
+				}
+				if (Depth > BestDepth)
+				{
+					BestDepth = Depth;
+					Source = Entry.Value;
+				}
+			}
+		}
+	}
+	return Source;
+}

@@ -109,9 +109,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLBoonStateChanged);
  *
  * Progression per channel: the first Blessing sets the channel's Aspect; later Blessings for the channel come only from
  * that Aspect, up to MaxBoonsPerChannel (11). An Aspect can be on only one channel (once Fire is on Primary it is never
- * offered for Secondary or Ability), and slots may stay empty. Every Blessing is a Minor or a Major; each Blessing choice
- * is a Minor or a Major by weight (MinorWeight : MajorWeight, Minors commoner), Majors only once the slot has
- * MajorMinBlessings.
+ * offered for Secondary or Ability), and slots may stay empty. Each slot position offers one kind of Blessing
+ * (BoonSettings.PositionTypes: the 3rd a Minor, the 6th a Major, the rest Normal), and only Blessings that support the
+ * slot's item source (Ranged / Melee / Ability) are offered.
  *
  * Server-authoritative: the server rolls this player's options, validates the pick, applies it through GAS and
  * replicates the result. Clients only request (AFPSRLPlayerController::ServerSelectBoon / ServerRerollBoons).
@@ -198,6 +198,9 @@ public:
 
 	/** The item the channel holds (Weapon.* / Secondary.* / Ability.*); empty = channel has nothing to bless. */
 	FGameplayTag GetChannelItem(EFPSRLBoonChannel Channel) const;
+
+	/** What kind of attack the channel's equipped item makes (BoonSettings.ItemSources, else the channel's default). */
+	EFPSRLItemSource GetChannelSource(EFPSRLBoonChannel Channel) const;
 
 	/** Cost of the next reroll in Soul Fragments (0 while free rerolls remain). */
 	UFUNCTION(BlueprintPure, Category = "Blessings")

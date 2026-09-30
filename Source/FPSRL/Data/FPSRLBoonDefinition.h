@@ -19,8 +19,10 @@ class UTexture2D;
  * Where it can be offered (all data, nothing hardcoded in the altar):
  *  - Aspect + AllowedChannels: only on a channel whose Aspect is this one (or an empty channel, as its first
  *    Blessing), and only on the channels listed (empty = any channel the Aspect allows).
- *  - BoonType: Minor or Major (the only two categories). Majors are offered less often and only once the slot has
- *    MajorMinBlessings.
+ *  - SupportedSources: the kinds of attack it works with (Ranged, Melee, Ability); the channel's equipped item must be
+ *    one of them. Empty = Universal. The same Aspect keeps one identity on any slot; its Blessings say what they fit.
+ *  - BoonType: Normal, Minor or Major. A slot position offers one kind (BoonSettings.PositionTypes: 3rd = Minor, 6th =
+ *    Major by default, the rest Normal).
  *  - RequiredItemTags: the channel's equipped item must carry one of them (e.g. Weapon.Cannon, Secondary.Melee,
  *    a future Ability.*). Empty = any item. This is how "needs a projectile weapon" / "needs melee" is expressed.
  *  - BlockedTags, RequiredBoons (prerequisites on the same channel), RequiredChannelCount.
@@ -59,7 +61,14 @@ public:
 	TObjectPtr<UFPSRLAspectDefinition> Aspect;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")
-	EFPSRLBoonType BoonType = EFPSRLBoonType::Minor;
+	EFPSRLBoonType BoonType = EFPSRLBoonType::Normal;
+
+	/** Kinds of attack this Blessing works with. Empty = Universal (any source). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing|Eligibility")
+	TArray<EFPSRLItemSource> SupportedSources;
+
+	/** Works with this source (true for every source when SupportedSources is empty). */
+	bool SupportsSource(EFPSRLItemSource Source) const { return SupportedSources.IsEmpty() || SupportedSources.Contains(Source); }
 
 	/** Channels it can attach to. Empty = any channel its Aspect allows. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Blessing")

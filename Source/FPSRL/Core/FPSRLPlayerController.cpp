@@ -806,9 +806,9 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 		for (const FFPSRLBoonOffer& Offer : Boons->CurrentOptions)
 		{
 			const UFPSRLAspectDefinition* Aspect = Offer.Boon ? Offer.Boon->Aspect.Get() : nullptr;
-			// Every Blessing is one of the two categories.
-			const FText Kind = Offer.Boon && Offer.Boon->BoonType == EFPSRLBoonType::Major
-				? NSLOCTEXT("FPSRL", "MajorBlessing", "MAJOR BLESSING") : NSLOCTEXT("FPSRL", "MinorBlessing", "MINOR BLESSING");
+			const EFPSRLBoonType Type = Offer.Boon ? Offer.Boon->BoonType : EFPSRLBoonType::Normal;
+			const FText Kind = Type == EFPSRLBoonType::Major ? NSLOCTEXT("FPSRL", "MajorBlessing", "MAJOR BLESSING")
+				: Type == EFPSRLBoonType::Minor ? NSLOCTEXT("FPSRL", "MinorBlessing", "MINOR BLESSING") : NSLOCTEXT("FPSRL", "NormalBlessing", "BLESSING");
 			UFPSRLSelectionWidget::FChoice& Choice = Choices.AddDefaulted_GetRef();
 			Choice.Header = FText::Format(NSLOCTEXT("FPSRL", "BlessingHeader", "{0}{1}{2}{1}{3}"),
 				UFPSRLBoonComponent::GetChannelName(Offer.Channel), Dot, AspectName(Aspect), Kind);
