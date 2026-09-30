@@ -1,6 +1,7 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Rooms/FPSRLRoom.h"
+#include "Core/FPSRLEnemyScalingRules.h"
 #include "Components/BoxComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLGameState.h"
@@ -145,11 +146,11 @@ void AFPSRLRoom::StartCombat()
 		ExitDoor->Lock();
 	}
 
-	// Spawn this room's enemies now (nothing existed at the spawn points before), then track every living one. An
-	// encounter definition (Elite, Final Level Boss) supplies the enemy and its health and size multipliers.
-	TArray<AActor*> ToTrack = GatherEnemies();
+	// This encounter's scaling, fixed now from the players taking part (players joining or leaving later don't change
+	// it). An encounter definition (Elite, Final Level Boss) supplies the enemy, its size and its encounter modifiers.
+	const FPSRLEnemyScaling::FEncounterScaling Scaling = FPSRLEnemyScaling::Compute(GetWorld(), Encounter,
+		FPSRLEnemyScaling::CountParticipatingPlayers(GetWorld()));
 	TSubclassOf<APawn> DefaultEnemy = (EnemyClass && EnemyClass->IsChildOf(APawn::StaticClass())) ? TSubclassOf<APawn>(EnemyClass.Get()) : nullptr;
-	float HealthMultiplier = 1.f;
 	float SizeMultiplier = 1.f;
 	if (Encounter)
 	{
@@ -157,16 +158,27 @@ void AFPSRLRoom::StartCombat()
 		{
 			DefaultEnemy = EncounterClass;
 		}
-		HealthMultiplier = Encounter->HealthMultiplier;
 		SizeMultiplier = Encounter->SizeMultiplier;
 	}
+
+	// Enemies already placed in the room, then one per spawn point, up to the encounter's enemy cap; all scaled.
+	TArray<AActor*> ToTrack = GatherEnemies();
 	for (const AFPSRLEnemySpawnPoint* Point : GatherSpawnPoints())
 	{
-		if (APawn* Spawned = Point->SpawnEnemy(DefaultEnemy, HealthMultiplier, SizeMultiplier))
+		if (ToTrack.Num() >= Scaling.MaxEnemies)
+		{
+			break;
+		}
+		if (APawn* Spawned = Point->SpawnEnemy(DefaultEnemy, 1.f, SizeMultiplier))
 		{
 			ToTrack.Add(Spawned);
 		}
 	}
+	for (AActor* Enemy : ToTrack)
+	{
+		FPSRLEnemyScaling::ApplyToEnemy(Cast<APawn>(Enemy), Scaling);
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Scaling] Room %s: %s"), *GetActorNameOrLabel(), *Scaling.Describe());
 
 	// Each health component's OnDeath fires once.
 	RemainingEnemies = 0;

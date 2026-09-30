@@ -38,6 +38,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Run")
 	bool IsRunActive() const { return bRunActive; }
 
+	/** Expedition layer of enemy scaling (run-wide modifiers, e.g. a future corruption system). 1 = none. */
+	float ExpeditionHealthMultiplier = 1.f;
+	float ExpeditionDamageMultiplier = 1.f;
+
 	/** 1-based numbers for display; 0 when no run is active (e.g. PIE started directly in a Depth map). */
 	UFUNCTION(BlueprintPure, Category = "Run")
 	int32 GetDepthNumber() const { return bRunActive ? DepthIndex + 1 : 0; }

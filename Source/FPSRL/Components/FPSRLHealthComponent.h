@@ -105,6 +105,12 @@ public:
 	/** Server: multiply max health (and refill to it), e.g. an Elite / Final Level Boss encounter. Works before or after BeginPlay. */
 	void ScaleMaxHealth(float Multiplier);
 
+	/** Server: max health (and current health) = NewMax, from enemy scaling. DefaultMaxHealth stays the unscaled base. */
+	void SetMaxHealthServer(float NewMax);
+
+	/** Server: this enemy's attacks deal this much of their damage (enemy scaling). 1 for players. */
+	float OutgoingDamageMultiplier = 1.f;
+
 	/** Server: damage from the world itself (a fall), not from anyone, so the friendly-fire filter doesn't apply. */
 	void ApplyEnvironmentDamage(float Amount);
 

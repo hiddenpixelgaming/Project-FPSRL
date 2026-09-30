@@ -55,6 +55,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Depth")
 	bool bHasExitPortal = true;
 
+	/** Depth layer of enemy scaling (health and damage separate). 1 = none; tune after playtesting. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scaling", meta = (ClampMin = "0"))
+	float DepthHealthMultiplier = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Scaling", meta = (ClampMin = "0"))
+	float DepthDamageMultiplier = 1.f;
+
 	// --- Generation (Phase 2: room sequencing) ----------------------------------------------------------------
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation", meta = (ClampMin = "0"))

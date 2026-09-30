@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "Types/FPSRLTypes.h"
+#include "Data/FPSRLEnemyScaling.h"
 #include "FPSRLEncounterDefinition.generated.h"
 
 /**
@@ -32,9 +33,22 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter")
 	TSoftClassPtr<APawn> EnemyClass;
 
-	/** The enemy's health times this. */
+	/** Encounter-specific health modifier on top of the enemy's scaled health. The Elite (5x) and Final Level Boss (20x)
+	 *  values are PROTOTYPE PLACEHOLDERS on the Normal Shooter: real Elites and bosses get their own UFPSRLEnemyDefinition
+	 *  (base stats) and this goes back to 1. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter", meta = (ClampMin = "0.01"))
 	float HealthMultiplier = 1.f;
+
+	/** Encounter-specific damage modifier. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter", meta = (ClampMin = "0"))
+	float DamageMultiplier = 1.f;
+
+	/** Use ScalingOverride instead of the settings' enemy / boss player-count profile (e.g. a boss with its own curve). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter|Scaling")
+	bool bOverrideScaling = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter|Scaling", meta = (EditCondition = "bOverrideScaling"))
+	FFPSRLPlayerCountScaling ScalingOverride;
 
 	/** The enemy's size times this (a placeholder cue that it's no ordinary enemy). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter", meta = (ClampMin = "0.1"))

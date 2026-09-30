@@ -187,6 +187,18 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 		return;
 	}
 
+	// An enemy's attack: scaled by its encounter scaling (player count, Depth, difficulty...).
+	const APawn* Attacker = InstigatedBy ? InstigatedBy->GetPawn() : nullptr;
+	Attacker = Attacker ? Attacker : Cast<APawn>(DamageCauser);
+	Attacker = Attacker ? Attacker : (DamageCauser ? DamageCauser->GetInstigator() : nullptr);
+	if (Attacker && !IsPlayerSide(nullptr, Attacker))
+	{
+		if (const UFPSRLHealthComponent* AttackerHealth = Attacker->FindComponentByClass<UFPSRLHealthComponent>())
+		{
+			Damage *= AttackerHealth->OutgoingDamageMultiplier;
+		}
+	}
+
 	// A player's attack: scaled by their combat stats for that source, maybe a critical, and reported to their Blessings.
 	FPSRLCombat::FPlayerHit PlayerHit = FPSRLCombat::ResolvePlayerHit(InstigatedBy, DamageCauser, GetOwner(), Damage);
 
@@ -481,6 +493,23 @@ void UFPSRLHealthComponent::ScaleMaxHealth(float Multiplier)
 	{
 		AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetMaxHealthAttribute(), DefaultMaxHealth);
 		AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), DefaultMaxHealth);
+	}
+}
+
+void UFPSRLHealthComponent::SetMaxHealthServer(float NewMax)
+{
+	if (!GetOwner()->HasAuthority() || NewMax <= 0.f)
+	{
+		return;
+	}
+	if (AbilitySystemComponent && !bDied)
+	{
+		AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetMaxHealthAttribute(), NewMax);
+		AbilitySystemComponent->SetNumericAttributeBase(UFPSRLHealthSet::GetHealthAttribute(), NewMax);
+	}
+	else
+	{
+		DefaultMaxHealth = NewMax;	// not initialized yet: it starts at this
 	}
 }
 
