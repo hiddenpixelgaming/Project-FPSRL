@@ -129,6 +129,9 @@ void UFPSRLEnemyHealthBarComponent::Refresh()
 	if (UFPSRLEnemyHealthBarWidget* Bar = Cast<UFPSRLEnemyHealthBarWidget>(GetWidget()))
 	{
 		Bar->SetFraction(Max > 0.f ? Current / Max : 0.f);
+		// Collapse the widget itself: a screen-space widget only leaves the screen during the component's tick, which
+		// stops right here, so hiding the component alone left a dead enemy's last bar on screen.
+		Bar->SetVisibility(bShown ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 	SetHiddenInGame(!bShown);
 	SetComponentTickEnabled(bShown);	// a screen-space widget follows its enemy through the tick: only while visible
@@ -138,4 +141,10 @@ float UFPSRLEnemyHealthBarComponent::GetShownFraction() const
 {
 	const UFPSRLEnemyHealthBarWidget* Bar = Cast<UFPSRLEnemyHealthBarWidget>(GetWidget());
 	return Bar ? Bar->GetFraction() : -1.f;
+}
+
+bool UFPSRLEnemyHealthBarComponent::IsWidgetDrawn() const
+{
+	const UUserWidget* Bar = GetWidget();
+	return Bar && Bar->GetVisibility() != ESlateVisibility::Collapsed && Bar->GetVisibility() != ESlateVisibility::Hidden;
 }

@@ -49,7 +49,7 @@ namespace FPSRLHealthBarTest
 			if (const UFPSRLEnemyHealthBarComponent* Bar = It->FindComponentByClass<UFPSRLEnemyHealthBarComponent>())
 			{
 				View.bHasBar = true;
-				View.bShown = Bar->IsBarShown() && !Bar->bHiddenInGame;
+				View.bShown = Bar->IsBarShown() && !Bar->bHiddenInGame && Bar->IsWidgetDrawn();
 				View.Fraction = Bar->GetShownFraction();
 				View.BarHeight = Bar->GetComponentLocation().Z - It->GetActorLocation().Z;
 			}

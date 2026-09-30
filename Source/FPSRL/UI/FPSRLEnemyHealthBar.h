@@ -52,6 +52,9 @@ public:
 
 	/** Shown right now (tests). */
 	bool IsBarShown() const { return bShown; }
+
+	/** The widget is actually drawn (not collapsed) - what the player sees (tests). */
+	bool IsWidgetDrawn() const;
 	float GetShownFraction() const;
 
 protected:
