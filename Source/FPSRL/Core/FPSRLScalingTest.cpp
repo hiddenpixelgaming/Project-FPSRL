@@ -1,7 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 // Test only: FPSRL.ScalingTest checks enemy scaling headless on the host: the same enemy scaled for 1-4 players as a normal
-// enemy, an Elite and a Final Level Boss (final health and encounter cap), infinite scaling on health and on the damage an
+// enemy, a Miniboss and a Final Level Boss (final health and encounter cap), infinite scaling on health and on the damage an
 // enemy deals, and the live player count.
 
 #include "Components/FPSRLHealthComponent.h"
@@ -49,7 +49,7 @@ namespace FPSRLScalingTest
 }
 
 static FAutoConsoleCommandWithWorld GFPSRLScalingTestCommand(TEXT("FPSRL.ScalingTest"),
-	TEXT("Host test: enemy health / damage / cap for 1-4 players, Elite and Final Level Boss, infinite scaling ([ScalingTest])."),
+	TEXT("Host test: enemy health / damage / cap for 1-4 players, Miniboss and Final Level Boss, infinite scaling ([ScalingTest])."),
 	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* StartWorld)
 	{
 		TWeakObjectPtr<UGameInstance> GameInstance = StartWorld ? StartWorld->GetGameInstance() : nullptr;
@@ -90,7 +90,7 @@ static FAutoConsoleCommandWithWorld GFPSRLScalingTestCommand(TEXT("FPSRL.Scaling
 				struct FKind { const TCHAR* Label; const TCHAR* Path; float Multiplier; };
 				const FKind Kinds[] = {
 					{ TEXT("normal"), nullptr, 1.f },
-					{ TEXT("Elite"), TEXT("/Game/MainProject/Contents/Data/Encounters/DA_Encounter_PlaceholderShooterElite.DA_Encounter_PlaceholderShooterElite"), 5.f },
+					{ TEXT("Miniboss"), TEXT("/Game/MainProject/Contents/Data/Encounters/DA_Encounter_PlaceholderShooterMiniboss.DA_Encounter_PlaceholderShooterMiniboss"), 5.f },
 					{ TEXT("Final Level Boss"), TEXT("/Game/MainProject/Contents/Data/Encounters/DA_Encounter_PlaceholderShooterFinalBoss.DA_Encounter_PlaceholderShooterFinalBoss"), 20.f } };
 				const float Curve[] = { 1.f, 2.f, 3.25f, 4.75f };
 				const int32 Caps[] = { 12, 15, 17, 20 };

@@ -51,7 +51,7 @@ DECLARE_MULTICAST_DELEGATE(FFPSRLLayoutEvent);
  * Room sequencing and room-by-room streaming for one Depth (lives on AFPSRLGameState).
  *
  * Sequence (server, rolled once from the Depth definition's pools, then replicated):
- *   Entry map -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Elite] -> [Traversal -> Final Level
+ *   Entry map -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Miniboss] -> [Traversal -> Final Level
  *   Boss arena] -> Exit room. Each room's origin is chained onto the previous room's exit. Traversals carry their rolled
  *   reward (Blessing Altar, Upgrade Altar, ...), spawned at the traversal's AFPSRLRewardSpawnPoint when it loads.
  *
@@ -63,7 +63,7 @@ DECLARE_MULTICAST_DELEGATE(FFPSRLLayoutEvent);
  * the last room loaded on EVERY machine, and a traversal's exit gate (AFPSRLTransitionGate) opens only once the room
  * after it is ready everywhere.
  *
- * Completion: a Depth's required encounters are its Combat, Elite and Final Level Boss rooms, known from the sequence
+ * Completion: a Depth's required encounters are its Combat, Miniboss and Final Level Boss rooms, known from the sequence
  * before they load, and remembered here once cleared, so unloading a room never undoes its completion.
  */
 UCLASS(ClassGroup = (FPSRL))
@@ -108,7 +108,7 @@ public:
 	bool HasLayout() const { return !Placements.IsEmpty(); }
 	bool IsLayoutPending() const { return bLayoutPending; }
 
-	/** Combat, Elite and Final Level Boss rooms count toward the Depth; everything else never does. */
+	/** Combat, Miniboss and Final Level Boss rooms count toward the Depth; everything else never does. */
 	static bool IsEncounterRoom(ERoomType Type);
 
 	int32 GetRequiredEncounterCount() const;

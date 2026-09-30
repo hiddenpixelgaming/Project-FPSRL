@@ -97,7 +97,7 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Enemies")
 	TArray<TSoftObjectPtr<UFPSRLEnemyDefinition>> EnemyDefinitions;
 
-	/** Normal enemies and Elites. Health and caps: Abyssus-verified. Damage: project balancing parameter. */
+	/** Normal enemies and Minibosses. Health and caps: Abyssus-verified. Damage: project balancing parameter. */
 	UPROPERTY(Config, EditAnywhere, Category = "Player Count")
 	FFPSRLPlayerCountScaling EnemyScaling;
 

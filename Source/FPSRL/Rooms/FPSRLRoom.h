@@ -60,12 +60,12 @@ public:
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "Room|Enemies")
 	TArray<TObjectPtr<AFPSRLEnemySpawnPoint>> SpawnPoints;
 
-	/** What this encounter is (Elite, Final Level Boss, ...): which enemy the spawn points use and how it is scaled. Empty =
+	/** What this encounter is (Miniboss, Final Level Boss, ...): which enemy the spawn points use and how it is scaled. Empty =
 	 *  a normal encounter with EnemyClass. Replace the placeholder by changing the asset, not the room. */
 	UPROPERTY(EditAnywhere, Replicated, BlueprintReadOnly, Category = "Room|Enemies")
 	TObjectPtr<UFPSRLEncounterDefinition> Encounter;
 
-	/** The enemy the Elite / boss health bar follows (the toughest one spawned), when the encounter shows a bar. */
+	/** The enemy the Miniboss / boss health bar follows (the toughest one spawned), when the encounter shows a bar. */
 	UPROPERTY(ReplicatedUsing = OnRep_RoomState, BlueprintReadOnly, Category = "Room|Enemies")
 	TObjectPtr<APawn> EncounterEnemy;
 

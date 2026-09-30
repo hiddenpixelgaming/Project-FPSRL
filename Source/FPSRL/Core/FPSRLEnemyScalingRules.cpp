@@ -67,7 +67,7 @@ namespace FPSRLEnemyScaling
 		Scaling.DifficultyHealth = Settings.DifficultyHealthMultiplier * (1.f + Settings.InfiniteScalingPoints * Settings.InfiniteScalingHealthPerPoint);
 		Scaling.DifficultyDamage = Settings.DifficultyDamageMultiplier * (1.f + Settings.InfiniteScalingPoints * Settings.InfiniteScalingDamagePerPoint);
 
-		// Encounter-specific (Elite / boss placeholders).
+		// Encounter-specific (Miniboss / boss placeholders).
 		if (Encounter)
 		{
 			Scaling.EncounterHealth = Encounter->HealthMultiplier;

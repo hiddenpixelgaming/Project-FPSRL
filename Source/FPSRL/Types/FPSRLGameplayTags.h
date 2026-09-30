@@ -43,6 +43,10 @@ namespace FPSRLGameplayTags
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Kill);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Event_Attack);
 
+	// Enemy rank (replicated on the enemy's ability system; set when a Miniboss / Final Level Boss encounter spawns it)
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Enemy_Rank_Miniboss);
+	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Enemy_Rank_Boss);
+
 	// What kind of attack dealt damage (in Event.Hit / Event.Kill payloads; Blessings filter on it).
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Source_Ranged);
 	FPSRL_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(Source_Melee);

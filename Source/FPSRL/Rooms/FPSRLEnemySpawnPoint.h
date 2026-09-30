@@ -29,7 +29,7 @@ public:
 
 	/** Server: spawn the enemy (with its AI controller). Null if the class is missing or the spawn failed. */
 	/** Spawns the enemy (this point's class, else FallbackClass). HealthMultiplier / SizeMultiplier scale it before it
-	 *  starts (an encounter's Elite or Final Level Boss settings); 1 = unchanged. */
+	 *  starts (an encounter's Miniboss or Final Level Boss settings); 1 = unchanged. */
 	APawn* SpawnEnemy(TSubclassOf<APawn> FallbackClass, float HealthMultiplier = 1.f, float SizeMultiplier = 1.f) const;
 
 protected:

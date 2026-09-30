@@ -29,7 +29,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLRelicStateChanged);
  * A player's Relics for the current run: independent run modifiers, separate from Blessings (they never touch a
  * channel, an Aspect or a count). Lives on AFPSRLPlayerState. Server-authoritative; OwnedRelics replicates.
  *
- * Sources (chests, elites, bosses, merchants) don't exist yet: GrantRelic / GrantRandomRelic are the entry points,
+ * Sources (chests, minibosses, bosses, merchants) don't exist yet: GrantRelic / GrantRandomRelic are the entry points,
  * reachable in development builds through the GrantRelic console command.
  * Rules: MaxStacks per relic; one relic per ExclusivityGroup; RequiredTags / BlockedTags against the player's tags.
  * GrantRandomRelic rolls a rarity by Project Settings > FPSRL Blessings > Relic Rarity Weights (rarities with no

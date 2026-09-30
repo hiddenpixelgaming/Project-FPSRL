@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Components/FPSRLHealthComponent.h"
+#include "UI/FPSRLEnemyHealthBar.h"
 #include "AbilitySystemComponent.h"
 #include "AIController.h"
 #include "Components/PrimitiveComponent.h"
@@ -67,6 +68,7 @@ void UFPSRLHealthComponent::BeginPlay()
 		{
 			InitializeWithAbilitySystem(OwnerASC);
 			ApplyEnemyTestTint();
+			UFPSRLEnemyHealthBarComponent::AddTo(Cast<APawn>(GetOwner()), this, OwnerASC);	// overhead bar (ordinary enemies)
 		}
 	}
 }

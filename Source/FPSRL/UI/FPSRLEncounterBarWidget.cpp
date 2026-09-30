@@ -11,7 +11,7 @@
 
 namespace FPSRLEncounterBarStyle
 {
-	const FLinearColor Elite(1.f, 0.55f, 0.1f);
+	const FLinearColor Miniboss(1.f, 0.55f, 0.1f);
 	const FLinearColor FinalLevelBoss(0.9f, 0.08f, 0.08f);
 }
 
@@ -70,7 +70,7 @@ void UFPSRLEncounterBarWidget::SetTarget(UFPSRLHealthComponent* InHealth, const 
 	}
 	if (HealthBar)
 	{
-		HealthBar->SetFillColorAndOpacity(Kind == EFPSRLEncounterKind::FinalLevelBoss ? FPSRLEncounterBarStyle::FinalLevelBoss : FPSRLEncounterBarStyle::Elite);
+		HealthBar->SetFillColorAndOpacity(Kind == EFPSRLEncounterKind::FinalLevelBoss ? FPSRLEncounterBarStyle::FinalLevelBoss : FPSRLEncounterBarStyle::Miniboss);
 	}
 	if (InHealth)
 	{

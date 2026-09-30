@@ -43,6 +43,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "Abilities/Attributes/FPSRLCombatSet.h"
 #include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Types/FPSRLGameplayTags.h"
 #include "FPSRL.h"
 
 // --- Lobby -------------------------------------------------------------------------------------------------------
@@ -278,6 +280,13 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 			{
 				Enemy->AutoPossessAI = EAutoPossessAI::Disabled;
 				Enemy->FinishSpawning(At);
+				// Side "Miniboss" / "Boss": straight ahead, ranked like that encounter's enemy and already hurt (overhead bar checks).
+				const FGameplayTag Rank = Arg2 == TEXT("Miniboss") ? FPSRLGameplayTags::Enemy_Rank_Miniboss : Arg2 == TEXT("Boss") ? FPSRLGameplayTags::Enemy_Rank_Boss : FGameplayTag();
+				if (UAbilitySystemComponent* EnemyASC = Rank.IsValid() ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Enemy) : nullptr)
+				{
+					EnemyASC->AddLooseGameplayTag(Rank, 1, EGameplayTagReplicationState::TagOnly);
+					UGameplayStatics::ApplyDamage(Enemy, 10.f, this, GetPawn(), nullptr);
+				}
 				bDone = true;
 			}
 		}

@@ -93,7 +93,7 @@ void UFPSRLDepthLayoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 
 bool UFPSRLDepthLayoutComponent::IsEncounterRoom(ERoomType Type)
 {
-	return Type == ERoomType::Combat || Type == ERoomType::Elite || Type == ERoomType::Boss;
+	return Type == ERoomType::Combat || Type == ERoomType::Miniboss || Type == ERoomType::Boss;
 }
 
 int32 UFPSRLDepthLayoutComponent::GetRequiredEncounterCount() const
@@ -200,9 +200,9 @@ TArray<FFPSRLRoomPlacement> UFPSRLDepthLayoutComponent::RollSequence(const UFPSR
 		}
 	}
 
-	if (Depth.bHasElite)
+	if (Depth.bHasMiniboss)
 	{
-		Add(PickRoom(Depth.EliteRooms, Used, AnyRoom));	// an extra encounter after the last combat room
+		Add(PickRoom(Depth.MinibossRooms, Used, AnyRoom));	// an extra encounter after the last combat room
 	}
 	if (Depth.bHasBoss)
 	{

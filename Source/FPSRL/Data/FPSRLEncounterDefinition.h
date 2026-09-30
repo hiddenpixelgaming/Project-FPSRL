@@ -10,10 +10,10 @@
 
 /**
  * What a room's encounter is: which enemy it spawns and how that enemy is scaled. Pure data (Primary Asset
- * "Encounter"), set on the room (AFPSRLRoom::Encounter). The expedition only cares about Kind (Normal / Elite /
- * FinalLevelBoss); swapping the placeholder shooter for a real Elite or Final Level Boss is a change to this asset only.
+ * "Encounter"), set on the room (AFPSRLRoom::Encounter). The expedition only cares about Kind (Normal / Miniboss /
+ * FinalLevelBoss); swapping the placeholder shooter for a real Miniboss or Final Level Boss is a change to this asset only.
  *
- * Placeholders today: DA_Encounter_PlaceholderShooterElite (5x health) and DA_Encounter_PlaceholderShooterFinalBoss
+ * Placeholders today: DA_Encounter_PlaceholderShooterMiniboss (5x health) and DA_Encounter_PlaceholderShooterFinalBoss
  * (20x health), both the regular shooter enemy. No special mechanics are built on them.
  */
 UCLASS(BlueprintType, Const)
@@ -22,7 +22,7 @@ class FPSRL_API UFPSRLEncounterDefinition : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
-	/** Shown on the health bar ("Elite", "Final Level Boss"). */
+	/** Shown on the health bar ("Miniboss", "Final Level Boss"). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter")
 	FText DisplayName;
 
@@ -33,8 +33,8 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter")
 	TSoftClassPtr<APawn> EnemyClass;
 
-	/** Encounter-specific health modifier on top of the enemy's scaled health. The Elite (5x) and Final Level Boss (20x)
-	 *  values are PROTOTYPE PLACEHOLDERS on the Normal Shooter: real Elites and bosses get their own UFPSRLEnemyDefinition
+	/** Encounter-specific health modifier on top of the enemy's scaled health. The Miniboss (5x) and Final Level Boss (20x)
+	 *  values are PROTOTYPE PLACEHOLDERS on the Normal Shooter: real Minibosses and bosses get their own UFPSRLEnemyDefinition
 	 *  (base stats) and this goes back to 1. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter", meta = (ClampMin = "0.01"))
 	float HealthMultiplier = 1.f;
@@ -54,7 +54,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter", meta = (ClampMin = "0.1"))
 	float SizeMultiplier = 1.f;
 
-	/** Show the Elite / boss health bar at the top of the screen while the encounter runs. */
+	/** Show the Miniboss / boss health bar at the top of the screen while the encounter runs. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter")
 	bool bShowHealthBar = false;
 

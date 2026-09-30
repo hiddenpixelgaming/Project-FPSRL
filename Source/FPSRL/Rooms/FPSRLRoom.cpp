@@ -2,6 +2,9 @@
 
 #include "Rooms/FPSRLRoom.h"
 #include "Core/FPSRLEnemyScalingRules.h"
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Types/FPSRLGameplayTags.h"
 #include "Components/BoxComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLGameState.h"
@@ -147,7 +150,7 @@ void AFPSRLRoom::StartCombat()
 	}
 
 	// This encounter's scaling, fixed now from the players taking part (players joining or leaving later don't change
-	// it). An encounter definition (Elite, Final Level Boss) supplies the enemy, its size and its encounter modifiers.
+	// it). An encounter definition (Miniboss, Final Level Boss) supplies the enemy, its size and its encounter modifiers.
 	const FPSRLEnemyScaling::FEncounterScaling Scaling = FPSRLEnemyScaling::Compute(GetWorld(), Encounter,
 		FPSRLEnemyScaling::CountParticipatingPlayers(GetWorld()));
 	TSubclassOf<APawn> DefaultEnemy = (EnemyClass && EnemyClass->IsChildOf(APawn::StaticClass())) ? TSubclassOf<APawn>(EnemyClass.Get()) : nullptr;
@@ -177,6 +180,13 @@ void AFPSRLRoom::StartCombat()
 	for (AActor* Enemy : ToTrack)
 	{
 		FPSRLEnemyScaling::ApplyToEnemy(Cast<APawn>(Enemy), Scaling);
+		// Rank (replicated): Minibosses and Final Level Bosses have the top-of-screen bar, not an overhead one.
+		const FGameplayTag Rank = !Encounter ? FGameplayTag() : Encounter->Kind == EFPSRLEncounterKind::Miniboss ? FPSRLGameplayTags::Enemy_Rank_Miniboss
+			: Encounter->Kind == EFPSRLEncounterKind::FinalLevelBoss ? FPSRLGameplayTags::Enemy_Rank_Boss : FGameplayTag();
+		if (UAbilitySystemComponent* EnemyASC = Rank.IsValid() ? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Enemy) : nullptr)
+		{
+			EnemyASC->AddLooseGameplayTag(Rank, 1, EGameplayTagReplicationState::TagOnly);
+		}
 	}
 	UE_LOG(LogFPSRL, Log, TEXT("[Scaling] Room %s: %s"), *GetActorNameOrLabel(), *Scaling.Describe());
 
@@ -248,7 +258,7 @@ void AFPSRLRoom::CompleteRoom()
 
 void AFPSRLRoom::OnRep_RoomState()
 {
-	// The Elite / Final Level Boss health bar on this machine's screen.
+	// The Miniboss / Final Level Boss health bar on this machine's screen.
 	if (AFPSRLPlayerController* LocalPC = GetWorld() ? Cast<AFPSRLPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr)
 	{
 		LocalPC->RefreshEncounterBar(this);

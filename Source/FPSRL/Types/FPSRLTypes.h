@@ -30,14 +30,14 @@ enum class EDoorState : uint8
 	Locked	= 4		// Closed and refuses Open() until Unlock().
 };
 
-/** What a room inside a Depth is for. Combat, Elite and Boss (the Final Level Boss arena) rooms are the encounters a Depth
+/** What a room inside a Depth is for. Combat, Miniboss and Boss (the Final Level Boss arena) rooms are the encounters a Depth
  *  requires; Traversal spaces sit between them and never count as combat rooms. */
 UENUM(BlueprintType)
 enum class ERoomType : uint8
 {
 	Entry,
 	Combat,
-	Elite,
+	Miniboss,
 	Reward,
 	Boon,
 	Merchant,
@@ -65,12 +65,12 @@ enum class EFPSRLTraversalReward : uint8
 	Future
 };
 
-/** What kind of encounter a room runs. Elite and Final Level Boss are data (UFPSRLEncounterDefinition), not enemies. */
+/** What kind of encounter a room runs. Miniboss and Final Level Boss are data (UFPSRLEncounterDefinition), not enemies. */
 UENUM(BlueprintType)
 enum class EFPSRLEncounterKind : uint8
 {
 	Normal,
-	Elite,
+	Miniboss,
 	FinalLevelBoss
 };
 
@@ -107,12 +107,12 @@ enum class EFPSRLBossState : uint8
 	Defeated
 };
 
-/** Pacing role of a Depth within its level (Normal -> Normal + Elite -> Normal -> Preparation + Final Level Boss). */
+/** Pacing role of a Depth within its level (Normal -> Normal + Miniboss -> Normal -> Preparation + Final Level Boss). */
 UENUM(BlueprintType)
 enum class EDepthType : uint8
 {
 	Normal,
-	Elite,
+	Miniboss,
 	Preparation,
 	FinalLevelBoss
 };

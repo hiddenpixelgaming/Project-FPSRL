@@ -12,7 +12,7 @@ class UTextBlock;
 class UFPSRLHealthComponent;
 
 /**
- * The Elite / Final Level Boss health bar at the top of the screen, shown while such an encounter runs
+ * The Miniboss / Final Level Boss health bar at the top of the screen, shown while such an encounter runs
  * (AFPSRLPlayerController::RefreshEncounterBar). Label and look come from the encounter's data; the bar follows the
  * encounter enemy's health through its health component's events (no Tick). Default layout built in code.
  */
@@ -22,7 +22,7 @@ class FPSRL_API UFPSRLEncounterBarWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	/** Follow this enemy's health, labelled Label, styled by Kind (Elite / Final Level Boss). */
+	/** Follow this enemy's health, labelled Label, styled by Kind (Miniboss / Final Level Boss). */
 	void SetTarget(UFPSRLHealthComponent* InHealth, const FText& Label, EFPSRLEncounterKind Kind);
 
 	void ClearTarget();

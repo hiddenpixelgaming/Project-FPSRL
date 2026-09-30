@@ -18,7 +18,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FFPSRLDepthEvent);
  * Room / Depth / Area / Run completion are separate states:
  *  - Room: an AFPSRLRoom's required enemies are dead (the room reports it here).
  *  - Depth: every REQUIRED encounter of this Depth is complete -> OnDepthCompleted fires exactly once -> exit portals open.
- *    A generated Depth counts its Combat / Elite / Final Level Boss rooms from the room sequence (rooms stream in one
+ *    A generated Depth counts its Combat / Miniboss / Final Level Boss rooms from the room sequence (rooms stream in one
  *    by one and unload behind the party, so counting loaded rooms would undercount).
  *  - Final Level Boss: FinalLevelBossState follows the boss room; defeating it sets bLevelComplete (the level exit
  *    portal then leads wherever the run data says: the next Area, or back to the Lobby after the last one).

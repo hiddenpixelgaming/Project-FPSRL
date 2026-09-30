@@ -102,7 +102,7 @@ public:
 	/** Server: finish a downed (or living) player off: health 0, OnDeath. */
 	void Kill();
 
-	/** Server: multiply max health (and refill to it), e.g. an Elite / Final Level Boss encounter. Works before or after BeginPlay. */
+	/** Server: multiply max health (and refill to it), e.g. a Miniboss / Final Level Boss encounter. Works before or after BeginPlay. */
 	void ScaleMaxHealth(float Multiplier);
 
 	/** Server: max health (and current health) = NewMax, from enemy scaling. DefaultMaxHealth stays the unscaled base. */

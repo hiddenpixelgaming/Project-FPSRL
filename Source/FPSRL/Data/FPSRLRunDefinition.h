@@ -28,11 +28,11 @@ struct FFPSRLTraversalRewardOdds
  * Map is the Depth's entry room (player spawn + an AFPSRLRoomConnector at its exit). If the room pools below are
  * filled, the server rolls a room sequence from them each time the Depth is entered and streams those rooms in behind
  * the entry, room by room (UFPSRLDepthLayoutComponent):
- *   Entry -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Elite] -> [Traversal -> Final Level
+ *   Entry -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Miniboss] -> [Traversal -> Final Level
  *   Boss arena] -> Exit room.
  * Combat rooms: exactly MinCombatRooms when Min == Max (4 in Area 1). Traversal spaces sit between combat rooms and
  * before the boss arena; each one's reward (none, Blessing Altar, Upgrade Altar, ...) is rolled from TraversalRewards.
- * Altars never count toward completion; only Combat, Elite and Final Level Boss encounters do.
+ * Altars never count toward completion; only Combat, Miniboss and Final Level Boss encounters do.
  * With empty pools the Map alone is the Depth (a fully handcrafted Depth).
  */
 UCLASS(BlueprintType)
@@ -81,7 +81,7 @@ public:
 	int32 MaxOptionalRooms = 2;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation")
-	bool bHasElite = false;
+	bool bHasMiniboss = false;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Generation")
 	bool bHasBoss = false;
@@ -123,9 +123,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
 	TArray<TObjectPtr<UFPSRLRoomDefinition>> CombatRooms;
 
-	/** Used when bHasElite. */
+	/** Used when bHasMiniboss. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")
-	TArray<TObjectPtr<UFPSRLRoomDefinition>> EliteRooms;
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> MinibossRooms;
 
 	/** Reward / Boon / Merchant / Upgrade rooms; picked by their RoomType and the chances above. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Rooms")

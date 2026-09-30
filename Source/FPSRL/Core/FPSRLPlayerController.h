@@ -205,7 +205,7 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerReportRoomShown(int32 PlacementIndex);
 
-	/** Local: show, update or hide the Elite / Final Level Boss health bar for this room's encounter. */
+	/** Local: show, update or hide the Miniboss / Final Level Boss health bar for this room's encounter. */
 	void RefreshEncounterBar(class AFPSRLRoom* Room);
 
 	// --- Death ---------------------------------------------------------------------------------------------------
@@ -345,7 +345,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Portal")
 	TSubclassOf<UFPSRLPortalStatusWidget> PortalStatusClass;
 
-	/** Elite / Final Level Boss health bar (default C++ layout; set a Blueprint subclass to restyle). */
+	/** Miniboss / Final Level Boss health bar (default C++ layout; set a Blueprint subclass to restyle). */
 	UPROPERTY(EditDefaultsOnly, Category = "Encounter")
 	TSubclassOf<class UFPSRLEncounterBarWidget> EncounterBarClass;
 
