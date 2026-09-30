@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Combat/FPSRLWeapon.h"
+#include "Combat/FPSRLProjectile.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Abilities/Attributes/FPSRLCombatSet.h"
@@ -142,11 +143,15 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 {
 	if (BulletClass)
 	{
-		FActorSpawnParameters Params;
-		Params.Owner = GetOwner();
-		Params.Instigator = PawnOwner.Get();
-		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		GetWorld()->SpawnActor<AActor>(BulletClass, CalculateShotTransform(Target), Params);
+		const FTransform Shot = CalculateShotTransform(Target);
+		if (AActor* Projectile = GetWorld()->SpawnActorDeferred<AActor>(BulletClass, Shot, GetOwner(), PawnOwner.Get(), ESpawnActorCollisionHandlingMethod::AlwaysSpawn))
+		{
+			if (ShotDamage > 0.f)
+			{
+				AFPSRLProjectile::SetProjectileDamage(Projectile, ShotDamage);
+			}
+			Projectile->FinishSpawning(Shot);
+		}
 	}
 	if (FiringMontage)
 	{

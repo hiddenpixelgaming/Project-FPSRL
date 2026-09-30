@@ -14,6 +14,23 @@ AFPSRLProjectile::AFPSRLProjectile()
 	SetReplicatingMovement(true);
 }
 
+static const FName DamagePropertyName(TEXT("Damage"));	// the Blueprint projectile's damage (the weapon sets it per shot)
+
+void AFPSRLProjectile::SetProjectileDamage(AActor* Projectile, float Damage)
+{
+	if (FProperty* Property = Projectile ? Projectile->GetClass()->FindPropertyByName(DamagePropertyName) : nullptr)
+	{
+		if (FDoubleProperty* AsDouble = CastField<FDoubleProperty>(Property))
+		{
+			AsDouble->SetPropertyValue_InContainer(Projectile, Damage);
+		}
+		else if (FFloatProperty* AsFloat = CastField<FFloatProperty>(Property))
+		{
+			AsFloat->SetPropertyValue_InContainer(Projectile, Damage);
+		}
+	}
+}
+
 bool AFPSRLProjectile::CanPawnShoot(const APawn* Pawn)
 {
 	return UFPSRLHealthComponent::IsPawnUp(Pawn);
@@ -93,7 +110,7 @@ TArray<FString> AFPSRLProjectile::ExportSpawnSettings() const
 	TArray<FString> Settings;
 	for (TFieldIterator<FProperty> It(GetClass()); It; ++It)
 	{
-		if (It->HasAnyPropertyFlags(CPF_ExposeOnSpawn) && !IsMachineLocalReference(*It))
+		if ((It->HasAnyPropertyFlags(CPF_ExposeOnSpawn) || It->GetFName() == DamagePropertyName) && !IsMachineLocalReference(*It))
 		{
 			FString Value;
 			It->ExportText_InContainer(0, Value, this, nullptr, nullptr, PPF_None);
@@ -113,7 +130,7 @@ void AFPSRLProjectile::ImportSpawnSettings(const TArray<FString>& Settings)
 			continue;
 		}
 		FProperty* Property = GetClass()->FindPropertyByName(FName(*Name));
-		if (!Property || !Property->HasAnyPropertyFlags(CPF_ExposeOnSpawn) || IsMachineLocalReference(Property))
+		if (!Property || (!Property->HasAnyPropertyFlags(CPF_ExposeOnSpawn) && Property->GetFName() != DamagePropertyName) || IsMachineLocalReference(Property))
 		{
 			continue;	// keeps the server's own Instigator / Owner
 		}

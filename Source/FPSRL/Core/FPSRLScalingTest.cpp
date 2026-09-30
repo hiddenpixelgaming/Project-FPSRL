@@ -11,6 +11,10 @@
 #include "Data/FPSRLEncounterDefinition.h"
 #include "Data/FPSRLEnemyScaling.h"
 #include "Engine/GameInstance.h"
+#include "Engine/LocalPlayer.h"
+#include "EngineUtils.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
 #include "Engine/World.h"
 #include "GameFramework/DamageType.h"
 #include "HAL/IConsoleManager.h"
@@ -148,14 +152,76 @@ static FAutoConsoleCommandWithWorld GFPSRLScalingTestCommand(TEXT("FPSRL.Scaling
 				break;
 			case 1004:
 			{
+				const UFPSRLEnemyDefinition* Definition = UFPSRLEnemyScalingSettings::Get().FindDefinition(LoadClass<APawn>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/AI/BP_ShooterNPC.BP_ShooterNPC_C")));
+				const float Want = 10.f * (Definition ? Definition->BaseDamageMultiplier : 1.f) * 1.1f;
 				const float Taken = *PlayerHealthBefore - PlayerHealth->GetCurrentHealth();
-				Check(FMath::IsNearlyEqual(Taken, 11.f, 0.01f), FString::Printf(TEXT("infinite-scaled enemy's 10 damage hit the player for %.2f (expect 11.00)"), Taken));
+				Check(FMath::IsNearlyEqual(Taken, Want, 0.01f), FString::Printf(TEXT("infinite-scaled enemy's 10 damage hit the player for %.2f (expect %.2f)"), Taken, Want));
 				UE_LOG(LogFPSRL, Log, TEXT("[ScalingTest] done: %d problem(s)"), *Problems);
 				PC->ConsoleCommand(TEXT("quit"));
 				return false;
 			}
 			default:
 				break;
+			}
+			return true;
+		}), 0.25f);
+	}));
+// FPSRL.ShotTest <Rifle|Pistol|GrenadeLauncher>: one real shot of that weapon at an enemy 1.5 m ahead; logs the damage it took.
+static FAutoConsoleCommandWithWorldAndArgs GFPSRLShotTestCommand(TEXT("FPSRL.ShotTest"),
+	TEXT("Host test: fire one shot of a weapon (Rifle, Pistol, GrenadeLauncher) at an enemy and log its damage ([ShotTest])."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* StartWorld)
+	{
+		const FString Weapon = Args.IsEmpty() ? FString(TEXT("Rifle")) : Args[0];
+		TWeakObjectPtr<UGameInstance> GameInstance = StartWorld ? StartWorld->GetGameInstance() : nullptr;
+		TSharedRef<int32> Step = MakeShared<int32>(0);
+		TSharedRef<float> Before = MakeShared<float>(0.f);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([GameInstance, Step, Before, Weapon](float)
+		{
+			UGameInstance* GI = GameInstance.Get();
+			UWorld* World = GI ? GI->GetWorld() : nullptr;
+			AFPSRLPlayerController* PC = World ? Cast<AFPSRLPlayerController>(GI->GetFirstLocalPlayerController(World)) : nullptr;
+			APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+			if (!Pawn || !World->GetGameState())
+			{
+				return ++*Step < 400;
+			}
+			auto EnemyHealth = [World]() -> float
+			{
+				for (TActorIterator<APawn> It(World); It; ++It)
+				{
+					const UFPSRLHealthComponent* Health = It->IsPlayerControlled() ? nullptr : It->FindComponentByClass<UFPSRLHealthComponent>();
+					if (Health)
+					{
+						return Health->GetCurrentHealth();
+					}
+				}
+				return -1.f;
+			};
+			++*Step;
+			if (*Step < 1000)
+			{
+				*Step = 1000;
+				PC->ServerTestCommand(TEXT("God"), FString(), FString());
+				const FString Path = FString::Printf(TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_%s.BP_ShooterWeapon_%s_C"), *Weapon, *Weapon);
+				AFPSRLPlayerController::GiveWeaponToPawn(Pawn, LoadClass<AActor>(nullptr, *Path));
+				PC->ServerTestCommand(TEXT("SpawnTestEnemy"), TEXT("150"), FString());
+				return true;
+			}
+			if (*Step == 1008)
+			{
+				*Before = EnemyHealth();
+				const ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
+				UEnhancedInputLocalPlayerSubsystem* Input = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+				if (UInputAction* Action = LoadObject<UInputAction>(nullptr, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot")); Action && Input)
+				{
+					Input->InjectInputForAction(Action, FInputActionValue(true), {}, {});
+				}
+			}
+			else if (*Step == 1016)
+			{
+				UE_LOG(LogFPSRL, Log, TEXT("[ShotTest] %s: enemy %.2f -> %.2f, took %.2f"), *Weapon, *Before, EnemyHealth(), *Before - EnemyHealth());
+				PC->ConsoleCommand(TEXT("quit"));
+				return false;
 			}
 			return true;
 		}), 0.25f);

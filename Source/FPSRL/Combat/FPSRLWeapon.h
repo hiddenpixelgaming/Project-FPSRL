@@ -42,6 +42,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo")
 	TSubclassOf<AActor> BulletClass;
 
+	/** Damage of each shot (a grenade: its area damage), given to the projectile it spawns. 0 = the projectile's own. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo", meta = (ClampMin = "0"))
+	float ShotDamage = 0.f;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Ammo", meta = (ClampMin = "1"))
 	int32 MagSize = 10;
 

@@ -136,7 +136,7 @@ static FAutoConsoleCommandWithWorld GFPSRLBlessingTestCommand(TEXT("FPSRL.Blessi
 			{
 				*Step = 1000;
 				PC->ServerTestCommand(TEXT("God"), FString(), FString());
-				AFPSRLPlayerController::GiveWeaponToPawn(Pawn, LoadClass<AActor>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Rifle.BP_ShooterWeapon_Rifle_C")));
+				AFPSRLPlayerController::GiveWeaponToPawn(Pawn, LoadClass<AActor>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol.BP_ShooterWeapon_Pistol_C")));
 				GrantTestBlessings(PS);
 				PC->ServerTestCommand(TEXT("SpawnTestEnemy"), TEXT("150"), FString());
 				PC->ServerTestCommand(TEXT("SpawnTestEnemy"), TEXT("300"), TEXT("120"));
@@ -146,14 +146,14 @@ static FAutoConsoleCommandWithWorld GFPSRLBlessingTestCommand(TEXT("FPSRL.Blessi
 			{
 			case 1008:
 				UE_LOG(LogFPSRL, Log, TEXT("[BlessingTest] before: %s"), *DescribeEnemies(World, Pawn));
-				Press(PC, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot"));	// 25 x 1.5 (stat) = 37.5, then marked
+				Press(PC, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot"));	// Pistol 30 x 1.5 (stat) = 45, then marked
 				break;
 			case 1010:
-				UE_LOG(LogFPSRL, Log, TEXT("[BlessingTest] 0.5 s after shot 1 (expect near 62.5): %s"), *DescribeEnemies(World, Pawn));
+				UE_LOG(LogFPSRL, Log, TEXT("[BlessingTest] 0.5 s after shot 1 (expect near 55): %s"), *DescribeEnemies(World, Pawn));
 				break;
 			case 1015:
-				UE_LOG(LogFPSRL, Log, TEXT("[BlessingTest] 1.75 s after shot 1 (one 10 burn tick: expect near 52.5): %s"), *DescribeEnemies(World, Pawn));
-				Press(PC, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot"));	// vs marked: 37.5 x 1.5 = 56.25 -> kill -> nova 30
+				UE_LOG(LogFPSRL, Log, TEXT("[BlessingTest] 1.75 s after shot 1 (one 10 burn tick: expect near 45): %s"), *DescribeEnemies(World, Pawn));
+				Press(PC, TEXT("/Game/Variant_Shooter/Input/Actions/IA_Shoot.IA_Shoot"));	// vs marked: 45 x 1.5 = 67.5 -> kill -> nova 30
 				break;
 			case 1018:
 				UE_LOG(LogFPSRL, Log, TEXT("[BlessingTest] after shot 2 (near dead; far one hit by the 30 nova: expect 70): %s"), *DescribeEnemies(World, Pawn));

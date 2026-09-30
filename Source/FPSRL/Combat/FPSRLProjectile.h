@@ -31,6 +31,9 @@ public:
 	/** Can this pawn fire at all right now? (Players: not downed, not dead.) */
 	static bool CanPawnShoot(const APawn* Pawn);
 
+	/** Give a projectile (Blueprint "Damage" variable) its shot damage before it finishes spawning. */
+	static void SetProjectileDamage(AActor* Projectile, float Damage);
+
 	/** The projectile's spawn-time settings (Expose on Spawn properties) as text, to rebuild it on the server. */
 	TArray<FString> ExportSpawnSettings() const;
 	void ImportSpawnSettings(const TArray<FString>& Settings);
