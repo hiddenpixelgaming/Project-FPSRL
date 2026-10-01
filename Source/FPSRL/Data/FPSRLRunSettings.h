@@ -38,6 +38,15 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Rooms")
 	FVector EncounterRewardOffsetFromExit = FVector(-280.f, -230.f, 60.f);
 
+	/** The Final Level Boss room's altars (user: all three, fixed, no random roll), unlocked when the boss is defeated. */
+	UPROPERTY(Config, EditAnywhere, Category = "Rooms")
+	TArray<EFPSRLTraversalReward> FinalBossRewards = { EFPSRLTraversalReward::BlessingAltar, EFPSRLTraversalReward::UpgradeAltar, EFPSRLTraversalReward::HealingAltar };
+
+	/** Where each of them stands, relative to the boss room's exit like EncounterRewardOffsetFromExit: by the exit wall
+	 *  (two left of the door, one right), in view from the entrance and clear of the boss in the middle of the room. */
+	UPROPERTY(Config, EditAnywhere, Category = "Rooms")
+	TArray<FVector> FinalBossRewardOffsets = { FVector(-150.f, -620.f, 60.f), FVector(-150.f, -380.f, 60.f), FVector(-150.f, 380.f, 60.f) };
+
 	/** Seconds between an occupancy check and the next when unloading rooms every player has left behind. */
 	UPROPERTY(Config, EditAnywhere, Category = "Rooms", meta = (ClampMin = "0.1"))
 	float RoomUnloadCheckInterval = 1.f;

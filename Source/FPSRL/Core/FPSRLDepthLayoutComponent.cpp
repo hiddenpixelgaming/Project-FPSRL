@@ -287,8 +287,8 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 
 	Placements = RollSequence(*Depth);
 	// Rewards (user rules): every Combat and Miniboss room gives exactly one altar (Blessing / Upgrade / Healing), standing
-	// by its exit; no other room ever gets one (the Preparation room has its own, placed in its level; the Final Level Boss
-	// ends the run). The Depth's reward odds are used in room order: the first combat room rolls TraversalRewards[0], the
+	// by its exit; the Final Level Boss room has a fixed set instead (Blessing, Upgrade and Healing: FinalBossRewards); no
+	// other room ever gets one. The Depth's reward odds are used in room order: the first combat room rolls TraversalRewards[0], the
 	// next [1], ..., then DefaultTraversalReward. A roll of "nothing" (every weight 0) falls back to a Blessing Altar.
 	{
 		const FString ForcedReward = FPSRLDepthLayout::CVarForceReward.GetValueOnGameThread();
@@ -702,49 +702,51 @@ void UFPSRLDepthLayoutComponent::OnPlacementShownOnServer(int32 Index)
 	}
 	PlacementBounds.Add(Index, Bounds);
 
-	// A traversal's reward: spawn what the data rolled (nothing for None, and nothing yet for Future).
+	// Its altars, standing from the start, locked (dark) until the room's encounter is cleared: a combat or Miniboss room's
+	// one rolled altar by its exit door; the Final Level Boss room's fixed set (Blessing, Upgrade and Healing). No other
+	// room spawns any.
 	const FFPSRLRoomPlacement& Placement = Placements[Index];
 	const bool bEncounterRoom = Placement.Room && IsEncounterRoom(Placement.Room->RoomType);
-	if (Placement.Reward != EFPSRLTraversalReward::None && !bEncounterRoom)	// an encounter room's comes when it is cleared
+	const UFPSRLRunSettings& Settings = UFPSRLRunSettings::Get();
+	TArray<TPair<EFPSRLTraversalReward, FVector>> Altars;
+	if (bEncounterRoom && Placement.Room->RoomType == ERoomType::Boss)
 	{
-		UClass* RewardClass = UFPSRLRunSettings::Get().TraversalRewardClasses.FindRef(Placement.Reward).LoadSynchronous();
-		if (RewardClass && RewardPoint)
+		for (int32 Slot = 0; Slot < Settings.FinalBossRewards.Num(); ++Slot)
 		{
-			FActorSpawnParameters Params;
-			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			RewardActors.Add(Index, GetWorld()->SpawnActor<AActor>(RewardClass, RewardPoint->GetActorTransform(), Params));
-			UE_LOG(LogFPSRL, Log, TEXT("[Depth] Room %d: spawned %s"), Index, *UEnum::GetDisplayValueAsText(Placement.Reward).ToString());
-		}
-		else
-		{
-			UE_LOG(LogFPSRL, Warning, TEXT("[Depth] Room %d: no %s (class set: %d, reward point: %d)"), Index,
-				*UEnum::GetDisplayValueAsText(Placement.Reward).ToString(), RewardClass != nullptr, RewardPoint != nullptr);
+			Altars.Emplace(Settings.FinalBossRewards[Slot], Settings.FinalBossRewardOffsets.IsValidIndex(Slot) ? Settings.FinalBossRewardOffsets[Slot]
+				: Settings.EncounterRewardOffsetFromExit + FVector(-300.f * Slot, 0.f, 0.f));
 		}
 	}
-
-	// A combat room's reward (Blessing / Upgrade / Healing Altar) stands by its exit door from the start, locked (and dark)
-	// until the room is cleared: players see what the fight is for. Everyone passes it on the way out.
-	if (bEncounterRoom && Placement.Reward != EFPSRLTraversalReward::None && Placements.IsValidIndex(Index + 1) && !RewardActors.Contains(Index))
+	else if (bEncounterRoom && Placement.Reward != EFPSRLTraversalReward::None)
 	{
-		UClass* RewardClass = UFPSRLRunSettings::Get().TraversalRewardClasses.FindRef(Placement.Reward).LoadSynchronous();
+		Altars.Emplace(Placement.Reward, Settings.EncounterRewardOffsetFromExit);
+	}
+	if (!Altars.IsEmpty() && Placements.IsValidIndex(Index + 1) && !RewardActors.Contains(Index))
+	{
 		const FTransform& Exit = Placements[Index + 1].Transform;	// this room's exit = where the next one starts
-		const FTransform At(Exit.Rotator(), Exit.TransformPosition(UFPSRLRunSettings::Get().EncounterRewardOffsetFromExit));
 		AFPSRLRoom* RoomActor = nullptr;
 		for (AActor* Actor : Level->Actors)
 		{
 			RoomActor = RoomActor ? RoomActor : Cast<AFPSRLRoom>(Actor);
 		}
-		AActor* Reward = RewardClass ? GetWorld()->SpawnActorDeferred<AActor>(RewardClass, At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn) : nullptr;
-		if (Reward)
+		TArray<TWeakObjectPtr<AActor>>& Spawned = RewardActors.Add(Index);
+		for (const TPair<EFPSRLTraversalReward, FVector>& Entry : Altars)
 		{
+			UClass* RewardClass = Settings.TraversalRewardClasses.FindRef(Entry.Key).LoadSynchronous();
+			const FTransform At(Exit.Rotator(), Exit.TransformPosition(Entry.Value));
+			AActor* Reward = RewardClass ? GetWorld()->SpawnActorDeferred<AActor>(RewardClass, At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn) : nullptr;
+			if (!Reward)
+			{
+				continue;
+			}
 			if (AFPSRLBoonTerminal* Altar = Cast<AFPSRLBoonTerminal>(Reward))
 			{
 				Altar->SetRoom(RoomActor);	// unlocks when this room's encounter is cleared
 			}
 			Reward->FinishSpawning(At);
-			RewardActors.Add(Index, Reward);
-			UE_LOG(LogFPSRL, Log, TEXT("[Depth] Room %d: %s by its exit at %s, locked until the room is cleared (room actor %s)"), Index,
-				*UEnum::GetDisplayValueAsText(Placement.Reward).ToString(), *At.GetLocation().ToCompactString(), *GetNameSafe(RoomActor));
+			Spawned.Add(Reward);
+			UE_LOG(LogFPSRL, Log, TEXT("[Depth] Room %d: %s at %s, locked until the room is cleared (room actor %s)"), Index,
+				*UEnum::GetDisplayValueAsText(Entry.Key).ToString(), *At.GetLocation().ToCompactString(), *GetNameSafe(RoomActor));
 		}
 	}
 
@@ -758,9 +760,12 @@ void UFPSRLDepthLayoutComponent::OnPlacementUnloading(int32 Index)
 	SetRoomState(Index, EFPSRLRoomState::Unloading);
 
 	// What the server spawned into the room: its reward, and the bodies of its enemies.
-	if (AActor* Reward = RewardActors.FindRef(Index).Get())
+	for (const TWeakObjectPtr<AActor>& Reward : RewardActors.FindRef(Index))
 	{
-		Reward->Destroy();
+		if (Reward.IsValid())
+		{
+			Reward->Destroy();
+		}
 	}
 	RewardActors.Remove(Index);
 	if (const FBox* Bounds = PlacementBounds.Find(Index))

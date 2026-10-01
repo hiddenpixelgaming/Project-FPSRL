@@ -56,8 +56,8 @@ DECLARE_MULTICAST_DELEGATE(FFPSRLLayoutEvent);
  *   Entry map -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Miniboss] -> [Traversal -> Final Level
  *   Boss arena] -> Exit room. Each room's origin is chained onto the previous room's exit. Every Combat and Miniboss room
  *   gives one altar (Blessing / Upgrade / Healing, rolled in room order from the Depth's reward odds), spawned beside its
- *   exit door when the room loads, locked (dark) until it is cleared. No other room ever gets one (user rule); the
- *   Preparation room has its own altars placed in its level.
+ *   exit door when the room loads, locked (dark) until it is cleared. The Final Level Boss room has a fixed set instead
+ *   (Blessing, Upgrade and Healing Altars, FinalBossRewards), unlocked when the boss falls. No other room gets any.
  *
  * Streaming (server decides, every machine follows): only a window of the sequence is loaded. It reaches one room past
  * the first uncleared encounter, so clearing a combat room starts loading the next one while the party crosses the
@@ -215,7 +215,7 @@ private:
 	// Server only.
 	TMap<TWeakObjectPtr<APlayerController>, TSet<int32>> ShownByClient;
 	TMap<int32, FBox> PlacementBounds;
-	TMap<int32, TWeakObjectPtr<AActor>> RewardActors;
+	TMap<int32, TArray<TWeakObjectPtr<AActor>>> RewardActors;
 	TWeakObjectPtr<AActor> FallVolume;
 	FTimerHandle OccupancyTimer;
 	/** Client: retries room reports the server hasn't counted yet (see ResendUnconfirmedRooms). */
