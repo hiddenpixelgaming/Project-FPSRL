@@ -35,6 +35,9 @@ namespace FPSRLAutopilot
 
 	static TAutoConsoleVariable<float> CVarFightSeconds(TEXT("fpsrl.Autopilot.FightSeconds"), 0.f,
 		TEXT("Autopilot: seconds each encounter's enemies fight (host in god mode) before being killed (0 = at once)."));
+	static TAutoConsoleVariable<bool> CVarMoveParty(TEXT("fpsrl.Autopilot.MoveParty"), false,
+		TEXT("Autopilot: move every player into each room with the host (default: only the host; the others stay behind)."));
+
 }
 #include "FPSRL.h"
 
@@ -171,6 +174,19 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	{
 		Pawn->TeleportTo(Target, Layout->Placements[Next].Transform.Rotator());
 		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] moved into room %d (%s)"), Next, *GetNameSafe(Layout->Placements[Next].Room));
+		if (FPSRLAutopilot::CVarMoveParty.GetValueOnGameThread())
+		{
+			int32 Slot = 1;
+			for (FConstPlayerControllerIterator It = Pawn->GetWorld()->GetPlayerControllerIterator(); It; ++It)
+			{
+				if (APawn* Other = It->Get() ? It->Get()->GetPawn() : nullptr; Other && Other != Pawn)
+				{
+					const FVector Beside = Layout->Placements[Next].Transform.TransformPosition(FVector(250.f, (Slot % 2 ? 1.f : -1.f) * 130.f * ((Slot + 1) / 2), 120.f));
+					Other->TeleportTo(Beside, Layout->Placements[Next].Transform.Rotator());
+					++Slot;
+				}
+			}
+		}
 		return true;
 	}
 

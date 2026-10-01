@@ -217,6 +217,25 @@ public:
 	/** Local: show, update or hide the Miniboss / Final Level Boss health bar for this room's encounter. */
 	void RefreshEncounterBar(class AFPSRLRoom* Room);
 
+	/** Server -> this player only: a teammate started room RoomIndex while you are behind. Optional: [T] catch up (the
+	 *  server moves you to that room's entrance), [X] stay; ignoring it changes nothing (UFPSRLDepthLayoutComponent). */
+	UFUNCTION(Client, Reliable)
+	void ClientCatchUpOffer(int32 RoomIndex, const FText& Message, const FText& RoomName);
+
+	/** Server -> client: the offer for RoomIndex is over (accepted, declined, expired); Message is shown if not empty. */
+	UFUNCTION(Client, Reliable)
+	void ClientCatchUpResolved(int32 RoomIndex, const FText& Message);
+
+	/** Client -> server: accept / decline the offer. The server validates everything and does any moving. */
+	UFUNCTION(Server, Reliable)
+	void ServerRequestCatchUp(int32 RoomIndex);
+
+	UFUNCTION(Server, Reliable)
+	void ServerDeclineCatchUp(int32 RoomIndex);
+
+	/** Local: the open catch-up offer's room (INDEX_NONE = none). */
+	int32 GetPendingCatchUpRoom() const { return PendingCatchUpRoom; }
+
 	// --- Death ---------------------------------------------------------------------------------------------------
 
 	/** Server -> owning client: your pawn died. Fades to black, then shows the death menu. */
@@ -483,6 +502,15 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<class UFPSRLEncounterBarWidget> EncounterBar;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UFPSRLCatchUpWidget> CatchUpWidget;
+
+	/** Local: the open catch-up offer (INDEX_NONE = none) and the keys that answer it. */
+	int32 PendingCatchUpRoom = INDEX_NONE;
+	void HandleCatchUpAccept();
+	void HandleCatchUpDecline();
+	FTimerHandle CatchUpAutoAnswerTimer;
 
 	/** The room whose encounter the bar shows. */
 	TWeakObjectPtr<class AFPSRLRoom> EncounterBarRoom;

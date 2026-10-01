@@ -8,6 +8,7 @@
 #include "FPSRLDepthLayoutComponent.generated.h"
 
 class APlayerController;
+class APlayerState;
 class UFPSRLDepthDefinition;
 class UFPSRLRoomDefinition;
 class ULevelStreamingDynamic;
@@ -65,6 +66,19 @@ DECLARE_MULTICAST_DELEGATE(FFPSRLLayoutEvent);
  *
  * Completion: a Depth's required encounters are its Combat, Miniboss and Final Level Boss rooms, known from the sequence
  * before they load, and remembered here once cleared, so unloading a room never undoes its completion.
+ *
+ * Expedition progress inside a Depth (server-authoritative; players move at their own pace):
+ *  - Each room's exit door unlocks when its encounter is cleared (AFPSRLRoom); anyone may then go on, nobody waits.
+ *  - Player room tracking: each player's room (AFPSRLPlayerState::ExpeditionRoomIndex) comes from where their pawn is,
+ *    on the occupancy timer. The first player into a new room is announced to the others.
+ *  - ActiveEncounterIndex: the encounter room most recently started. A room starts when the first player walks through
+ *    its combat trigger; it never waits for the others and never pauses for them.
+ *  - Catch-up: CatchUpOfferDelay after a room starts, every player who is up and still in an earlier room gets their
+ *    OWN optional offer (AFPSRLPlayerController::ClientCatchUpOffer). Accepting asks the server
+ *    (ServerRequestCatchUp), which re-validates everything and moves them to a safe spot at that room's entrance, before
+ *    its combat trigger, never next to a teammate or into the fight. Declining or ignoring changes nothing. One offer
+ *    per player per started room; only ever to the active room, and only while its encounter is on.
+ *  - The Depth's exit portal stays a party decision (AFPSRLExitPortal): it moves the whole session to the next map.
  */
 UCLASS(ClassGroup = (FPSRL))
 class FPSRL_API UFPSRLDepthLayoutComponent : public UActorComponent
@@ -127,6 +141,23 @@ public:
 	/** Server: where to put back a player who fell from around FellFrom (the start of the nearest loaded room). */
 	bool FindSafeSpot(const FVector& FellFrom, FTransform& OutSpot) const;
 
+	/** The encounter room most recently started (INDEX_NONE before the first). Catch-up only ever targets it. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Depth")
+	int32 ActiveEncounterIndex = INDEX_NONE;
+
+	/** A room's name for players ("Ember Causeway", else its type). */
+	FText GetRoomDisplayName(int32 Index) const;
+
+	/** Server: a player accepted / declined their catch-up offer for room RoomIndex (from their controller's RPC). */
+	void RequestCatchUp(APlayerController* Player, int32 RoomIndex);
+	void DeclineCatchUp(APlayerController* Player, int32 RoomIndex);
+
+	/** Server: refresh every player's ExpeditionRoomIndex now (also runs on the occupancy timer). */
+	void UpdatePlayerRooms();
+
+	/** Server, debugging: one line per player and the active room ([Progress]). */
+	FString DescribeProgress() const;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
@@ -188,6 +219,33 @@ private:
 	FTimerHandle ReportRetryTimer;
 	/** Rooms before this index may be unloaded (everyone has moved past them). Only grows. */
 	int32 KeepFrom = 0;
+
+	// --- Catch-up (server only) ---
+	enum class ECatchUpResponse : uint8 { Pending, Accepted, Declined, Expired };
+	struct FCatchUpOffer
+	{
+		int32 RoomIndex = INDEX_NONE;
+		ECatchUpResponse Response = ECatchUpResponse::Pending;
+	};
+	/** The latest offer each player got (one per started room). */
+	TMap<TWeakObjectPtr<APlayerState>, FCatchUpOffer> CatchUpOffers;
+	FTimerHandle CatchUpOfferTimer;
+	/** The furthest room any player has entered (for "X moved on" announcements). */
+	int32 FurthestRoomReached = INDEX_NONE;
+
+	/** Server: offer catch-up for RoomIndex to every eligible player still behind it. */
+	void OfferCatchUp(int32 RoomIndex);
+
+	/** Server: the room's encounter is over or the player got there: their pending offer goes away. */
+	void ExpireCatchUpOffers(int32 RoomIndex, bool bOnlyArrived);
+
+	/** Server: a safe arrival spot at RoomIndex's entrance for Pawn (false: none safe right now). */
+	bool FindCatchUpSpot(int32 RoomIndex, const APawn* Pawn, FTransform& OutSpot, FString& OutReason) const;
+
+	bool IsCatchUpAllowedFor(int32 RoomIndex) const;
+
+	/** Which room a world position is in (the highest index whose bounds hold it, INDEX_NONE if none). */
+	int32 FindRoomAt(const FVector& Location) const;
 	bool bLayoutPending = false;
 	bool bFirstWindowShown = false;
 };

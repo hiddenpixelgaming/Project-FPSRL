@@ -3,6 +3,13 @@
 #include "Core/FPSRLDepthLayoutComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLGameState.h"
+#include "Core/FPSRLPlayerState.h"
+#include "Components/CapsuleComponent.h"
+#include "NavigationSystem.h"
+#include "Rooms/FPSRLExitPortal.h"
+#include "Rooms/FPSRLHazardZone.h"
+#include "Components/BoxComponent.h"
+#include "GameFramework/PawnMovementComponent.h"
 #include "Core/FPSRLPlayerController.h"
 #include "Core/FPSRLRunSubsystem.h"
 #include "Data/FPSRLRoomDefinition.h"
@@ -97,6 +104,7 @@ void UFPSRLDepthLayoutComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProp
 	DOREPLIFETIME(UFPSRLDepthLayoutComponent, ReadyThrough);
 	DOREPLIFETIME(UFPSRLDepthLayoutComponent, RoomStates);
 	DOREPLIFETIME(UFPSRLDepthLayoutComponent, EncounterCleared);
+	DOREPLIFETIME(UFPSRLDepthLayoutComponent, ActiveEncounterIndex);
 }
 
 bool UFPSRLDepthLayoutComponent::IsEncounterRoom(ERoomType Type)
@@ -602,6 +610,8 @@ void UFPSRLDepthLayoutComponent::RecomputeReadiness()
 
 void UFPSRLDepthLayoutComponent::CheckOccupancy()
 {
+	UpdatePlayerRooms();
+
 	// Which room is each player in? Anyone outside every loaded room (e.g. still in the entry map) keeps everything.
 	int32 Rearmost = MAX_int32;
 	bool bAnyPlayer = false;
@@ -723,7 +733,21 @@ void UFPSRLDepthLayoutComponent::SetRoomState(int32 Index, EFPSRLRoomState State
 
 void UFPSRLDepthLayoutComponent::NotifyEncounterStarted(const AActor* RoomActor)
 {
-	SetRoomState(FindPlacementIndex(RoomActor), EFPSRLRoomState::Combat);
+	const int32 Index = FindPlacementIndex(RoomActor);
+	SetRoomState(Index, EFPSRLRoomState::Combat);
+	if (!GetOwner()->HasAuthority() || !Placements.IsValidIndex(Index))
+	{
+		return;
+	}
+	// The expedition's active room moves on; teammates still behind get their catch-up offer a moment later (those a
+	// few steps behind arrive by themselves first). The encounter itself never waits.
+	ActiveEncounterIndex = Index;
+	GetOwner()->ForceNetUpdate();
+	if (IsCatchUpAllowedFor(Index))
+	{
+		GetWorld()->GetTimerManager().SetTimer(CatchUpOfferTimer, FTimerDelegate::CreateUObject(this, &ThisClass::OfferCatchUp, Index),
+			FMath::Max(0.01f, UFPSRLRunSettings::Get().CatchUpOfferDelay), false);
+	}
 }
 
 void UFPSRLDepthLayoutComponent::NotifyEncounterCleared(const AActor* RoomActor)
@@ -735,6 +759,7 @@ void UFPSRLDepthLayoutComponent::NotifyEncounterCleared(const AActor* RoomActor)
 	}
 	EncounterCleared[Index] = true;
 	SetRoomState(Index, EFPSRLRoomState::Completed);
+	ExpireCatchUpOffers(Index, false);	// nothing left to catch up to
 	UpdateWindow();	// start loading what comes next
 }
 
@@ -743,6 +768,7 @@ void UFPSRLDepthLayoutComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(OccupancyTimer);
+		World->GetTimerManager().ClearTimer(CatchUpOfferTimer);
 		World->GetTimerManager().ClearTimer(ReportRetryTimer);
 	}
 	for (const TPair<int32, TObjectPtr<ULevelStreamingDynamic>>& Entry : StreamedRooms)
@@ -753,4 +779,351 @@ void UFPSRLDepthLayoutComponent::EndPlay(const EEndPlayReason::Type EndPlayReaso
 		}
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+// --- Expedition progress: player rooms, catch-up (server) ---------------------------------------------------------------
+
+FText UFPSRLDepthLayoutComponent::GetRoomDisplayName(int32 Index) const
+{
+	const UFPSRLRoomDefinition* Room = Placements.IsValidIndex(Index) ? Placements[Index].Room.Get() : nullptr;
+	if (!Room)
+	{
+		return NSLOCTEXT("FPSRL", "UnknownRoom", "the next room");
+	}
+	return Room->DisplayName.IsEmpty() ? UEnum::GetDisplayValueAsText(Room->RoomType) : Room->DisplayName;
+}
+
+int32 UFPSRLDepthLayoutComponent::FindRoomAt(const FVector& Location) const
+{
+	// Rooms touch at their connectors, so a doorway can be inside two: the later one wins (a player in a doorway is
+	// already arriving, never "behind").
+	int32 Found = INDEX_NONE;
+	for (const TPair<int32, FBox>& Entry : PlacementBounds)
+	{
+		if (ShownHere.Contains(Entry.Key) && Entry.Value.IsValid && Entry.Value.ExpandBy(50.f).IsInside(Location))
+		{
+			Found = FMath::Max(Found, Entry.Key);
+		}
+	}
+	return Found;
+}
+
+void UFPSRLDepthLayoutComponent::UpdatePlayerRooms()
+{
+	if (!GetOwner()->HasAuthority() || Placements.IsEmpty())
+	{
+		return;
+	}
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		APlayerController* PC = It->Get();
+		AFPSRLPlayerState* PS = PC ? PC->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+		const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+		const int32 Room = Pawn ? FindRoomAt(Pawn->GetActorLocation()) : INDEX_NONE;
+		if (!PS || Room == INDEX_NONE || Room == PS->ExpeditionRoomIndex)
+		{
+			continue;	// dead, between rooms or falling: keeps the last known room
+		}
+		const int32 Previous = PS->ExpeditionRoomIndex;
+		PS->ExpeditionRoomIndex = Room;
+		PS->ForceNetUpdate();
+		UE_LOG(LogFPSRL, Log, TEXT("[Progress] %s: room %d -> %d (%s)"), *PS->GetPlayerName(), Previous, Room, *GetRoomDisplayName(Room).ToString());
+
+		// The first player into a new room tells the others (awareness only: nobody has to follow).
+		if (Room > FurthestRoomReached)
+		{
+			FurthestRoomReached = Room;
+			if (UFPSRLRunSettings::Get().bAnnouncePlayerAdvance && Room > 0)
+			{
+				const FText Message = FText::Format(NSLOCTEXT("FPSRL", "PlayerMovedAhead", "{0} moved ahead to {1}"),
+					FText::FromString(PS->GetPlayerName()), GetRoomDisplayName(Room));
+				for (FConstPlayerControllerIterator Other = GetWorld()->GetPlayerControllerIterator(); Other; ++Other)
+				{
+					AFPSRLPlayerController* OtherPC = Cast<AFPSRLPlayerController>(Other->Get());
+					if (OtherPC && OtherPC != PC)
+					{
+						OtherPC->ClientShowNotice(Message);
+					}
+				}
+			}
+		}
+	}
+	ExpireCatchUpOffers(ActiveEncounterIndex, true);	// got there on foot
+}
+
+bool UFPSRLDepthLayoutComponent::IsCatchUpAllowedFor(int32 RoomIndex) const
+{
+	const UFPSRLRunSettings& Settings = UFPSRLRunSettings::Get();
+	const UFPSRLRoomDefinition* Room = Placements.IsValidIndex(RoomIndex) ? Placements[RoomIndex].Room.Get() : nullptr;
+	if (!Settings.bCatchUpEnabled || !Room)
+	{
+		return false;
+	}
+	switch (Room->RoomType)
+	{
+	case ERoomType::Combat:		return Settings.bCatchUpToCombatRooms;
+	case ERoomType::Miniboss:	return Settings.bCatchUpToMiniboss;
+	case ERoomType::Boss:		return Settings.bCatchUpToFinalBoss;
+	default:					return false;
+	}
+}
+
+void UFPSRLDepthLayoutComponent::OfferCatchUp(int32 RoomIndex)
+{
+	if (!GetOwner()->HasAuthority() || RoomIndex != ActiveEncounterIndex || !IsCatchUpAllowedFor(RoomIndex)
+		|| !EncounterCleared.IsValidIndex(RoomIndex) || EncounterCleared[RoomIndex])
+	{
+		return;	// moved on, or already over
+	}
+	UpdatePlayerRooms();
+
+	// Named in the offer: someone who is in the room.
+	FString Leader;
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It && Leader.IsEmpty(); ++It)
+	{
+		const AFPSRLPlayerState* PS = It->Get() ? It->Get()->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+		Leader = PS && PS->ExpeditionRoomIndex >= RoomIndex ? PS->GetPlayerName() : FString();
+	}
+	const FText Message = FText::Format(NSLOCTEXT("FPSRL", "CatchUpOffer", "{0} has entered {1}"),
+		Leader.IsEmpty() ? NSLOCTEXT("FPSRL", "ATeammate", "A teammate") : FText::FromString(Leader), GetRoomDisplayName(RoomIndex));
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(It->Get());
+		AFPSRLPlayerState* PS = PC ? PC->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+		if (!PS || PS->ExpeditionRoomIndex >= RoomIndex)
+		{
+			continue;	// already there
+		}
+		if (!UFPSRLHealthComponent::IsPawnUp(PC->GetPawn()))
+		{
+			UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] %s is behind (room %d) but down or dead: no offer"), *PS->GetPlayerName(), PS->ExpeditionRoomIndex);
+			continue;
+		}
+		FCatchUpOffer& Offer = CatchUpOffers.FindOrAdd(PS);
+		if (Offer.RoomIndex == RoomIndex)
+		{
+			continue;	// one offer per player per room
+		}
+		Offer.RoomIndex = RoomIndex;
+		Offer.Response = ECatchUpResponse::Pending;
+		PC->ClientCatchUpOffer(RoomIndex, Message, GetRoomDisplayName(RoomIndex));
+		UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] offered room %d (%s) to %s, who is in room %d"), RoomIndex,
+			*GetRoomDisplayName(RoomIndex).ToString(), *PS->GetPlayerName(), PS->ExpeditionRoomIndex);
+	}
+}
+
+void UFPSRLDepthLayoutComponent::ExpireCatchUpOffers(int32 RoomIndex, bool bOnlyArrived)
+{
+	if (RoomIndex == INDEX_NONE)
+	{
+		return;
+	}
+	for (TPair<TWeakObjectPtr<APlayerState>, FCatchUpOffer>& Entry : CatchUpOffers)
+	{
+		const AFPSRLPlayerState* PS = Cast<AFPSRLPlayerState>(Entry.Key.Get());
+		FCatchUpOffer& Offer = Entry.Value;
+		if (!PS || Offer.RoomIndex != RoomIndex || Offer.Response != ECatchUpResponse::Pending
+			|| (bOnlyArrived && PS->ExpeditionRoomIndex < RoomIndex))
+		{
+			continue;
+		}
+		Offer.Response = ECatchUpResponse::Expired;
+		if (AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(PS->GetPlayerController()))
+		{
+			PC->ClientCatchUpResolved(RoomIndex, FText::GetEmpty());
+		}
+		UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] %s's offer for room %d expired (%s)"), *PS->GetPlayerName(), RoomIndex,
+			bOnlyArrived ? TEXT("arrived on foot") : TEXT("room cleared"));
+	}
+}
+
+bool UFPSRLDepthLayoutComponent::FindCatchUpSpot(int32 RoomIndex, const APawn* Pawn, FTransform& OutSpot, FString& OutReason) const
+{
+	UWorld* World = GetWorld();
+	const UFPSRLRunSettings& Settings = UFPSRLRunSettings::Get();
+	const FTransform& Room = Placements[RoomIndex].Transform;
+	const UCapsuleComponent* Capsule = Pawn->FindComponentByClass<UCapsuleComponent>();
+	const float Radius = Capsule ? Capsule->GetScaledCapsuleRadius() : 42.f;
+	const float HalfHeight = Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 96.f;
+	const UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(FPSRLCatchUpSpot), false, Pawn);
+	OutReason = TEXT("no candidate spots");
+
+	for (const FVector& Offset : Settings.CatchUpSpawnOffsets)
+	{
+		FVector Spot = Room.TransformPosition(Offset);
+		FNavLocation OnNav;
+		if (Nav && !Nav->ProjectPointToNavigation(Spot, OnNav, FVector(100.f, 100.f, 250.f)))
+		{
+			OutReason = FString::Printf(TEXT("%s: no navmesh"), *Spot.ToCompactString());
+			continue;
+		}
+		if (Nav)
+		{
+			Spot = OnNav.Location + FVector(0.f, 0.f, HalfHeight + 5.f);
+		}
+		if (World->OverlapBlockingTestByChannel(Spot, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeCapsule(Radius, HalfHeight), Params))
+		{
+			OutReason = FString::Printf(TEXT("%s: occupied (geometry, a player or an enemy)"), *Spot.ToCompactString());
+			continue;
+		}
+		const FVector Feet = Spot - FVector(0.f, 0.f, HalfHeight);
+		bool bUnsafe = false;
+		for (TActorIterator<AFPSRLHazardZone> Hazard(World); Hazard && !bUnsafe; ++Hazard)
+		{
+			bUnsafe = Hazard->GetZone() && Hazard->GetZone()->Bounds.GetBox().ExpandBy(Radius).IsInside(Feet);
+		}
+		if (bUnsafe)
+		{
+			OutReason = FString::Printf(TEXT("%s: in a hazard"), *Spot.ToCompactString());
+			continue;
+		}
+		for (TActorIterator<APawn> Other(World); Other && !bUnsafe; ++Other)
+		{
+			const UFPSRLHealthComponent* Health = Other->IsPlayerControlled() ? nullptr : Other->FindComponentByClass<UFPSRLHealthComponent>();
+			bUnsafe = Health && !Health->IsDead() && FVector::Dist(Other->GetActorLocation(), Spot) < Settings.CatchUpEnemyClearance;
+		}
+		if (bUnsafe)
+		{
+			OutReason = FString::Printf(TEXT("%s: an enemy is too close"), *Spot.ToCompactString());
+			continue;
+		}
+		OutSpot = FTransform(Room.Rotator(), Spot);
+		return true;
+	}
+	return false;
+}
+
+void UFPSRLDepthLayoutComponent::RequestCatchUp(APlayerController* Player, int32 RoomIndex)
+{
+	AFPSRLPlayerState* PS = Player ? Player->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+	AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(Player);
+	APawn* Pawn = Player ? Player->GetPawn() : nullptr;
+	if (!GetOwner()->HasAuthority() || !PS || !PC)
+	{
+		return;
+	}
+	// Final: the offer is gone. Not final: the offer stays open and the player can try again.
+	auto Refuse = [this, PS, PC, RoomIndex](const FString& Why, bool bFinal)
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] %s's request for room %d refused (%s): %s"), *PS->GetPlayerName(), RoomIndex,
+			bFinal ? TEXT("final") : TEXT("try again"), *Why);
+		if (bFinal)
+		{
+			FCatchUpOffer* Open = CatchUpOffers.Find(PS);
+			if (Open && Open->RoomIndex == RoomIndex && Open->Response == ECatchUpResponse::Pending)
+			{
+				Open->Response = ECatchUpResponse::Expired;
+			}
+			PC->ClientCatchUpResolved(RoomIndex, NSLOCTEXT("FPSRL", "CatchUpUnavailable", "Catch-up is no longer available"));
+		}
+		else
+		{
+			PC->ClientShowNotice(NSLOCTEXT("FPSRL", "CatchUpNotNow", "Can't catch up this moment, try again"));
+		}
+	};
+
+	FCatchUpOffer* Offer = CatchUpOffers.Find(PS);
+	if (!Offer || Offer->RoomIndex != RoomIndex || Offer->Response != ECatchUpResponse::Pending)
+	{
+		Refuse(TEXT("no open offer for that room"), true);
+		return;
+	}
+	if (RoomIndex != ActiveEncounterIndex || !IsCatchUpAllowedFor(RoomIndex))
+	{
+		Refuse(TEXT("not the active room"), true);
+		return;
+	}
+	if (EncounterCleared[RoomIndex])
+	{
+		Refuse(TEXT("its encounter is already over"), true);
+		return;
+	}
+	UpdatePlayerRooms();
+	if (PS->ExpeditionRoomIndex >= RoomIndex)
+	{
+		Refuse(TEXT("already there"), true);
+		return;
+	}
+	for (TActorIterator<AFPSRLExitPortal> Portal(GetWorld()); Portal; ++Portal)
+	{
+		if (Portal->PortalState == EPortalState::Used)
+		{
+			Refuse(TEXT("the party is travelling"), true);
+			return;
+		}
+	}
+	if (!UFPSRLHealthComponent::IsPawnUp(Pawn))
+	{
+		Refuse(TEXT("down or dead"), false);
+		return;
+	}
+	if (!ShownHere.Contains(RoomIndex) || ReadyThrough < RoomIndex)
+	{
+		Refuse(TEXT("the room isn't loaded on every machine yet"), false);
+		return;
+	}
+	FTransform Spot;
+	FString Why;
+	if (!FindCatchUpSpot(RoomIndex, Pawn, Spot, Why))
+	{
+		Refuse(FString::Printf(TEXT("no safe spot (last: %s)"), *Why), false);
+		return;
+	}
+	if (!Pawn->TeleportTo(Spot.GetLocation(), Spot.Rotator()))
+	{
+		Refuse(TEXT("the teleport was blocked"), false);
+		return;
+	}
+	if (UPawnMovementComponent* Movement = Pawn->GetMovementComponent())
+	{
+		Movement->StopMovementImmediately();
+	}
+	PC->ClientSetRotation(Spot.Rotator());
+	Offer->Response = ECatchUpResponse::Accepted;
+	PS->ExpeditionRoomIndex = RoomIndex;
+	PS->ForceNetUpdate();
+	PC->ClientCatchUpResolved(RoomIndex, FText::Format(NSLOCTEXT("FPSRL", "CaughtUp", "Caught up: {0}"), GetRoomDisplayName(RoomIndex)));
+	UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] %s moved to room %d's entrance at %s"), *PS->GetPlayerName(), RoomIndex, *Spot.GetLocation().ToCompactString());
+}
+
+void UFPSRLDepthLayoutComponent::DeclineCatchUp(APlayerController* Player, int32 RoomIndex)
+{
+	AFPSRLPlayerState* PS = Player ? Player->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+	FCatchUpOffer* Offer = PS ? CatchUpOffers.Find(PS) : nullptr;
+	if (!GetOwner()->HasAuthority() || !Offer || Offer->RoomIndex != RoomIndex || Offer->Response != ECatchUpResponse::Pending)
+	{
+		return;
+	}
+	Offer->Response = ECatchUpResponse::Declined;	// this offer only: a later room can offer again
+	if (AFPSRLPlayerController* PC = Cast<AFPSRLPlayerController>(Player))
+	{
+		PC->ClientCatchUpResolved(RoomIndex, FText::GetEmpty());
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] %s declined room %d"), *PS->GetPlayerName(), RoomIndex);
+}
+
+FString UFPSRLDepthLayoutComponent::DescribeProgress() const
+{
+	FString Text = FString::Printf(TEXT("active room %d (%s%s), furthest reached %d"), ActiveEncounterIndex,
+		*GetRoomDisplayName(ActiveEncounterIndex).ToString(),
+		EncounterCleared.IsValidIndex(ActiveEncounterIndex) && EncounterCleared[ActiveEncounterIndex] ? TEXT(", cleared") : TEXT(""), FurthestRoomReached);
+	static const TCHAR* Responses[] = { TEXT("pending"), TEXT("accepted"), TEXT("declined"), TEXT("expired") };
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		const AFPSRLPlayerState* PS = It->Get() ? It->Get()->GetPlayerState<AFPSRLPlayerState>() : nullptr;
+		if (!PS)
+		{
+			continue;
+		}
+		const FCatchUpOffer* Offer = CatchUpOffers.Find(PS);
+		const APawn* Pawn = It->Get()->GetPawn();
+		const FString Where = Pawn ? FString::Printf(TEXT(" at %s"), *Pawn->GetActorLocation().ToCompactString()) : FString();
+		const FString OfferText = Offer ? FString::Printf(TEXT("room %d %s"), Offer->RoomIndex, Responses[(int32)Offer->Response]) : FString(TEXT("none"));
+		Text += FString::Printf(TEXT(" | %s: room %d%s%s, %s, offer %s"), *PS->GetPlayerName(), PS->ExpeditionRoomIndex,
+			PS->ExpeditionRoomIndex < ActiveEncounterIndex ? TEXT(" (behind)") : TEXT(""), *Where,
+			!Pawn ? TEXT("no pawn") : UFPSRLHealthComponent::IsPawnUp(Pawn) ? TEXT("up") : TEXT("down"), *OfferText);
+	}
+	return Text;
 }

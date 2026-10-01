@@ -67,6 +67,46 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Exit Portal", meta = (ClampMin = "0"))
 	float PortalCountdownSeconds = 35.f;
 
+	/**
+	 * Catch-up (players move at their own pace inside a Depth): when an encounter room starts while teammates are still
+	 * in earlier rooms, each of them who is up gets their own optional offer to be moved to that room's entrance. Nobody
+	 * is ever moved without accepting; ignoring or declining changes nothing; combat never waits.
+	 */
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up")
+	bool bCatchUpEnabled = true;
+
+	/** Which encounter rooms offer catch-up when they start. */
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up")
+	bool bCatchUpToCombatRooms = true;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up")
+	bool bCatchUpToMiniboss = true;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up")
+	bool bCatchUpToFinalBoss = true;
+
+	/** Seconds after a room starts before players still behind get the offer (teammates a few steps behind arrive on
+	 *  their own and never see it). One offer per player per started room. */
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up", meta = (ClampMin = "0"))
+	float CatchUpOfferDelay = 3.f;
+
+	/** Candidate arrival spots, in the room's own space (every room's entrance is its origin, facing +X; Z = capsule
+	 *  centre above the floor). The first safe one is used: on the navmesh, clear of geometry, players, enemies and
+	 *  hazards. Before the combat trigger, so the player walks into the fight. */
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up")
+	TArray<FVector> CatchUpSpawnOffsets = {
+		FVector(300.f, 0.f, 100.f), FVector(300.f, 160.f, 100.f), FVector(300.f, -160.f, 100.f),
+		FVector(180.f, 0.f, 100.f), FVector(180.f, 230.f, 100.f), FVector(180.f, -230.f, 100.f),
+		FVector(450.f, 260.f, 100.f), FVector(450.f, -260.f, 100.f) };
+
+	/** A catch-up spot is unsafe with a living enemy closer than this. */
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up", meta = (ClampMin = "0"))
+	float CatchUpEnemyClearance = 500.f;
+
+	/** Tell the others when a player is the first to move on into a new room. */
+	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up")
+	bool bAnnouncePlayerAdvance = true;
+
 	/** Move speed while downed, as a fraction of normal (0.2 = 20%). */
 	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0", ClampMax = "1"))
 	float DownedMoveSpeedMultiplier = 0.2f;

@@ -51,6 +51,7 @@ void AFPSRLPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AFPSRLPlayerState, bIsReady);
+	DOREPLIFETIME(AFPSRLPlayerState, ExpeditionRoomIndex);
 	DOREPLIFETIME(AFPSRLPlayerState, bGodMode);
 	DOREPLIFETIME(AFPSRLPlayerState, SelectedWeapon);
 	DOREPLIFETIME(AFPSRLPlayerState, EquippedWeapon);

@@ -85,6 +85,12 @@ public:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Currency")
 	int32 TalentEssence = 0;
 
+	/** Which room of the Depth's sequence this player is in (server-tracked from where their pawn is, INDEX_NONE = the
+	 *  Depth's entry map or not tracked yet). Players may be in different rooms; see UFPSRLDepthLayoutComponent. A new
+	 *  Depth starts at INDEX_NONE (not copied across travel). */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Expedition")
+	int32 ExpeditionRoomIndex = INDEX_NONE;
+
 	/** Server-only setters (called by AFPSRLPlayerController's RPCs). */
 	void SetIsReady(bool bNewReady);
 	void SetSelectedWeapon(const FGameplayTag& NewWeapon);

@@ -22,6 +22,9 @@
 #include "UI/FPSRLReviveWidget.h"
 #include "UI/FPSRLEncounterBarWidget.h"
 #include "UI/FPSRLCombatHUDWidget.h"
+#include "UI/FPSRLCatchUpWidget.h"
+#include "Engine/Engine.h"
+#include "HAL/IConsoleManager.h"
 #include "Rooms/FPSRLRoom.h"
 #include "Data/FPSRLEncounterDefinition.h"
 #include "Core/FPSRLAutopilotSubsystem.h"
@@ -1303,6 +1306,12 @@ void AFPSRLPlayerController::SetupInputComponent()
 			EnhancedInput->BindAction(Dash, ETriggerEvent::Started, this, &ThisClass::HandleDashPressed);
 		}
 	}
+	if (InputComponent)
+	{
+		// The catch-up prompt's answers (they do nothing without an open offer). T and X are free in every mapping context.
+		InputComponent->BindKey(EKeys::T, IE_Pressed, this, &ThisClass::HandleCatchUpAccept);
+		InputComponent->BindKey(EKeys::X, IE_Pressed, this, &ThisClass::HandleCatchUpDecline);
+	}
 #if !UE_BUILD_SHIPPING
 	if (InputComponent)
 	{
@@ -1436,6 +1445,115 @@ void AFPSRLPlayerController::ServerReportRoomShown_Implementation(int32 Placemen
 	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
 	{
 		GameState->DepthLayout->ReportRoomShown(this, PlacementIndex);
+	}
+}
+
+// --- Catch-up (the server decides; this only shows the offer and sends the answer) -----------------------------------------
+
+namespace FPSRLCatchUpDebug
+{
+	static TAutoConsoleVariable<int32> CVarAutoAnswer(TEXT("fpsrl.Debug.CatchUpAutoAnswer"), 0,
+		TEXT("Testing, this machine: answer catch-up offers by themselves 1 s after they arrive. 0 = no (the player decides), ")
+		TEXT("1 = catch up, 2 = stay, 3 = ask for the wrong room first (must be refused), then catch up."));
+}
+
+#if !UE_BUILD_SHIPPING
+static FAutoConsoleCommandWithWorld GFPSRLProgressCommand(TEXT("fpsrl.Debug.Progress"),
+	TEXT("Server: the expedition's active room and every player's room, state and catch-up offer ([Progress])."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		if (const AFPSRLGameState* GameState = World ? World->GetGameState<AFPSRLGameState>() : nullptr; GameState && World->GetNetMode() != NM_Client)
+		{
+			const FString Text = GameState->DepthLayout->DescribeProgress();
+			UE_LOG(LogFPSRL, Log, TEXT("[Progress] %s"), *Text);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Cyan, Text);
+			}
+		}
+	}));
+#endif
+
+void AFPSRLPlayerController::ClientCatchUpOffer_Implementation(int32 RoomIndex, const FText& Message, const FText& RoomName)
+{
+	PendingCatchUpRoom = RoomIndex;
+	if (!CatchUpWidget)
+	{
+		CatchUpWidget = CreateWidget<UFPSRLCatchUpWidget>(this, UFPSRLCatchUpWidget::StaticClass());
+	}
+	if (CatchUpWidget)
+	{
+		CatchUpWidget->ShowOffer(Message, RoomName);
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] offer here: room %d: %s"), RoomIndex, *Message.ToString());
+
+	const int32 AutoAnswer = FPSRLCatchUpDebug::CVarAutoAnswer.GetValueOnGameThread();
+	if (AutoAnswer != 0)
+	{
+		GetWorldTimerManager().SetTimer(CatchUpAutoAnswerTimer, FTimerDelegate::CreateWeakLambda(this, [this, AutoAnswer, RoomIndex]()
+		{
+			if (AutoAnswer == 3)
+			{
+				UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] test: asking for room %d (not offered)"), RoomIndex + 2);
+				ServerRequestCatchUp(RoomIndex + 2);
+			}
+			AutoAnswer == 2 ? HandleCatchUpDecline() : HandleCatchUpAccept();
+		}), 1.f, false);
+	}
+}
+
+void AFPSRLPlayerController::ClientCatchUpResolved_Implementation(int32 RoomIndex, const FText& Message)
+{
+	if (RoomIndex != PendingCatchUpRoom)
+	{
+		// About another room (an older offer, or a refused request): the open offer, if any, stays up.
+		if (!Message.IsEmpty())
+		{
+			ShowNotice(Message);
+		}
+		UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] answer about room %d here (open offer: %d): %s"), RoomIndex, PendingCatchUpRoom, *Message.ToString());
+		return;
+	}
+	if (RoomIndex == PendingCatchUpRoom)
+	{
+		PendingCatchUpRoom = INDEX_NONE;
+	}
+	if (CatchUpWidget)
+	{
+		CatchUpWidget->HideOffer(Message);
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] offer for room %d closed here%s%s"), RoomIndex, Message.IsEmpty() ? TEXT("") : TEXT(": "), *Message.ToString());
+}
+
+void AFPSRLPlayerController::HandleCatchUpAccept()
+{
+	if (PendingCatchUpRoom != INDEX_NONE)
+	{
+		ServerRequestCatchUp(PendingCatchUpRoom);	// the offer stays up until the server answers
+	}
+}
+
+void AFPSRLPlayerController::HandleCatchUpDecline()
+{
+	if (PendingCatchUpRoom != INDEX_NONE)
+	{
+		ServerDeclineCatchUp(PendingCatchUpRoom);
+	}
+}
+
+void AFPSRLPlayerController::ServerRequestCatchUp_Implementation(int32 RoomIndex)
+{
+	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
+	{
+		GameState->DepthLayout->RequestCatchUp(this, RoomIndex);
+	}
+}
+
+void AFPSRLPlayerController::ServerDeclineCatchUp_Implementation(int32 RoomIndex)
+{
+	if (AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>())
+	{
+		GameState->DepthLayout->DeclineCatchUp(this, RoomIndex);
 	}
 }
 
