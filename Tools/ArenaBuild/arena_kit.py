@@ -125,6 +125,7 @@ def exit_passage(start_x, exit_x, height=700.0, half_width=350.0):
 def exit_gate(wall_x, half_opening=350.0, height=1300.0):
     """Flow rule: a monumental frame around the exit opening in the hall's far wall (wall_x = the wall's hall face),
     taller than everything else, with a beacon light above and inside it, so the way forward reads from the entrance."""
+    state["gate"] = (wall_x, half_opening, height)
     for sign in (1, -1):
         y0, y1 = sorted((sign * half_opening, sign * (half_opening + 260)))
         box("ExitGate_Pylon_%s" % ("N" if sign > 0 else "S"), wall_x - 60, wall_x + 160, y0, y1, 0, height, M_FEATURE, "ExitGate")
@@ -139,6 +140,25 @@ def exit_gate(wall_x, half_opening=350.0, height=1300.0):
 def runner(label, x0, x1, z=0.0, half_width=110.0):
     """Flow rule: a dark floor runner along the hall's axis toward the exit (2 cm high, walkable)."""
     return box(label, x0, x1, -half_width, half_width, z, z + 2, M_FEATURE, "Runners")
+
+
+def name_plate(display_name):
+    """User request (2026-10-01): the arena's name on the wall the players face as they enter. It goes across the face of
+    the exit gate's lintel (exit_gate() must run first): the one thing everyone looks at from the entrance, high enough
+    to read over the fight. Dark unlit letters on the gate."""
+    wall_x, half_opening, height = state["gate"]
+    text = sub.spawn_actor_from_class(unreal.TextRenderActor, unreal.Vector(wall_x - 86, 0, height - 100), unreal.Rotator(yaw=180.0))
+    text.set_actor_label("NamePlate_Text")
+    comp = text.text_render
+    comp.set_text(display_name.upper())
+    comp.set_editor_property("horizontal_alignment", unreal.HorizTextAligment.EHTA_CENTER)
+    comp.set_editor_property("vertical_alignment", unreal.VerticalTextAligment.EVRTA_TEXT_CENTER)
+    comp.set_editor_property("world_size", 170.0)
+    comp.set_editor_property("text_render_color", unreal.Color(r=8, g=8, b=8, a=255))
+    # Unlit (a copy of the engine text material with its colour on emissive): lit text washed out under the beacon.
+    comp.set_material(0, unreal.load_asset("/Game/MainProject/Contents/Materials/Arena/M_ArenaNameText"))
+    text.set_folder_path("Arena/Label")
+    return text
 
 
 def finish(level_name, data_name, display_name, arena_type, exit_x, room_center, room_extent, nav_center, nav_extent,
@@ -163,6 +183,7 @@ def finish(level_name, data_name, display_name, arena_type, exit_x, room_center,
     nav = sub.spawn_actor_from_class(unreal.NavMeshBoundsVolume, unreal.Vector(*nav_center), unreal.Rotator())
     nav.set_actor_label("NavBounds_Arena")
     nav.set_actor_scale3d(unreal.Vector(nav_extent[0] / 100.0, nav_extent[1] / 100.0, nav_extent[2] / 100.0))
+    name_plate(display_name)
     unreal.EditorLoadingAndSavingUtils.save_map(state["world"], LEVELS + level_name)
     zones = sorted(set(str(p.get_editor_property("spawn_zone")) for p in state["spawns"]))
     out.append("level %s: %d meshes built (%d old actors cleared), %d spawn points in zones %s" % (level_name, state["mesh"], state.get("removed", 0), len(state["spawns"]), zones))
