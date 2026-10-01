@@ -28,16 +28,35 @@ state = {"mesh": 0, "spawns": [], "world": None}
 
 
 def begin(level_name):
-    """Fresh copy of the room template with its geometry and spawn points removed."""
-    if lib.does_asset_exist(LEVELS + level_name):
-        lib.delete_asset(LEVELS + level_name)
-    lib.duplicate_asset(SRC, LEVELS + level_name)
+    """The arena level, emptied of everything this kit builds (a new copy of the room template the first time).
+
+    Rebuilding never deletes the level (a room definition references it, so a delete fails silently and the old
+    contents would stay underneath): it clears every actor the kit placed (folder "Arena/...", the nav bounds, spawn
+    points) and keeps the room logic (room, trigger, door, connector), which finish() positions again."""
+    if not lib.does_asset_exist(LEVELS + level_name):
+        if not lib.duplicate_asset(SRC, LEVELS + level_name):
+            raise RuntimeError("could not create " + level_name)
     state["world"] = unreal.EditorLoadingAndSavingUtils.load_map(LEVELS + level_name)
     state["mesh"] = 0
     state["spawns"] = []
+    removed = 0
     for a in sub.get_all_level_actors():
-        if a.get_actor_label() == "Geometry_Combat01" or a.get_class().get_name() == "FPSRLEnemySpawnPoint":
+        folder = str(a.get_folder_path())
+        if (folder.startswith("Arena") or a.get_actor_label() in ("Geometry_Combat01", "NavBounds_Arena")
+                or a.get_class().get_name() in ("FPSRLEnemySpawnPoint", "NavMeshBoundsVolume")):
             sub.destroy_actor(a)
+            removed += 1
+    state["removed"] = removed
+
+
+def count_level(level_name):
+    """Actors by class in the saved level (duplicate check)."""
+    unreal.EditorLoadingAndSavingUtils.load_map(LEVELS + level_name)
+    counts = {}
+    for a in sub.get_all_level_actors():
+        name = a.get_class().get_name()
+        counts[name] = counts.get(name, 0) + 1
+    return counts
 
 
 def place(label, mesh, center, size, mat, folder, yaw=0.0, pitch=0.0, roll=0.0):
@@ -146,7 +165,7 @@ def finish(level_name, data_name, display_name, arena_type, exit_x, room_center,
     nav.set_actor_scale3d(unreal.Vector(nav_extent[0] / 100.0, nav_extent[1] / 100.0, nav_extent[2] / 100.0))
     unreal.EditorLoadingAndSavingUtils.save_map(state["world"], LEVELS + level_name)
     zones = sorted(set(str(p.get_editor_property("spawn_zone")) for p in state["spawns"]))
-    out.append("level %s: %d meshes, %d spawn points in zones %s" % (level_name, state["mesh"], len(state["spawns"]), zones))
+    out.append("level %s: %d meshes built (%d old actors cleared), %d spawn points in zones %s" % (level_name, state["mesh"], state.get("removed", 0), len(state["spawns"]), zones))
 
     if not lib.does_asset_exist(DATA + data_name):
         lib.duplicate_asset("/Game/MainProject/Contents/Data/Rooms/Zone1/DA_Room_Z1_Combat_01", DATA + data_name)
