@@ -285,7 +285,7 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 
 	Placements = RollSequence(*Depth);
 	// The rewards rolled for traversals are given at the end of the encounter room before them instead (user: nobody can
-	// miss them on the way through), beside its exit door once it is cleared. A traversal after anything else keeps its own.
+	// miss them on the way through), beside its exit door once it is cleared. Nothing is ever spawned in a traversal.
 	for (int32 Index = 1; Index < Placements.Num(); ++Index)
 	{
 		FFPSRLRoomPlacement& Before = Placements[Index - 1];
@@ -300,6 +300,15 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 		{
 			Before.Reward = Placements[Index].Reward;
 			Placements[Index].Reward = EFPSRLTraversalReward::None;
+		}
+	}
+	// Rule (user): altars only ever at the end of combat rooms; no other room gets one (the Preparation room has its own,
+	// placed in its level). A reward with no encounter room before it is dropped.
+	for (FFPSRLRoomPlacement& Placement : Placements)
+	{
+		if (Placement.Reward != EFPSRLTraversalReward::None && !(Placement.Room && IsEncounterRoom(Placement.Room->RoomType)))
+		{
+			Placement.Reward = EFPSRLTraversalReward::None;
 		}
 	}
 	// The next Depth avoids these arenas when it can (no back-to-back repeats).
