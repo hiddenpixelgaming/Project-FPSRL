@@ -207,11 +207,22 @@ TArray<FFPSRLRoomPlacement> UFPSRLDepthLayoutComponent::RollSequence(const UFPSR
 		const FString Forced = FPSRLDepthLayout::CVarForceCombatRoom.GetValueOnGameThread();
 		if (!Forced.IsEmpty())
 		{
+			bool bFound = false;
 			for (const UFPSRLRoomDefinition* Candidate : Depth.CombatRooms)
 			{
 				if (Candidate && Candidate->GetName() == Forced)
 				{
 					Arena = Candidate;
+					bFound = true;
+				}
+			}
+			if (!bFound)
+			{
+				// Not in the rotation (new arenas waiting to be added): load it from the arena definitions by name.
+				if (const UFPSRLRoomDefinition* Loaded = LoadObject<UFPSRLRoomDefinition>(nullptr,
+					*FString::Printf(TEXT("/Game/MainProject/Contents/Data/Rooms/Arenas/%s.%s"), *Forced, *Forced)))
+				{
+					Arena = Loaded;
 				}
 			}
 		}

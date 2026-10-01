@@ -328,7 +328,8 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 			}
 			if (const AFPSRLEnemyAIController* AI = Cast<AFPSRLEnemyAIController>(It->GetController()))
 			{
-				UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] AI before the kill: %s, path failures %d"), *AI->Describe(), AI->GetMoveFailures());
+				UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] AI before the kill: %s, path failures %d, at %s from the room"), *AI->Describe(),
+					AI->GetMoveFailures(), *(It->GetActorLocation() - RoomActor->GetActorLocation()).ToCompactString());
 			}
 			UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] killing %s in room %d (max health %.0f, scale %.2f)"), *It->GetName(), Next,
 				Health->GetMaxHealth(), It->GetActorScale3D().X);

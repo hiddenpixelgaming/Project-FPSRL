@@ -240,3 +240,107 @@ def hazard_zone(label, x0, x1, y0, y1, surface_z, damage_per_second=10.0):
     a.set_editor_property("damage_per_second", damage_per_second)
     a.set_folder_path("Arena/Hazards")
     return a
+
+
+
+
+def jump_pad(label, x, y, z, vx, vy, vz):
+    """A jump pad (AFPSRLJumpPad, the BP_JumpPad look: launches a PLAYER who steps on it with Velocity, world space;
+    rooms are chained without rotation; enemies are never launched and path around it). Player gravity 980: apex height = vz^2 / 1960, so vz 940 ~ 4.5 m, 1100 ~ 6.2 m; flight across a gap at the
+    same height lasts 2 * vz / 980 s. Enemies never use them (no nav link): every level a pad reaches must also have stairs
+    or a ramp. User limit: at most 2-3 per room."""
+    a = sub.spawn_actor_from_class(unreal.FPSRLJumpPad, unreal.Vector(x, y, z), unreal.Rotator())
+    a.set_actor_label(label)
+    a.set_editor_property("velocity", unreal.Vector(vx, vy, vz))
+    a.set_folder_path("Arena/JumpPads")
+    return a
+
+
+def ramp(label, x0, x1, y0, y1, z0, z1, mat, folder, thick=40.0):
+    """A sloped slab whose top surface rises from z0 at x0 to z1 at x1 (walkable below ~44 degrees: enemies use it)."""
+    import math
+    dx, dz = x1 - x0, z1 - z0
+    length = math.hypot(dx, dz)
+    pitch = math.degrees(math.atan2(dz, dx))
+    nx, nz = -math.sin(math.radians(pitch)), math.cos(math.radians(pitch))   # the slab's up direction in the XZ plane
+    cx, cz = (x0 + x1) / 2.0 - nx * thick / 2.0, (z0 + z1) / 2.0 - nz * thick / 2.0
+    return boxc(label, cx, (y0 + y1) / 2.0, cz, length, y1 - y0, thick, mat, folder, pitch=pitch)
+
+
+def shell(hall_end, half_y, height, side_doors=(), far_doors=True, entry_lintel=500.0):
+    """The hall's outer boundary: entrance wall (opening Y -400..400 up to entry_lintel), side walls with door gaps,
+    exit wall (exit opening Y -350..350, far doors at Y +-900..1300 when far_doors). side_doors: (x0, x1, sign, sill_z,
+    lintel_z) gaps in the north (+1) / south (-1) wall; sill_z > 0 for an upper door (wall below it)."""
+    box("Wall_W_N", 500, 600, 400, half_y + 100, 0, height, M_WALL, "Walls")
+    box("Wall_W_S", 500, 600, -half_y - 100, -400, 0, height, M_WALL, "Walls")
+    box("Wall_W_Lintel", 500, 600, -400, 400, entry_lintel, height, M_WALL, "Walls")
+    for sign in (1, -1):
+        tag = "N" if sign > 0 else "S"
+        a, b = sorted((half_y * sign, (half_y + 100) * sign))
+        x = 500
+        for i, (x0, x1, s, sill, lintel) in enumerate(sorted(d for d in side_doors if d[2] == sign)):
+            box("Wall_%s_%d" % (tag, i), x, x0, a, b, 0, height, M_WALL, "Walls")
+            if sill > 0:
+                box("Wall_%s_%d_Sill" % (tag, i), x0, x1, a, b, 0, sill, M_WALL, "Walls")
+            box("Wall_%s_%d_Lintel" % (tag, i), x0, x1, a, b, lintel, height, M_WALL, "Walls")
+            x = x1
+        box("Wall_%s_End" % tag, x, hall_end + 100, a, b, 0, height, M_WALL, "Walls")
+        segments = ((350, 900, 0), (900, 1300, 450), (1300, half_y, 0)) if far_doors else ((350, half_y, 0),)
+        for y0, y1, z0 in segments:
+            c, d = sorted((y0 * sign, y1 * sign))
+            box("Wall_E_%s_%d" % (tag, y0), hall_end, hall_end + 100, c, d, z0, height, M_WALL, "Walls")
+        if far_doors:
+            far_door(tag, sign, hall_end, height)
+
+
+def far_door(tag, sign, hall_end, height):
+    """A spawn room through the exit wall beside the exit (zone FarDoors), facing back into the hall."""
+    a3, b3 = sorted((900 * sign, 1300 * sign))
+    box("FarDoor_%s_Floor" % tag, hall_end, hall_end + 700, a3, b3, -40, 0, M_FLOOR, "Alcoves")
+    a4, b4 = sorted((800 * sign, 900 * sign))
+    box("FarDoor_%s_SideA" % tag, hall_end + 100, hall_end + 700, a4, b4, 0, height, M_WALL, "Alcoves")
+    a5, b5 = sorted((1300 * sign, 1400 * sign))
+    box("FarDoor_%s_SideB" % tag, hall_end + 100, hall_end + 700, a5, b5, 0, height, M_WALL, "Alcoves")
+    a6, b6 = sorted((800 * sign, 1400 * sign))
+    box("FarDoor_%s_Back" % tag, hall_end + 700, hall_end + 800, a6, b6, 0, height, M_WALL, "Alcoves")
+    box("FarDoor_%s_Roof" % tag, hall_end + 50, hall_end + 800, a6, b6, 450, 510, M_WALL, "Alcoves")
+    spawn_point("FarDoors", hall_end + 350, 1020 * sign, 180.0)
+    spawn_point("FarDoors", hall_end + 350, 1180 * sign, 180.0)
+    light("FarDoor_%s_Light" % tag, hall_end + 400, 1100 * sign, 380, 6000.0, 1000.0)
+
+
+def side_room(zone, x0, x1, sign, half_y, height, floor_z=0.0, depth=650.0):
+    """A spawn room behind the north (+1) / south (-1) wall, open toward the hall across X x0..x1 (match a shell
+    side_door), floor at floor_z (an upper door: floor_z > 0), 3 spawn points facing into the hall."""
+    tag = "%s_%s" % (zone, "N" if sign > 0 else "S")
+    w0, w1 = half_y, half_y + 100
+    a, b = sorted((w0 * sign, (w1 + depth) * sign))
+    box("%s_Floor" % tag, x0, x1, a, b, floor_z - 40, floor_z, M_FLOOR, "Alcoves")
+    c, d = sorted((w1 * sign, (w1 + depth) * sign))
+    box("%s_SideA" % tag, x0 - 100, x0, c, d, 0, height, M_WALL, "Alcoves")
+    box("%s_SideB" % tag, x1, x1 + 100, c, d, 0, height, M_WALL, "Alcoves")
+    e, f = sorted(((w1 + depth) * sign, (w1 + depth + 100) * sign))
+    box("%s_Back" % tag, x0 - 100, x1 + 100, e, f, 0, height, M_WALL, "Alcoves")
+    g, h = sorted(((w0 + 50) * sign, (w1 + depth + 100) * sign))
+    box("%s_Roof" % tag, x0 - 100, x1 + 100, g, h, floor_z + 450, floor_z + 510, M_WALL, "Alcoves")
+    cx = (x0 + x1) / 2.0
+    yaw = -90.0 if sign > 0 else 90.0
+    for fx, fy in ((-90, 0.35), (90, 0.35), (0, 0.7)):
+        spawn_point(zone, cx + fx, (w1 + depth * fy) * sign, yaw, floor_z=floor_z)
+    light("%s_Light" % tag, cx, (w1 + depth * 0.55) * sign, floor_z + 380, 6000.0, 1000.0)
+
+
+def stairs(label, x, y, z_from, z_to, direction, width, mat, folder, step_h=25.0, step_d=30.0):
+    """Straight stairs starting at (x, y) on z_from and climbing to z_to, running along direction '+x', '-x', '+y' or
+    '-y'; width across. Solid steps (enemies walk them). Returns the far end coordinate along the run."""
+    count = max(1, int(round(abs(z_to - z_from) / step_h)))
+    rise = (z_to - z_from) / count
+    axis, sign = direction[1], (1 if direction[0] == "+" else -1)
+    for s in range(1, count + 1):
+        a, b = sorted(((s - 1) * step_d * sign, s * step_d * sign))
+        top = z_from + rise * s
+        if axis == "x":
+            box("%s_%d" % (label, s), x + a, x + b, y - width / 2.0, y + width / 2.0, min(z_from, z_to) - 40, top, mat, folder)
+        else:
+            box("%s_%d" % (label, s), x - width / 2.0, x + width / 2.0, y + a, y + b, min(z_from, z_to) - 40, top, mat, folder)
+    return count * step_d   # the run length
