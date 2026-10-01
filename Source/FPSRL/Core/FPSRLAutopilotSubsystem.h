@@ -55,6 +55,9 @@ private:
 	double FightStartTime = -1.0;
 	int32 FightRoom = INDEX_NONE;
 	bool bFightGodSet = false;
+
+	/** fpsrl.Autopilot.Shots: viewpoints still to screenshot in the first combat room (before its fight). */
+	int32 ShotIndex = INDEX_NONE;
 	int32 MinPlayers = 1;
 	int32 Steps = 0;
 	int32 MaxSteps = 900;

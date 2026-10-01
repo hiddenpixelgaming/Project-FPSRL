@@ -18,6 +18,7 @@ bool UFPSRLRunSubsystem::StartRun(UWorld* World)
 	Run = NewRun;
 	DepthIndex = 0;
 	bRunActive = true;
+	PreviousCombatRooms.Reset();	// a new expedition: no arena history
 	UE_LOG(LogFPSRL, Log, TEXT("[Run] Started %s (%d Depths)"), *GetNameSafe(Run), Run->GetNumDepths());
 	return TravelTo(World, First->Map);
 }
@@ -92,4 +93,10 @@ bool UFPSRLRunSubsystem::TravelTo(UWorld* World, const TSoftObjectPtr<UWorld>& M
 	// Seamless travel (the GameMode's bUseSeamlessTravel) keeps everyone connected and carries each PlayerState's
 	// build to the next Depth via CopyProperties.
 	return World->ServerTravel(Map.GetLongPackageName(), false);
+}
+
+int32 UFPSRLRunSubsystem::GetDepthInArea() const
+{
+	int32 DepthInArea = INDEX_NONE;
+	return (bRunActive && Run && Run->GetDepth(DepthIndex, nullptr, &DepthInArea)) ? DepthInArea + 1 : 0;
 }

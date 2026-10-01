@@ -43,6 +43,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter", meta = (ClampMin = "0"))
 	float DamageMultiplier = 1.f;
 
+	/** Spawn zones this encounter uses in its room (empty = the room picks). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter")
+	TArray<FName> PreferredSpawnZones;
+
 	/** Use ScalingOverride instead of the settings' enemy / boss player-count profile (e.g. a boss with its own curve). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Encounter|Scaling")
 	bool bOverrideScaling = false;

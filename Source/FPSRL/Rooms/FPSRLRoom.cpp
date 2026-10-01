@@ -167,7 +167,7 @@ void AFPSRLRoom::StartCombat()
 
 	// Enemies already placed in the room, then one per spawn point, up to the encounter's enemy cap; all scaled.
 	TArray<AActor*> ToTrack = GatherEnemies();
-	for (const AFPSRLEnemySpawnPoint* Point : GatherSpawnPoints())
+	for (const AFPSRLEnemySpawnPoint* Point : ChooseSpawnPoints())
 	{
 		if (ToTrack.Num() >= Scaling.MaxEnemies)
 		{
@@ -285,4 +285,73 @@ void AFPSRLRoom::OnRep_RoomState()
 EFPSRLEncounterKind AFPSRLRoom::GetEncounterKind() const
 {
 	return Encounter ? Encounter->Kind : EFPSRLEncounterKind::Normal;
+}
+
+TArray<AFPSRLEnemySpawnPoint*> AFPSRLRoom::ChooseSpawnPoints() const
+{
+	// Points grouped by zone (unnamed points form one zone), shuffled within each zone.
+	TMap<FName, TArray<AFPSRLEnemySpawnPoint*>> Zones;
+	for (AFPSRLEnemySpawnPoint* Point : GatherSpawnPoints())
+	{
+		Zones.FindOrAdd(Point->SpawnZone).Add(Point);
+	}
+	TArray<FName> ZoneNames;
+	Zones.GetKeys(ZoneNames);
+	for (TPair<FName, TArray<AFPSRLEnemySpawnPoint*>>& Zone : Zones)
+	{
+		for (int32 Index = Zone.Value.Num() - 1; Index > 0; --Index)
+		{
+			Zone.Value.Swap(Index, FMath::RandRange(0, Index));
+		}
+	}
+
+	// Which zones this encounter uses.
+	TArray<FName> Active;
+	if (Encounter && !Encounter->PreferredSpawnZones.IsEmpty())
+	{
+		for (const FName& Wanted : Encounter->PreferredSpawnZones)
+		{
+			if (Zones.Contains(Wanted))
+			{
+				Active.Add(Wanted);
+			}
+		}
+	}
+	if (Active.IsEmpty())
+	{
+		Active = ZoneNames;
+		for (int32 Index = Active.Num() - 1; Index > 0; --Index)
+		{
+			Active.Swap(Index, FMath::RandRange(0, Index));
+		}
+		if (ActiveSpawnZones > 0 && Active.Num() > ActiveSpawnZones)
+		{
+			Active.SetNum(ActiveSpawnZones);
+		}
+	}
+
+	// EnemyCount points, taken round-robin so the enemies arrive from every active zone.
+	int32 Available = 0;
+	for (const FName& Name : Active)
+	{
+		Available += Zones[Name].Num();
+	}
+	const int32 Wanted = EnemyCount > 0 ? FMath::Min(EnemyCount, Available) : Available;
+	TArray<AFPSRLEnemySpawnPoint*> Result;
+	for (int32 Round = 0; Result.Num() < Wanted; ++Round)
+	{
+		for (const FName& Name : Active)
+		{
+			if (Zones[Name].IsValidIndex(Round) && Result.Num() < Wanted)
+			{
+				Result.Add(Zones[Name][Round]);
+			}
+		}
+	}
+	if (!Active.IsEmpty() && (ZoneNames.Num() > 1 || EnemyCount > 0))
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Room] %s: %d enemies from zone(s) %s"), *GetActorNameOrLabel(), Result.Num(),
+			*FString::JoinBy(Active, TEXT(", "), [](const FName& Name) { return Name.IsNone() ? FString(TEXT("(unnamed)")) : Name.ToString(); }));
+	}
+	return Result;
 }

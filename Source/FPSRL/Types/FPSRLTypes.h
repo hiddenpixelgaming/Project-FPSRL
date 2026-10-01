@@ -206,3 +206,16 @@ enum class EFPSRLHitFeedback : uint8
 	MeleeKill,
 	MeleeMiss		// a swing that hit nothing
 };
+
+/** A combat arena's gameplay identity (room library metadata; layouts are authored, not generated). */
+UENUM(BlueprintType)
+enum class EFPSRLArenaType : uint8
+{
+	None,
+	Open,			// large central space, constant repositioning
+	Cover,			// structural obstruction, short-medium engagements
+	Chokepoint,		// larger spaces joined by controlled passages
+	Vertical,		// several elevations, high-ground decisions
+	Hazard,			// an environmental threat shapes positioning
+	MultiSpace		// several connected spaces with different purposes
+};

@@ -4,12 +4,14 @@
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLGameState.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Core/FPSRLRunSubsystem.h"
 #include "Data/FPSRLRoomDefinition.h"
 #include "Data/FPSRLRunDefinition.h"
 #include "Data/FPSRLRunSettings.h"
 #include "Engine/Level.h"
 #include "Engine/LevelStreamingDynamic.h"
 #include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
 #include "GameFramework/Pawn.h"
 #include "Net/UnrealNetwork.h"
 #include "Rooms/FPSRLFallVolume.h"
@@ -17,6 +19,12 @@
 #include "Rooms/FPSRLRoomConnector.h"
 #include "TimerManager.h"
 #include "FPSRL.h"
+
+namespace FPSRLDepthLayout
+{
+	static TAutoConsoleVariable<FString> CVarForceCombatRoom(TEXT("fpsrl.Depth.ForceCombatRoom"), TEXT(""),
+		TEXT("Testing: every combat room of the next Depth is this room definition (asset name, e.g. DA_Room_Arena01_SunkenPlaza; empty = random)."));
+}
 
 namespace
 {
@@ -144,6 +152,14 @@ TArray<FFPSRLRoomPlacement> UFPSRLDepthLayoutComponent::RollSequence(const UFPSR
 			Placement.Reward = Reward;
 		}
 	};
+	const UFPSRLRunSubsystem* RunState = GetWorld() && GetWorld()->GetGameInstance() ? GetWorld()->GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr;
+	const int32 DepthInArea = RunState ? RunState->GetDepthInArea() : 0;
+	TArray<const UFPSRLRoomDefinition*> PreviousCombat;
+	if (RunState)
+	{
+		PreviousCombat.Append(RunState->PreviousCombatRooms);
+	}
+	auto Eligible = [DepthInArea](const UFPSRLRoomDefinition& Room) { return Room.IsEligibleForDepth(DepthInArea); };
 	const bool bTraversals = Depth.bTraversalBetweenCombatRooms && !Depth.TraversalRooms.IsEmpty();
 	int32 TraversalIndex = 0;
 	auto AddTraversal = [&](const FFPSRLTraversalRewardOdds& Odds)
@@ -166,7 +182,27 @@ TArray<FFPSRLRoomPlacement> UFPSRLDepthLayoutComponent::RollSequence(const UFPSR
 		{
 			AddTraversal(Depth.TraversalRewards.IsValidIndex(TraversalIndex) ? Depth.TraversalRewards[TraversalIndex] : Depth.DefaultTraversalReward);
 		}
-		Add(PickRoom(Depth.CombatRooms, Used, AnyRoom));
+		// Authored arenas, picked at random: eligible for this Depth, not already in it, and (when the pool allows) not one
+		// the previous Depth used.
+		auto Fresh = [&](const UFPSRLRoomDefinition& Room) { return Room.IsEligibleForDepth(DepthInArea) && !PreviousCombat.Contains(&Room) && !Used.Contains(&Room); };
+		const bool bHasFresh = Depth.CombatRooms.ContainsByPredicate([&](const UFPSRLRoomDefinition* Room)
+		{
+			return Room && !Room->Level.IsNull() && Room->SelectionWeight > 0.f && Fresh(*Room);
+		});
+		const UFPSRLRoomDefinition* Arena = bHasFresh ? PickRoom(Depth.CombatRooms, Used, Fresh) : PickRoom(Depth.CombatRooms, Used, Eligible);
+		// Testing / reviewing one arena: fpsrl.Depth.ForceCombatRoom <room asset name> makes every combat room that one.
+		const FString Forced = FPSRLDepthLayout::CVarForceCombatRoom.GetValueOnGameThread();
+		if (!Forced.IsEmpty())
+		{
+			for (const UFPSRLRoomDefinition* Candidate : Depth.CombatRooms)
+			{
+				if (Candidate && Candidate->GetName() == Forced)
+				{
+					Arena = Candidate;
+				}
+			}
+		}
+		Add(Arena ? Arena : PickRoom(Depth.CombatRooms, Used, AnyRoom));
 	}
 
 	// Depths without traversal spaces keep the older optional rooms (Boon / Upgrade / Merchant rooms) mixed in.
@@ -237,6 +273,18 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 	}
 
 	Placements = RollSequence(*Depth);
+	// The next Depth avoids these arenas when it can (no back-to-back repeats).
+	if (UFPSRLRunSubsystem* RunState = GetWorld()->GetGameInstance() ? GetWorld()->GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr)
+	{
+		RunState->PreviousCombatRooms.Reset();
+		for (const FFPSRLRoomPlacement& Placement : Placements)
+		{
+			if (Placement.Room && Placement.Room->RoomType == ERoomType::Combat)
+			{
+				RunState->PreviousCombatRooms.Add(Placement.Room);
+			}
+		}
+	}
 	FTransform Next = FindEntryTransform();
 	FString Order;
 	for (int32 Index = 0; Index < Placements.Num(); ++Index)

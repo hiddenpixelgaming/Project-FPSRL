@@ -30,6 +30,9 @@
 
 namespace FPSRLAutopilot
 {
+	static TAutoConsoleVariable<FString> CVarShots(TEXT("fpsrl.Autopilot.Shots"), TEXT(""),
+		TEXT("Autopilot: screenshot viewpoints in the first combat room, relative to its room actor: 'x y z yaw pitch;...'."));
+
 	static TAutoConsoleVariable<float> CVarFightSeconds(TEXT("fpsrl.Autopilot.FightSeconds"), 0.f,
 		TEXT("Autopilot: seconds each encounter's enemies fight (host in god mode) before being killed (0 = at once)."));
 }
@@ -191,6 +194,32 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	}
 	if (!RoomActor->bCombatStarted)
 	{
+		// Arena review: screenshots from viewpoints given relative to the room actor ("x y z yaw pitch;..."), once.
+		const FString Shots = FPSRLAutopilot::CVarShots.GetValueOnGameThread();
+		if (!Shots.IsEmpty() && ShotIndex != -2)
+		{
+			TArray<FString> Views;
+			Shots.ParseIntoArray(Views, TEXT(";"));
+			ShotIndex = FMath::Max(ShotIndex, 0);
+			if (Views.IsValidIndex(ShotIndex))
+			{
+				TArray<FString> Parts;
+				Views[ShotIndex].ParseIntoArrayWS(Parts);
+				if (Parts.Num() >= 5 && Pawn)
+				{
+					const FVector Local(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2]));
+					const FVector Spot = RoomActor->GetActorTransform().TransformPositionNoScale(Local);
+					const FRotator View(FCString::Atof(*Parts[4]), RoomActor->GetActorRotation().Yaw + FCString::Atof(*Parts[3]), 0.f);
+					Pawn->TeleportTo(Spot, FRotator(0.f, View.Yaw, 0.f), false, true);
+					PC->SetControlRotation(View);
+					PC->ConsoleCommand(FString::Printf(TEXT("HighResShot 1600x900 filename=Arena_%s_%02d"), *RoomActor->GetLevel()->GetOuter()->GetName(), ShotIndex));
+					UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] arena shot %d at %s"), ShotIndex, *Spot.ToCompactString());
+				}
+				++ShotIndex;
+				return true;
+			}
+			ShotIndex = -2;	// done
+		}
 		RoomActor->StartCombat();
 		FightStartTime = World->GetTimeSeconds();
 		FightRoom = Next;

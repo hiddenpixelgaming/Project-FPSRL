@@ -9,6 +9,7 @@
 
 class UFPSRLDepthDefinition;
 class UFPSRLRunDefinition;
+class UFPSRLRoomDefinition;
 
 /**
  * Server-side run progress (which Depth of which Area the party is in). Lives on the GameInstance, so it survives
@@ -50,6 +51,13 @@ public:
 	int32 GetAreaNumber() const;
 
 	const UFPSRLDepthDefinition* GetCurrentDepth() const;
+
+	/** 1-based Depth within its Area (room eligibility); 0 when no run is active. */
+	int32 GetDepthInArea() const;
+
+	/** Combat arenas the previous Depth used (the next Depth avoids them when it can). Server. */
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UFPSRLRoomDefinition>> PreviousCombatRooms;
 
 	/** What the current Depth's portal leads to. RunComplete when no run is active. */
 	EPortalDestination GetNextDestination() const;

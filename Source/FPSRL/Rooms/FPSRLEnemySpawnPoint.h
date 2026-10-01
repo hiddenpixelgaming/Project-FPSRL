@@ -27,6 +27,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawn")
 	TSubclassOf<APawn> EnemyClass;
 
+	/** The spawn zone this point belongs to (an architectural entrance: "NorthArch", "Balcony"...). Rooms activate zones
+	 *  per encounter, so one arena supports different approach directions. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Spawn")
+	FName SpawnZone;
+
 	/** Server: spawn the enemy (with its AI controller). Null if the class is missing or the spawn failed. */
 	/** Spawns the enemy (this point's class, else FallbackClass). HealthMultiplier / SizeMultiplier scale it before it
 	 *  starts (an encounter's Miniboss or Final Level Boss settings); 1 = unchanged. */

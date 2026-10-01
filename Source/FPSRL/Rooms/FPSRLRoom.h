@@ -76,6 +76,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room|Enemies")
 	TSubclassOf<AActor> EnemyClass;
 
+	/** Enemies its encounter spawns (0 = one per active spawn point); never more than the player-count cap. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room|Enemies", meta = (ClampMin = "0"))
+	int32 EnemyCount = 0;
+
+	/** Spawn zones used per encounter, picked at random on the server (0 = every zone). The encounter definition's
+	 *  PreferredSpawnZones take precedence. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room|Enemies", meta = (ClampMin = "0"))
+	int32 ActiveSpawnZones = 0;
+
 	UPROPERTY(ReplicatedUsing = OnRep_RoomState, BlueprintReadOnly, Category = "Room")
 	bool bCombatStarted = false;
 
@@ -120,6 +129,10 @@ private:
 
 	TArray<AActor*> GatherEnemies() const;
 	TArray<AFPSRLEnemySpawnPoint*> GatherSpawnPoints() const;
+
+	/** Server: this encounter's spawn points: the active spawn zones (encounter preference, else ActiveSpawnZones at random,
+	 *  else all), EnemyCount of them spread round-robin over the zones (0 = all their points). */
+	TArray<AFPSRLEnemySpawnPoint*> ChooseSpawnPoints() const;
 	bool IsInsideBounds(const FVector& WorldLocation) const;
 	void CompleteRoom();
 

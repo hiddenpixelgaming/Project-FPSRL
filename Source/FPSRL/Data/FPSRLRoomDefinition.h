@@ -31,6 +31,23 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Room")
 	TSoftObjectPtr<UWorld> Level;
 
+	/** Combat arenas: the gameplay identity (metadata for selection, tools and future encounter rules). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arena")
+	EFPSRLArenaType ArenaType = EFPSRLArenaType::None;
+
+	/** Depths of an Area this room may appear in (1-based Depth within its Area; 0 = no limit). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arena", meta = (ClampMin = "0"))
+	int32 MinDepth = 0;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arena", meta = (ClampMin = "0"))
+	int32 MaxDepth = 0;
+
+	/** Allowed in this Depth (1-based within its Area; 0 = unknown: allowed). */
+	bool IsEligibleForDepth(int32 DepthInArea) const
+	{
+		return DepthInArea <= 0 || ((MinDepth <= 0 || DepthInArea >= MinDepth) && (MaxDepth <= 0 || DepthInArea <= MaxDepth));
+	}
+
 	/** Relative odds of being picked from its pool. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Room", meta = (ClampMin = "0"))
 	float SelectionWeight = 1.f;
