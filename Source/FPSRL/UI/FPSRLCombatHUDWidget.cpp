@@ -224,6 +224,9 @@ void UFPSRLCombatHUDWidget::NativeDestruct()
 	{
 		Weapon->OnWeaponStateChanged.Remove(WeaponHandle);
 	}
+	// The controller puts this widget back on screen after a travel: bind afresh then.
+	BoundHealth.Reset();
+	BoundWeapon.Reset();
 	Super::NativeDestruct();
 }
 

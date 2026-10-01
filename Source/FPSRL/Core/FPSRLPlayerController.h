@@ -336,7 +336,13 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void ReceivedPlayer() override;
 	virtual void SetupInputComponent() override;
+
+	/** Local player only: the combat HUD and the Blueprint crosshair (CrosshairUI) are on screen. A seamless travel spawns
+	 *  a new controller that the Blueprint never gives a crosshair, and takes widgets off the screen; called from BeginPlay
+	 *  and when the local player is assigned (that can come after BeginPlay). */
+	void EnsureLocalHUD();
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void AcknowledgePossession(APawn* InPawn) override;

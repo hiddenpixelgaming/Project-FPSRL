@@ -68,7 +68,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Refire", meta = (ClampMin = "1"))
 	float AimingRefireMultiplier = 1.6667f;
 
-	/** Camera kick per shot (pitch; negative = up), scaled by ADSRecoilMultiplier while aiming. */
+	/** Camera kick per shot (pitch; negative = up), scaled by ADSRecoilMultiplier while aiming (applied here, in C++). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Aim")
 	float FiringRecoil = 0.f;
 

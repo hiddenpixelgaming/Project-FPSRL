@@ -197,15 +197,18 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 			}
 		});
 	}
-	CallHolder(TEXT("AddWeaponRecoil"), [this](UFunction* Function, uint8* Params)
+	// Aiming down sights kicks less (the character Blueprint's own ADS scaling never took effect: measured the same
+	// climb per shot aiming or not).
+	const float Recoil = bIsAiming ? FiringRecoil * ADSRecoilMultiplier : FiringRecoil;
+	CallHolder(TEXT("AddWeaponRecoil"), [Recoil](UFunction* Function, uint8* Params)
 	{
 		if (FDoubleProperty* AsDouble = CastField<FDoubleProperty>(Function->ChildProperties))
 		{
-			AsDouble->SetPropertyValue_InContainer(Params, FiringRecoil);
+			AsDouble->SetPropertyValue_InContainer(Params, Recoil);
 		}
 		else if (FFloatProperty* AsFloat = CastField<FFloatProperty>(Function->ChildProperties))
 		{
-			AsFloat->SetPropertyValue_InContainer(Params, FiringRecoil);
+			AsFloat->SetPropertyValue_InContainer(Params, Recoil);
 		}
 	});
 

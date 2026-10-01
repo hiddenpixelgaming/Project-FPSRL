@@ -192,8 +192,9 @@ def finish(level_name, data_name, display_name, arena_type, exit_x, room_center,
 
 
 def hazard_material():
-    """A near-black greyscale grid for hazard surfaces (reads instantly against the light stone). The grid material
-    colours top faces with its Top* parameters, so both sets are applied, on every build so tweaks here take effect."""
+    """Hazard surfaces are ORANGE (user, 2026-10-01: the one colour exception to the greyscale arenas, so players read
+    "this hurts" at a glance). The grid material colours top faces with its Top* parameters, so both sets are applied,
+    on every build so tweaks here take effect."""
     path = "/Game/MainProject/Contents/Materials/Arena/MI_Arena_HazardPool"
     if lib.does_asset_exist(path):
         mi = unreal.load_asset(path)
@@ -201,9 +202,10 @@ def hazard_material():
         mi = unreal.AssetToolsHelpers.get_asset_tools().create_asset("MI_Arena_HazardPool", "/Game/MainProject/Contents/Materials/Arena",
                                                                      unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
         unreal.MaterialEditingLibrary.set_material_instance_parent(mi, unreal.load_asset("/Game/LevelPrototyping/Materials/M_PrototypeGrid"))
-    for name, v in (("SurfaceColor", 0.008), ("GridColor", 0.03), ("SubGridColor", 0.016),
-                    ("TopSurfaceColor", 0.008), ("TopGridColor", 0.03), ("TopSubGridGridColor", 0.016)):
-        unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(v, v, v, 1))
+    surface, grid, sub_grid = (1.0, 0.28, 0.02), (0.45, 0.08, 0.0), (0.75, 0.18, 0.01)
+    for name, c in (("SurfaceColor", surface), ("GridColor", grid), ("SubGridColor", sub_grid),
+                    ("TopSurfaceColor", surface), ("TopGridColor", grid), ("TopSubGridGridColor", sub_grid)):
+        unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(c[0], c[1], c[2], 1))
     lib.save_loaded_asset(mi, False)
     return mi
 

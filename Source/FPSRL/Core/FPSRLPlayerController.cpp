@@ -1241,13 +1241,45 @@ void AFPSRLPlayerController::BeginPlay()
 	BindToPlayerStateComponents();
 	ReportTalentEssenceIfNeeded();
 
-	if (IsLocalController())
+	EnsureLocalHUD();
+}
+
+void AFPSRLPlayerController::ReceivedPlayer()
+{
+	Super::ReceivedPlayer();
+	EnsureLocalHUD();
+}
+
+void AFPSRLPlayerController::EnsureLocalHUD()
+{
+	if (!IsLocalController() || !GetLocalPlayer() || !HasActorBegunPlay())
+	{
+		return;	// before BeginPlay: the Blueprint's BeginPlay may still make its crosshair, BeginPlay calls this again
+	}
+	// Widgets we already have (a travel took them off the screen) go back instead of stacking new copies.
+	if (!CombatHUD)
 	{
 		CombatHUD = CreateWidget<UFPSRLCombatHUDWidget>(this, CombatHUDClass ? CombatHUDClass : TSubclassOf<UFPSRLCombatHUDWidget>(UFPSRLCombatHUDWidget::StaticClass()));
-		if (CombatHUD)
+	}
+	if (CombatHUD && !CombatHUD->IsInViewport())
+	{
+		CombatHUD->AddToViewport(-1);	// under menus and prompts
+		CombatHUD->SetController(this);
+	}
+
+	// The crosshair is the Blueprint's widget (CrosshairUI, typed WB_Crosshair): its BeginPlay only makes one in the
+	// Lobby (v0.1.25: no crosshair in a run for anyone), so make it here when it is missing.
+	if (const FObjectProperty* Property = FindFProperty<FObjectProperty>(GetClass(), TEXT("CrosshairUI")))
+	{
+		UUserWidget* Crosshair = Cast<UUserWidget>(Property->GetObjectPropertyValue_InContainer(this));
+		if (!Crosshair && Property->PropertyClass && Property->PropertyClass->IsChildOf(UUserWidget::StaticClass()))
 		{
-			CombatHUD->AddToViewport(-1);	// under menus and prompts
-			CombatHUD->SetController(this);
+			Crosshair = CreateWidget<UUserWidget>(this, TSubclassOf<UUserWidget>(Property->PropertyClass));
+			Property->SetObjectPropertyValue_InContainer(this, Crosshair);
+		}
+		if (Crosshair && !Crosshair->IsInViewport())
+		{
+			Crosshair->AddToViewport();
 		}
 	}
 }
