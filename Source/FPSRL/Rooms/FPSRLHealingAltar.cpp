@@ -28,6 +28,29 @@ AFPSRLHealingAltar::AFPSRLHealingAltar()
 	{
 		Mesh->SetMaterial(0, Lime.Object);
 	}
+
+	// A white health cross floating above the pillar: one bar along each axis, so it reads as a "+" from every side.
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> White(TEXT("/Game/MainProject/Contents/Materials/Debug/MI_HealingAltar_White.MI_HealingAltar_White"));
+	const FVector BarScales[] = { FVector(0.2f, 0.2f, 0.85f), FVector(0.85f, 0.2f, 0.2f), FVector(0.2f, 0.85f, 0.2f) };
+	for (int32 Bar = 0; Bar < 3; ++Bar)
+	{
+		UStaticMeshComponent* Part = CreateDefaultSubobject<UStaticMeshComponent>(*FString::Printf(TEXT("Cross%d"), Bar));
+		Part->SetupAttachment(Mesh);
+		Part->SetUsingAbsoluteScale(true);	// the pillar is stretched; the cross keeps its shape
+		Part->SetRelativeScale3D(BarScales[Bar]);
+		Part->SetRelativeLocation(FVector(0.f, 0.f, 125.f));	// x1.2 from the pillar: 1.5 m above its centre
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetCastShadow(false);
+		if (Cube.Succeeded())
+		{
+			Part->SetStaticMesh(Cube.Object);
+		}
+		if (White.Succeeded())
+		{
+			Part->SetMaterial(0, White.Object);
+		}
+	}
 }
 
 bool AFPSRLHealingAltar::BeginPlayerSelection(AFPSRLPlayerState* Player)

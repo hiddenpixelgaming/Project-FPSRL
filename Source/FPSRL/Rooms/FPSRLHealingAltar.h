@@ -12,7 +12,7 @@
  *
  * Same rules as the Blessing altar it derives from: personal (each player may use it once), locked until its Room is
  * cleared (or open from the start without a Room), optional. A player already at full health keeps their use for later.
- * Placeable as is: a lime green pillar by default.
+ * Placeable as is: a green pillar with a white health cross above it.
  */
 UCLASS()
 class FPSRL_API AFPSRLHealingAltar : public AFPSRLBoonTerminal

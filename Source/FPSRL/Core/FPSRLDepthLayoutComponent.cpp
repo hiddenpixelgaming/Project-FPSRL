@@ -286,31 +286,30 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 	}
 
 	Placements = RollSequence(*Depth);
-	// The rewards rolled for traversals are given at the end of the encounter room before them instead (user: nobody can
-	// miss them on the way through), beside its exit door once it is cleared. Nothing is ever spawned in a traversal.
-	for (int32 Index = 1; Index < Placements.Num(); ++Index)
+	// Rewards (user rules): every Combat and Miniboss room gives exactly one altar (Blessing / Upgrade / Healing), standing
+	// by its exit; no other room ever gets one (the Preparation room has its own, placed in its level; the Final Level Boss
+	// ends the run). The Depth's reward odds are used in room order: the first combat room rolls TraversalRewards[0], the
+	// next [1], ..., then DefaultTraversalReward. A roll of "nothing" (every weight 0) falls back to a Blessing Altar.
 	{
-		FFPSRLRoomPlacement& Before = Placements[Index - 1];
 		const FString ForcedReward = FPSRLDepthLayout::CVarForceReward.GetValueOnGameThread();
-		if (!ForcedReward.IsEmpty() && Placements[Index].Reward != EFPSRLTraversalReward::None)
+		const int64 Forced = ForcedReward.IsEmpty() ? INDEX_NONE : StaticEnum<EFPSRLTraversalReward>()->GetValueByNameString(ForcedReward);
+		int32 RewardOrder = 0;
+		for (FFPSRLRoomPlacement& Placement : Placements)
 		{
-			const int64 Value = StaticEnum<EFPSRLTraversalReward>()->GetValueByNameString(ForcedReward);
-			Placements[Index].Reward = Value == INDEX_NONE ? Placements[Index].Reward : static_cast<EFPSRLTraversalReward>(Value);
-		}
-		if (Placements[Index].Reward != EFPSRLTraversalReward::None && Before.Room && IsEncounterRoom(Before.Room->RoomType)
-			&& Before.Reward == EFPSRLTraversalReward::None)
-		{
-			Before.Reward = Placements[Index].Reward;
-			Placements[Index].Reward = EFPSRLTraversalReward::None;
-		}
-	}
-	// Rule (user): altars only ever at the end of combat rooms; no other room gets one (the Preparation room has its own,
-	// placed in its level). A reward with no encounter room before it is dropped.
-	for (FFPSRLRoomPlacement& Placement : Placements)
-	{
-		if (Placement.Reward != EFPSRLTraversalReward::None && !(Placement.Room && IsEncounterRoom(Placement.Room->RoomType)))
-		{
-			Placement.Reward = EFPSRLTraversalReward::None;
+			const ERoomType Type = Placement.Room ? Placement.Room->RoomType : ERoomType::Entry;
+			if (Type != ERoomType::Combat && Type != ERoomType::Miniboss)
+			{
+				Placement.Reward = EFPSRLTraversalReward::None;
+				continue;
+			}
+			const FFPSRLTraversalRewardOdds& Odds = Depth->TraversalRewards.IsValidIndex(RewardOrder) ? Depth->TraversalRewards[RewardOrder] : Depth->DefaultTraversalReward;
+			++RewardOrder;
+			Placement.Reward = Forced != INDEX_NONE ? static_cast<EFPSRLTraversalReward>(Forced) : Odds.Roll();
+			UE_LOG(LogFPSRL, Log, TEXT("[Depth] reward roll %d (%s odds, %d weights): %s"), RewardOrder - 1, Depth->TraversalRewards.IsValidIndex(RewardOrder - 1) ? TEXT("ordered") : TEXT("default"), Odds.Weights.Num(), *UEnum::GetValueAsString(Placement.Reward));
+			if (Placement.Reward == EFPSRLTraversalReward::None || Placement.Reward == EFPSRLTraversalReward::Future)
+			{
+				Placement.Reward = EFPSRLTraversalReward::BlessingAltar;
+			}
 		}
 	}
 	// The next Depth avoids these arenas when it can (no back-to-back repeats).
