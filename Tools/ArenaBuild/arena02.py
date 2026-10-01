@@ -60,9 +60,19 @@ try:
 
     # Cover in the aisles: a sarcophagus block, the collapsed interior wall (south), the fallen colossal head (landmark).
     box("Sarcophagus", 1820, 2180, 190, 370, 0, 110, M_FEATURE, "Cover")
-    box("CollapsedWall_1", 1500, 1950, -780, -720, 0, 260, M_FEATURE, "Cover")
-    box("CollapsedWall_2", 2150, 2500, -780, -720, 0, 160, M_FEATURE, "Cover")
-    box("CollapsedWall_3", 3100, 3500, -780, -720, 0, 260, M_FEATURE, "Cover")
+    # Rubble of the collapsed interior wall: waist high (open sightlines; user rule: no walled-off areas).
+    box("CollapsedWall_1", 1500, 1950, -790, -710, 0, 130, M_FEATURE, "Cover")
+    box("CollapsedWall_2", 2150, 2500, -790, -710, 0, 90, M_FEATURE, "Cover")
+    box("CollapsedWall_3", 3100, 3500, -790, -710, 0, 130, M_FEATURE, "Cover")
+
+    # Open elevation: a raised walkway 3 m up between the two north pillar rows (the fallen upper floor), stairs at both
+    # ends, open edges. High ground over the aisle, the pillars to move around up there.
+    W_Z = 300.0
+    box("Walkway_Deck", 1200, 2600, 540, 960, 0, W_Z, M_FLOOR, "Walkway")
+    for s in range(1, 13):   # 12 steps of 25 cm, 25 cm deep
+        box("Walkway_StairW_%d" % s, 1200 - 25 * (13 - s), 1200 - 25 * (12 - s), 600, 900, 0, 25.0 * s, M_FLOOR, "Walkway")
+        box("Walkway_StairE_%d" % s, 2600 + 25 * (12 - s), 2600 + 25 * (13 - s), 600, 900, 0, 25.0 * s, M_FLOOR, "Walkway")
+    box("Walkway_Block", 1750, 1950, 640, 860, W_Z, W_Z + 110, M_FEATURE, "Walkway")
     boxc("Colossus_Head", 950, -1180, 170, 380, 380, 380, M_FEATURE, "Landmark", yaw=30, pitch=20)
     boxc("Colossus_Crown", 820, -1260, 330, 140, 300, 120, M_FEATURE, "Landmark", yaw=30, pitch=35)
 

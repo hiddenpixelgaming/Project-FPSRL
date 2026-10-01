@@ -301,10 +301,26 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 		}
 		return true;
 	}
+	// Diagnosis: a living enemy the autopilot can't reach (stuck far from its room) keeps the room from ever clearing.
+	if (FightRoom == Next && World->GetTimeSeconds() - FightStartTime > FPSRLAutopilot::CVarFightSeconds.GetValueOnGameThread() + 20.0
+		&& World->GetTimeSeconds() - LastStrayReport > 10.0)
+	{
+		LastStrayReport = World->GetTimeSeconds();
+		for (TActorIterator<APawn> It(World); It; ++It)
+		{
+			const UFPSRLHealthComponent* Health = It->FindComponentByClass<UFPSRLHealthComponent>();
+			const AFPSRLEnemyAIController* AI = Cast<AFPSRLEnemyAIController>(It->GetController());
+			if (AI && Health && !Health->IsDead() && FVector::Dist(It->GetActorLocation(), RoomActor->GetActorLocation()) >= 4500.f)
+			{
+				UE_LOG(LogFPSRL, Warning, TEXT("[Autopilot] out of reach in room %d at %s: %s, path failures %d"), Next,
+					*It->GetActorLocation().ToCompactString(), *AI->Describe(), AI->GetMoveFailures());
+			}
+		}
+	}
 	for (TActorIterator<APawn> It(World); It; ++It)
 	{
 		UFPSRLHealthComponent* Health = It->FindComponentByClass<UFPSRLHealthComponent>();
-		if (!It->IsPlayerControlled() && FVector::Dist(It->GetActorLocation(), RoomActor->GetActorLocation()) < 2500.f && Health && !Health->IsDead())
+		if (!It->IsPlayerControlled() && FVector::Dist(It->GetActorLocation(), RoomActor->GetActorLocation()) < 4500.f && Health && !Health->IsDead())
 		{
 			if (FightRoom == Next && World->GetTimeSeconds() - FightStartTime < FPSRLAutopilot::CVarFightSeconds.GetValueOnGameThread())
 			{

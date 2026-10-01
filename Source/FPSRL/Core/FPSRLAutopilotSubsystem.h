@@ -67,6 +67,7 @@ private:
 	int32 RoomShotDepth = INDEX_NONE;
 	/** Steps left before the pending room shot (the camera's exposure settles after the teleport). */
 	int32 RoomShotSettle = 0;
+	double LastStrayReport = -100.0;
 
 	/** Screenshot placement Index from its entrance if it is loaded and not shot yet. True if a shot was taken. */
 	bool ShootRoom(class UFPSRLDepthLayoutComponent* Layout, APlayerController* PC, APawn* Pawn, int32 Index);

@@ -1,10 +1,11 @@
 """Arena 03 - Gatehouse (Chokepoint, 40 x 25 m).
 
-West chamber (arrival) -> a 4 m thick gatehouse wall -> east chamber (enemies, exit). Three ways through the
-gatehouse: the main gate tunnel (6 m wide, on the axis), a narrow south breach (2 m), and a raised north gallery (3 m up)
-that crosses into the east chamber and overlooks it. Hold the gate, push it, slip the breach or flank from above.
+West chamber (arrival) -> the gatehouse -> east chamber (enemies, exit). The gatehouse is an open rampart 3 m up on stone
+piers (reworked 2026-10-01, user rule: open elevation instead of walled-off areas): the main gate (7 m, on the axis) and a
+narrow south breach (2 m) pass under it; stairs on both sides lead up onto it, and it joins the raised north gallery that
+crosses into the east chamber. Hold the gate, push it, slip the breach or take the high ground.
 Enemies come from an upper door onto the gallery (they can flank too), a south hall and two tunnels beside the exit.
-Flow: the runner runs through the gate tunnel and under a ruined arch to the exit gate, which towers over the gatehouse.
+Flow: the runner runs under the rampart and under a ruined arch to the exit gate, in view over the rampart.
 """
 import os, sys, traceback
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -27,20 +28,24 @@ try:
     box("Floor_Gate", GH0, GH1, -1250, 1250, -40, 0, M_FLOOR, "Floor")
     box("Floor_East", GH1, 4600, -1250, 1250, -40, 0, M_FLOOR, "Floor")
 
-    # --------------------------------------------------------------- the gatehouse wall and its three crossings
-    box("Gatehouse_S_Outer", GH0, GH1, -1250, -1050, 0, GH_TOP, M_WALL, "Gatehouse")
-    box("Gatehouse_Breach_Lintel", GH0, GH1, -1050, -850, 280, GH_TOP, M_WALL, "Gatehouse")
-    box("Gatehouse_S_Inner", GH0, GH1, -850, -300, 0, GH_TOP, M_WALL, "Gatehouse")
-    box("Gatehouse_Gate_Lintel", GH0, GH1, -300, 300, 450, GH_TOP, M_WALL, "Gatehouse")
-    box("Gatehouse_N_Inner", GH0, GH1, 300, 950, 0, GH_TOP, M_WALL, "Gatehouse")
-    box("Gatehouse_Gallery_Lintel", GH0, GH1, 950, 1250, GAL_Z + 250, GH_TOP, M_WALL, "Gatehouse")
+    # --------------------------------------------------------------- the gatehouse: an open rampart on piers
+    # Rework (user rule, 2026-10-01: open elevation, not walled-off areas): the 10 m wall became a rampart deck 3 m up
+    # carried on stone piers. Ground level: the main gate (7 m, on the axis) and the south breach (2 m) pass under it.
+    # Up top: the rampart spans the hall and joins the north gallery, with merlons for cover and stairs on both sides;
+    # everything is in view over it (the exit gate too).
+    box("Rampart_Deck", GH0, GH1, -1250, 950, GAL_Z - 40, GAL_Z, M_FLOOR, "Gatehouse")
+    for i, (y0, y1) in enumerate(((-1250, -1050), (-850, -350), (350, 950))):
+        box("Rampart_Pier_%d" % i, GH0, GH1, y0, y1, 0, GAL_Z - 40, M_WALL, "Gatehouse")
     box("Breach_Rubble", GH0 + 60, GH1 - 120, -1040, -900, 0, 45, M_FEATURE, "Gatehouse")
-    for sign in (1, -1):   # towers framing the gate on the west face (still lower than the exit gate)
-        y0, y1 = sorted((300 * sign, 620 * sign))
-        box("GateTower_%s" % ("N" if sign > 0 else "S"), GH0 - 120, GH0, y0, y1, 0, 1200, M_FEATURE, "Gatehouse")
-    for i, y in enumerate(range(-1150, 1251, 340)):   # crenellations along the top
-        box("Crenel_%d" % i, GH0 + 40, GH1 - 40, y - 80, y + 80, GH_TOP, GH_TOP + 160, M_WALL, "Gatehouse")
-    light("GateTunnel_Light", 2100, 0, 380, 9000.0, 900.0)
+    for i, y in enumerate((-1150, -700, -450, 450, 750)):   # merlons on the rampart: cover up top, gaps to shoot through
+        box("Merlon_W_%d" % i, GH0, GH0 + 40, y - 70, y + 70, GAL_Z, GAL_Z + 110, M_WALL, "Gatehouse")
+        box("Merlon_E_%d" % i, GH1 - 40, GH1, y - 70, y + 70, GAL_Z, GAL_Z + 110, M_WALL, "Gatehouse")
+    for s in range(1, 13):   # stairs up to the rampart from both chambers, along the south wall (12 x 25 cm)
+        box("Rampart_StairW_%d" % s, GH0 - 33.33 * (13 - s), GH0 - 33.33 * (12 - s), -1240, -1060, 0, 25.0 * s, M_FLOOR, "Gatehouse")
+        box("Rampart_StairE_%d" % s, GH1 + 33.33 * (12 - s), GH1 + 33.33 * (13 - s), -1240, -1060, 0, 25.0 * s, M_FLOOR, "Gatehouse")
+    for sign in (1, -1):   # towers framing the gate: round pillars now, still lower than the exit gate
+        cyl("GateTower_%s" % ("N" if sign > 0 else "S"), GH0 - 150, 470 * sign, 0, 280, 1100, M_FEATURE, "Gatehouse")
+    light("GateTunnel_Light", 2100, 0, 230, 9000.0, 900.0)
 
     # --------------------------------------------------------------- north gallery (raised flank route)
     for s in range(1, 13):   # west stairs up (X 900..1300)

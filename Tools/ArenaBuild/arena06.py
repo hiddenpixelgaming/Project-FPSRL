@@ -2,7 +2,8 @@
 
 Three spaces in a row, joined by several openings, so a fight spills from one into the next:
 - the arrival court (west): open, with low walls near the entrance and two large blocks;
-- the halls (middle), three parallel spaces separated by walls with doorways:
+- the halls (middle), three parallel spaces divided by lines of massive pillars (reworked 2026-10-01 from 9 m walls:
+  open between spaces, user rule):
     the nave on the axis (a toppled statue off the axis is the landmark),
     the north wing with a raised gallery (2 m, stairs at both ends) overlooking its floor,
     the south wing, a hall of pillars;
@@ -71,17 +72,21 @@ try:
             a, b = sorted((y0 * sign, y1 * sign))
             box("Wall_E_%s_%d" % (tag, y0), HALL_END, HALL_END + 100, a, b, z0, H, M_WALL, "Walls")
 
-    # --------------------------------------------------------------- cross walls: arrival court | halls | far court
-    wall_x("Cross_W", 2000, 2100, ((-2000, -1600, 0), (-1600, -1200, 350), (-1200, -350, 0),
-                                   (350, 1200, 0), (1200, 1600, 350), (1600, 2000, 0)))
-    wall_x("Cross_E", 4000, 4100, ((-2000, -1600, 0), (-1600, -1200, 350), (-1200, -350, 0),
-                                   (350, 1300, 0), (1300, 1700, 450), (1700, 2000, 0)))
-    # Walls between the nave and the wings, two doorways each.
+    # --------------------------------------------------------------- the three spaces, divided by pillar lines
+    # Rework (user rule, 2026-10-01: open, not walled-off): the 9 m walls between the arrival court, the halls and the
+    # far court, and between the nave and the wings, became lines of massive pillars. The spaces still read as separate,
+    # but you see, shoot and move between them anywhere. The axis stays clear (the exit gate in view from the entrance).
+    for line, x in (("W", 2050), ("E", 4050)):
+        for y in (-1800, -1350, -900, -500, 500, 900, 1350, 1800):
+            if line == "E" and 1250 <= y <= 1750:
+                continue   # the gallery's east stairs come down here
+            cyl("Cross_%s_Pillar_%d" % (line, y), x, y, 0, 220, H, M_WALL, "Pillars")
+        for y0, y1 in ((-1350, -900), (900, 1350)):   # low ruined wall between two of the pillars: cover
+            box("Cross_%s_Ruin_%d" % (line, y0), x - 50, x + 50, y0 + 110, y1 - 110, 0, 120, M_WALL, "Pillars")
     for sign in (1, -1):
         tag = "N" if sign > 0 else "S"
-        a, b = sorted((650 * sign, 750 * sign))
-        wall_y("Wing_%s" % tag, a, b, ((2100, 2500, 0, H), (2500, 2800, 350, H), (2800, 3300, 0, H),
-                                       (3300, 3600, 350, H), (3600, 4000, 0, H)))
+        for x in range(2250, 4000, 380):
+            cyl("Wing_%s_Pillar_%d" % (tag, x), x, 700 * sign, 0, 160, H, M_WALL, "Pillars")
 
     # --------------------------------------------------------------- arrival court (no spawns here)
     box("Entry_Wall_N", 1150, 1200, 250, 650, 0, 110, M_WALL, "Cover")

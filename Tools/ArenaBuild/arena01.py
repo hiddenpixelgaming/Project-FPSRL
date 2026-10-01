@@ -51,6 +51,19 @@ try:
         box("Rim_Wall_W_%d" % i, 1345, 1385, y0, y1, 0, 110, M_WALL, "Cover")
         box("Rim_Wall_E_%d" % i, 3315, 3355, y0, y1, 0, 110, M_WALL, "Cover")
 
+    # Open elevation (user rule, 2026-10-01): a terrace 2.5 m up on the north and south rims (between the arches),
+    # overlooking the plaza, stairs at both ends, open edges (dropping off is just a drop), pillars on top to move around.
+    T_Z = 250.0
+    for sign in (1, -1):
+        tag = "N" if sign > 0 else "S"
+        y0, y1 = sorted((1250 * sign, 1750 * sign))
+        box("Terrace_%s_Deck" % tag, 2050, 2650, y0, y1, -160, T_Z, M_FLOOR, "Terraces")
+        for s in range(1, 11):   # 10 steps of 25 cm each side, along X
+            box("Terrace_%s_StairW_%d" % (tag, s), 1700 + 35 * (s - 1), 1700 + 35 * s, y0, y1, -160, 25.0 * s, M_FLOOR, "Terraces")
+            box("Terrace_%s_StairE_%d" % (tag, s), 3000 - 35 * s, 3000 - 35 * (s - 1), y0, y1, -160, 25.0 * s, M_FLOOR, "Terraces")
+        for x in (2200, 2500):
+            cyl("Terrace_%s_Pillar_%d" % (tag, x), x, 1500 * sign, T_Z, 140, 300, M_FEATURE, "Terraces")
+
     # Outer walls: entrance (west), exit (east), four arches (north / south).
     H = 700
     box("Wall_W_N", 500, 600, 400, 1800, 0, H, M_WALL, "Walls")

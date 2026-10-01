@@ -41,6 +41,18 @@ try:
     stone("SteppingStone_N", 1950, 2130, 525, 625)
     stone("SteppingStone_S", 2470, 2650, -625, -525)
 
+    # Open elevation (user rule, 2026-10-01): a raised stone platform 1.5 m up on each side causeway, steps at both ends,
+    # open edges (a drop to the causeway or the pool), a pillar to move around. High ground over the pool.
+    P_Z = 150.0
+    for sign in (1, -1):
+        tag = "N" if sign > 0 else "S"
+        y0, y1 = sorted((700 * sign, 1000 * sign))
+        box("Platform_%s" % tag, 1900, 2600, y0, y1, POOL - 40, P_Z, M_FLOOR, "Platforms")
+        for s in range(1, 7):   # 6 steps of 25 cm, 30 cm deep
+            box("Platform_%s_StepW_%d" % (tag, s), 1900 - 30 * (7 - s), 1900 - 30 * (6 - s), y0, y1, POOL - 40, 25.0 * s, M_FLOOR, "Platforms")
+            box("Platform_%s_StepE_%d" % (tag, s), 2600 + 30 * (6 - s), 2600 + 30 * (7 - s), y0, y1, POOL - 40, 25.0 * s, M_FLOOR, "Platforms")
+        cyl("Platform_%s_Pillar" % tag, 2250, 850 * sign, P_Z, 130, 320, M_FEATURE, "Platforms")
+
     # --------------------------------------------------------------- landmark and cover
     cyl("Brazier_Column", 2300, 300, 0, 260, 900, M_FEATURE, "Landmark")
     cyl("Brazier_Bowl", 2300, 300, 900, 420, 70, M_FEATURE, "Landmark")
