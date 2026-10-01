@@ -91,6 +91,7 @@ static FAutoConsoleCommandWithWorld GFPSRLFeedbackTestCommand(TEXT("FPSRL.Feedba
 				PC->ServerTestCommand(TEXT("God"), FString(), FString());
 				AFPSRLPlayerController::GiveWeaponToPawn(Pawn, LoadClass<AActor>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol.BP_ShooterWeapon_Pistol_C")));
 				PC->ServerTestCommand(TEXT("SpawnTestEnemy"), TEXT("400"), FString());
+				PC->MeleeDamage = 75.f;	// the melee target (100 health) must survive the swing (on a client this is only the local copy)
 				return true;
 			}
 			switch (S->Step)
@@ -127,8 +128,8 @@ static FAutoConsoleCommandWithWorld GFPSRLFeedbackTestCommand(TEXT("FPSRL.Feedba
 			case 1032:
 			{
 				const float Pushed = Enemy ? FVector::Dist2D(Enemy->GetActorLocation(), S->PositionMark) : -1.f;
-				Check(EnemyHealth() < S->HealthMark && Marker.StartsWith(TEXT("hit marker MeleeHit")) && Pushed > 40.f,
-					FString::Printf(TEXT("swing landed: enemy %.0f -> %.0f, pushed %.0f cm; %s (expect damage, MeleeHit marker, knocked back)"), S->HealthMark, EnemyHealth(), Pushed, *Marker));
+				Check(EnemyHealth() < S->HealthMark && ((Marker.StartsWith(TEXT("hit marker MeleeHit")) && Pushed > 40.f) || Marker.StartsWith(TEXT("hit marker MeleeKill"))),
+					FString::Printf(TEXT("swing landed: enemy %.0f -> %.0f, pushed %.0f cm; %s (expect damage and a MeleeHit marker with knockback, or MeleeKill)"), S->HealthMark, EnemyHealth(), Pushed, *Marker));
 				UE_LOG(LogFPSRL, Log, TEXT("[FeedbackTest] done: %d problem(s)"), S->Problems);
 				PC->ConsoleCommand(TEXT("quit"));
 				return false;

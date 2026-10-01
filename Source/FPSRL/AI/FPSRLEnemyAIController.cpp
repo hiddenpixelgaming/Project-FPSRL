@@ -252,6 +252,8 @@ FString AFPSRLEnemyAIController::Describe() const
 			Players += Blocker;
 		}
 	}
+	const UCrowdFollowingComponent* Crowd = Cast<UCrowdFollowingComponent>(GetPathFollowingComponent());
+	Players += Crowd && Crowd->IsCrowdSimulationEnabled() ? TEXT(" [crowd avoidance on]") : TEXT(" [crowd avoidance OFF]");
 	return FString::Printf(TEXT("%s: %s, moved %.0f cm, target %s at %.0f cm%s, attacks %d;%s"), *GetNameSafe(MyPawn), FPSRLEnemyAI::StateName(State),
 		MyPawn ? FVector::Dist2D(MyPawn->GetActorLocation(), HomeLocation) : 0.f,
 		Current ? *Current->GetName() : TEXT("none"), Current && MyPawn ? FVector::Dist(Current->GetActorLocation(), MyPawn->GetActorLocation()) : 0.f,

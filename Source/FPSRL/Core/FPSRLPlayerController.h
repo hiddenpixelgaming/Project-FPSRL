@@ -123,7 +123,7 @@ public:
 	float MeleeRadius = 60.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
-	float MeleeDamage = 75.f;
+	float MeleeDamage = 100.f;
 
 	/** Enemies one swing can hit (1 = the first in the arc; more = a cleave). All of them are one attack. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Melee", meta = (ClampMin = "1"))

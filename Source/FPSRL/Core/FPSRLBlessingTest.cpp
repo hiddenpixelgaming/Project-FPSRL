@@ -9,6 +9,7 @@
 #include "Components/FPSRLHealthComponent.h"
 #include "Containers/Ticker.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Combat/FPSRLWeapon.h"
 #include "Core/FPSRLPlayerState.h"
 #include "Data/FPSRLAspectDefinition.h"
 #include "Data/FPSRLBoonDefinition.h"
@@ -138,6 +139,15 @@ static FAutoConsoleCommandWithWorld GFPSRLBlessingTestCommand(TEXT("FPSRL.Blessi
 				PC->ServerTestCommand(TEXT("God"), FString(), FString());
 				AFPSRLPlayerController::GiveWeaponToPawn(Pawn, LoadClass<AActor>(nullptr, TEXT("/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol.BP_ShooterWeapon_Pistol_C")));
 				GrantTestBlessings(PS);
+				// Fixed reference numbers whatever the current tuning: pistol 50 per shot, melee 75.
+				PC->MeleeDamage = 75.f;
+				for (TActorIterator<AFPSRLWeapon> It(World); It; ++It)
+				{
+					if (It->GetOwner() == Pawn)
+					{
+						It->ShotDamage = 50.f;
+					}
+				}
 				PC->ServerTestCommand(TEXT("SpawnTestEnemy"), TEXT("150"), FString());
 				PC->ServerTestCommand(TEXT("SpawnTestEnemy"), TEXT("300"), TEXT("120"));
 				return true;

@@ -68,7 +68,7 @@ namespace FPSRLCombatFeedback
 		case EFPSRLHitFeedback::Kill:		Tone(0.05f, 1800.f, 1600.f, 0.1f, 0.5f, 4.f); Tone(0.09f, 900.f, 500.f, 0.2f, 0.6f, 4.f); break;
 		case EFPSRLHitFeedback::MeleeHit:	Tone(0.10f, 160.f, 70.f, 0.45f, 0.9f, 4.f); break;
 		case EFPSRLHitFeedback::MeleeKill:	Tone(0.12f, 140.f, 50.f, 0.5f, 1.f, 3.f); Tone(0.08f, 700.f, 400.f, 0.2f, 0.4f, 4.f); break;
-		case EFPSRLHitFeedback::MeleeMiss:	Tone(0.14f, 500.f, 250.f, 0.9f, 0.25f, 3.f); break;	// a soft whoosh
+		case EFPSRLHitFeedback::MeleeMiss:	Tone(0.22f, 700.f, 220.f, 0.75f, 0.85f, 2.5f); break;	// a whoosh (louder: the v0.1.21 one was inaudible)
 		default:							Tone(0.04f, 2600.f, 2200.f, 0.1f, 0.45f, 6.f); break;	// a short tick
 		}
 		return Clip;
