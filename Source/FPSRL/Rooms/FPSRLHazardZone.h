@@ -25,7 +25,7 @@ public:
 
 	/** Damage per second to anyone standing in it (project balancing parameter). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hazard", meta = (ClampMin = "0"))
-	float DamagePerSecond = 30.f;
+	float DamagePerSecond = 10.f;
 
 	/** Seconds between damage ticks. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hazard", meta = (ClampMin = "0.1"))

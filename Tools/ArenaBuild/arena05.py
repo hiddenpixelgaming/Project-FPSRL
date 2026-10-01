@@ -24,7 +24,7 @@ try:
 
     # --------------------------------------------------------------- the pool and its hazard logic
     box("HazardPool", 600, 4100, -1500, 1500, POOL - 40, POOL, m_hazard, "Hazard")
-    k.hazard_zone("HazardZone", 600, 4100, -1500, 1500, POOL, damage_per_second=30.0)
+    k.hazard_zone("HazardZone", 600, 4100, -1500, 1500, POOL, damage_per_second=10.0)
 
     # --------------------------------------------------------------- stone (top 0)
     def stone(label, x0, x1, y0, y1):

@@ -208,7 +208,7 @@ def hazard_material():
     return mi
 
 
-def hazard_zone(label, x0, x1, y0, y1, surface_z, damage_per_second=30.0):
+def hazard_zone(label, x0, x1, y0, y1, surface_z, damage_per_second=10.0):
     """Hazard logic box just under walking height: a pawn standing ON the hazard surface (capsule bottom at surface_z)
     overlaps it; one standing on stone 40 cm higher does not. Enemies' navigation avoids its footprint at that height."""
     a = sub.spawn_actor_from_class(unreal.FPSRLHazardZone, unreal.Vector((x0 + x1) / 2.0, (y0 + y1) / 2.0, surface_z - 2.0), unreal.Rotator())
