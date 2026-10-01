@@ -8,6 +8,8 @@
 #include "NavigationSystem.h"
 #include "Rooms/FPSRLExitPortal.h"
 #include "Rooms/FPSRLHazardZone.h"
+#include "Rooms/FPSRLBoonTerminal.h"
+#include "Rooms/FPSRLRoom.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/PawnMovementComponent.h"
 #include "Core/FPSRLPlayerController.h"
@@ -721,6 +723,32 @@ void UFPSRLDepthLayoutComponent::OnPlacementShownOnServer(int32 Index)
 		}
 	}
 
+	// A combat room's reward (Blessing / Upgrade / Healing Altar) stands by its exit door from the start, locked (and dark)
+	// until the room is cleared: players see what the fight is for. Everyone passes it on the way out.
+	if (bEncounterRoom && Placement.Reward != EFPSRLTraversalReward::None && Placements.IsValidIndex(Index + 1) && !RewardActors.Contains(Index))
+	{
+		UClass* RewardClass = UFPSRLRunSettings::Get().TraversalRewardClasses.FindRef(Placement.Reward).LoadSynchronous();
+		const FTransform& Exit = Placements[Index + 1].Transform;	// this room's exit = where the next one starts
+		const FTransform At(Exit.Rotator(), Exit.TransformPosition(UFPSRLRunSettings::Get().EncounterRewardOffsetFromExit));
+		AFPSRLRoom* RoomActor = nullptr;
+		for (AActor* Actor : Level->Actors)
+		{
+			RoomActor = RoomActor ? RoomActor : Cast<AFPSRLRoom>(Actor);
+		}
+		AActor* Reward = RewardClass ? GetWorld()->SpawnActorDeferred<AActor>(RewardClass, At, nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn) : nullptr;
+		if (Reward)
+		{
+			if (AFPSRLBoonTerminal* Altar = Cast<AFPSRLBoonTerminal>(Reward))
+			{
+				Altar->SetRoom(RoomActor);	// unlocks when this room's encounter is cleared
+			}
+			Reward->FinishSpawning(At);
+			RewardActors.Add(Index, Reward);
+			UE_LOG(LogFPSRL, Log, TEXT("[Depth] Room %d: %s by its exit at %s, locked until the room is cleared (room actor %s)"), Index,
+				*UEnum::GetDisplayValueAsText(Placement.Reward).ToString(), *At.GetLocation().ToCompactString(), *GetNameSafe(RoomActor));
+		}
+	}
+
 	const bool bEncounter = Placement.Room && IsEncounterRoom(Placement.Room->RoomType);
 	SetRoomState(Index, bEncounter && EncounterCleared[Index] ? EFPSRLRoomState::Completed
 		: (RoomStates[Index] == EFPSRLRoomState::Combat ? EFPSRLRoomState::Combat : EFPSRLRoomState::Active));
@@ -791,22 +819,6 @@ void UFPSRLDepthLayoutComponent::NotifyEncounterCleared(const AActor* RoomActor)
 	EncounterCleared[Index] = true;
 	SetRoomState(Index, EFPSRLRoomState::Completed);
 
-	// Its reward (Blessing / Upgrade Altar), beside the exit door, so everyone passes it on the way out.
-	const EFPSRLTraversalReward Reward = Placements.IsValidIndex(Index) ? Placements[Index].Reward : EFPSRLTraversalReward::None;
-	if (Reward != EFPSRLTraversalReward::None && Placements.IsValidIndex(Index + 1) && !RewardActors.Contains(Index))
-	{
-		UClass* RewardClass = UFPSRLRunSettings::Get().TraversalRewardClasses.FindRef(Reward).LoadSynchronous();
-		const FTransform& Exit = Placements[Index + 1].Transform;	// this room's exit = where the next one starts
-		const FTransform At(Exit.Rotator(), Exit.TransformPosition(UFPSRLRunSettings::Get().EncounterRewardOffsetFromExit));
-		if (RewardClass)
-		{
-			FActorSpawnParameters Params;
-			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			RewardActors.Add(Index, GetWorld()->SpawnActor<AActor>(RewardClass, At, Params));
-			UE_LOG(LogFPSRL, Log, TEXT("[Depth] Room %d cleared: spawned %s by its exit at %s"), Index,
-				*UEnum::GetDisplayValueAsText(Reward).ToString(), *At.GetLocation().ToCompactString());
-		}
-	}
 	ExpireCatchUpOffers(Index, false);	// nothing left to catch up to
 	UpdateWindow();	// start loading what comes next
 }

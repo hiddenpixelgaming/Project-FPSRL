@@ -46,6 +46,13 @@ public:
 	/** Server: fired on behalf of a client that already shows its own copy; not replicated to that client. */
 	bool bHiddenFromInstigator = false;
 
+	/** Flight speed relative to the projectile's own (enemies fire slower, dodgeable shots: their behavior profile's
+	 *  ProjectileSpeedMultiplier). Set before it finishes spawning; replicated so every machine flies it the same. */
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Projectile")
+	float SpeedMultiplier = 1.f;
+
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
 	virtual void BeginPlay() override;
 

@@ -56,7 +56,7 @@ DECLARE_MULTICAST_DELEGATE(FFPSRLLayoutEvent);
  *   Entry map -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Miniboss] -> [Traversal -> Final Level
  *   Boss arena] -> Exit room. Each room's origin is chained onto the previous room's exit. Each traversal's reward (Blessing
  *   Altar, Upgrade Altar, ...) is rolled for it but given by the encounter room before it: spawned beside that room's exit
- *   door when it is cleared (nobody can walk past it). No other room ever gets one (user rule); the Preparation room
+ *   door when the room loads, locked (dark) until it is cleared. No other room ever gets one (user rule); the Preparation room
  *   has its own altars placed in its level.
  *
  * Streaming (server decides, every machine follows): only a window of the sequence is loaded. It reaches one room past

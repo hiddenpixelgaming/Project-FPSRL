@@ -773,6 +773,7 @@ void AFPSRLPlayerController::RefreshBoonSelectionUI()
 		{
 			It->RefreshLocalAppearance();
 			It->RefreshLocalInteractor();
+			It->RefreshAvailabilityTint();	// dark again once this player's choice there is done
 		}
 	}
 	if (!IsLocalController() || !Boons || !HasPendingBoonSelection())

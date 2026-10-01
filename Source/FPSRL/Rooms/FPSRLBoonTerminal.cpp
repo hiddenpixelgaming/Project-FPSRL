@@ -9,6 +9,7 @@
 #include "Engine/CollisionProfile.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Net/UnrealNetwork.h"
 #include "Rooms/FPSRLRoom.h"
@@ -49,6 +50,7 @@ void AFPSRLBoonTerminal::BeginPlay()
 	OriginalMaterial = Mesh->GetMaterial(0);
 	OriginalPromptText = PromptText;
 	RefreshLocalAppearance();	// a player who arrives with every Blessing taken sees an Upgrade Altar
+	RefreshAvailabilityTint();	// dark until its room is cleared
 
 	K2_OnUnlockedChanged(bUnlocked);
 	if (!HasAuthority())
@@ -90,12 +92,39 @@ void AFPSRLBoonTerminal::SetUnlocked(bool bNewUnlocked)
 void AFPSRLBoonTerminal::OnRep_Unlocked()
 {
 	RefreshLocalInteractor();
+	RefreshAvailabilityTint();
 	K2_OnUnlockedChanged(bUnlocked);
 }
 
 void AFPSRLBoonTerminal::OnRep_ClaimedBy()
 {
 	RefreshLocalInteractor();
+	RefreshAvailabilityTint();
+}
+
+void AFPSRLBoonTerminal::RefreshAvailabilityTint()
+{
+	if (GetNetMode() == NM_DedicatedServer || !Mesh)
+	{
+		return;
+	}
+	// A new instance whenever the mesh's material changed (first time, or the Upgrade look swapped it).
+	UMaterialInterface* Current = Mesh->GetMaterial(0);
+	if (!Current)
+	{
+		return;
+	}
+	if (Current != TintMaterial)
+	{
+		TintMaterial = Mesh->CreateDynamicMaterialInstance(0, Current);
+		bTintHasColor = TintMaterial && TintMaterial->GetVectorParameterValue(FHashedMaterialParameterInfo(TEXT("Color")), TintBaseColor);
+	}
+	if (TintMaterial && bTintHasColor)
+	{
+		FLinearColor Shown = CanInteract() ? TintBaseColor : TintBaseColor * 0.05f;	// much darker: not usable right now
+		Shown.A = TintBaseColor.A;
+		TintMaterial->SetVectorParameterValue(TEXT("Color"), Shown);
+	}
 }
 
 bool AFPSRLBoonTerminal::HasBeenUsedBy(const APlayerState* Player) const
@@ -194,4 +223,5 @@ void AFPSRLBoonTerminal::RefreshLocalAppearance()
 	UMaterialInterface* UpgradeMaterial = bUpgradeLook ? UpgradeLookMaterial.LoadSynchronous() : nullptr;
 	Mesh->SetMaterial(0, bUpgradeLook && UpgradeMaterial ? UpgradeMaterial : OriginalMaterial.Get());
 	PromptText = bUpgradeLook ? UpgradePromptText : OriginalPromptText;
+	RefreshAvailabilityTint();
 }

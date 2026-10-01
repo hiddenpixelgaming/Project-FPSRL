@@ -54,6 +54,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Terminal")
 	bool HasBeenUsedBy(const APlayerState* Player) const;
 
+	/** Server, before it finishes spawning: the room whose encounter unlocks it (an altar spawned into a combat room). */
+	void SetRoom(AFPSRLRoom* InRoom) { Room = InRoom; }
+
+	/** Local: normal colours while this machine's player can use it, a darker tint otherwise (locked until its room is
+	 *  cleared, or already used). Uses the mesh material's "Color" parameter; materials without one keep their look. */
+	void RefreshAvailabilityTint();
+
 protected:
 	/** Server: open this altar's kind of choice for the player (Blessings, or upgrades once they have every Blessing;
 	 *  AFPSRLUpgradeAltar: always upgrades). */
@@ -118,4 +125,10 @@ private:
 
 	FString OriginalPromptText;
 	bool bShowingUpgradeLook = false;
+
+	/** Local: the tinting instance on the mesh and the colour it had before any tint. */
+	UPROPERTY(Transient)
+	TObjectPtr<class UMaterialInstanceDynamic> TintMaterial;
+	FLinearColor TintBaseColor = FLinearColor::White;
+	bool bTintHasColor = false;
 };

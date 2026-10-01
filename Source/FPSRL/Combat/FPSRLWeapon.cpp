@@ -2,6 +2,7 @@
 
 #include "Combat/FPSRLWeapon.h"
 #include "AI/FPSRLEnemyAIController.h"
+#include "Data/FPSRLEnemyBehaviorProfile.h"
 #include "Combat/FPSRLProjectile.h"
 #include "Combat/FPSRLCombatRules.h"
 #include "Animation/AnimMontage.h"
@@ -183,6 +184,12 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 			if (AFPSRLProjectile* Tracked = Cast<AFPSRLProjectile>(Projectile))
 			{
 				Tracked->AttackId = AttackId;
+				// Enemies fire slower, dodgeable shots (their behavior profile).
+				const AFPSRLEnemyAIController* AI = PawnOwner.IsValid() ? Cast<AFPSRLEnemyAIController>(PawnOwner->GetController()) : nullptr;
+				if (const UFPSRLEnemyBehaviorProfile* Behavior = AI ? AI->GetProfile() : nullptr)
+				{
+					Tracked->SpeedMultiplier = Behavior->ProjectileSpeedMultiplier;
+				}
 			}
 			Projectile->FinishSpawning(Shot);
 		}

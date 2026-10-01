@@ -996,7 +996,21 @@ FVector AFPSRLEnemyAIController::GetAimPoint() const
 {
 	if (const AActor* Current = Target.Get())
 	{
-		return Current->GetActorLocation() + FVector(0.f, 0.f, 30.f);	// chest height
+		FVector Aim = Current->GetActorLocation() + FVector(0.f, 0.f, 30.f);	// chest height
+		if (!Profile)
+		{
+			return Aim;
+		}
+		// Where the target was a moment ago (moving keeps you ahead of its aim), then off by up to the spread cone.
+		Aim -= Current->GetVelocity() * Profile->AimLagSeconds;
+		const APawn* MyPawn = GetPawn();
+		if (MyPawn && Profile->AimSpreadDegrees > 0.f)
+		{
+			const FVector Eye = MyPawn->GetPawnViewLocation();
+			const FVector ToAim = Aim - Eye;
+			Aim = Eye + FMath::VRandCone(ToAim.GetSafeNormal(), FMath::DegreesToRadians(Profile->AimSpreadDegrees)) * ToAim.Size();
+		}
+		return Aim;
 	}
 	const APawn* MyPawn = GetPawn();
 	return MyPawn ? MyPawn->GetActorLocation() + MyPawn->GetActorForwardVector() * 1000.f : FVector::ZeroVector;

@@ -2,6 +2,8 @@
 
 #include "Combat/FPSRLProjectile.h"
 #include "Combat/FPSRLCombatRules.h"
+#include "GameFramework/ProjectileMovementComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLPlayerController.h"
 #include "Engine/Level.h"
@@ -44,6 +46,19 @@ bool AFPSRLProjectile::CanPawnShoot(const APawn* Pawn)
 void AFPSRLProjectile::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Slower shots (enemies' dodgeable bullets): every machine scales its own copy from the replicated multiplier. Gravity
+	// scales with its square, so the arc drops as much over a distance as a full-speed shot would.
+	if (!FMath::IsNearlyEqual(SpeedMultiplier, 1.f))
+	{
+		if (UProjectileMovementComponent* Movement = FindComponentByClass<UProjectileMovementComponent>())
+		{
+			Movement->Velocity *= SpeedMultiplier;
+			Movement->InitialSpeed *= SpeedMultiplier;
+			Movement->MaxSpeed *= SpeedMultiplier;
+			Movement->ProjectileGravityScale *= SpeedMultiplier * SpeedMultiplier;
+		}
+	}
 
 	APawn* Shooter = GetInstigator();
 	UWorld* World = GetWorld();
@@ -181,4 +196,10 @@ void AFPSRLProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPr
 		UE_LOG(LogFPSRL, Log, TEXT("[ProjectileHit] %s (from %s) hit %s.%s at %s"), *GetName(), *GetNameSafe(GetInstigator()), *GetNameSafe(Other),
 			*GetNameSafe(OtherComp), *HitLocation.ToCompactString());
 	}
+}
+
+void AFPSRLProjectile::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME_CONDITION(AFPSRLProjectile, SpeedMultiplier, COND_InitialOnly);
 }

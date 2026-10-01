@@ -211,6 +211,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Detection", meta = (ClampMin = "0"))
 	float ReactionTime = 0.3f;
 
+	// --- Aim (fairness: shots a player can avoid) ------------------------------------------------------------------------
+
+	/** Each shot goes off its aim by up to this many degrees (a cone around the line to the aim point). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim", meta = (ClampMin = "0", ClampMax = "30"))
+	float AimSpreadDegrees = 0.f;
+
+	/** It aims where its target was this long ago (from the target's velocity), so a player who keeps moving sideways
+	 *  makes it miss; one who stands still gets hit. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim", meta = (ClampMin = "0", ClampMax = "2"))
+	float AimLagSeconds = 0.f;
+
+	/** Its projectiles fly at this share of their normal speed (slower = visible and dodgeable). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float ProjectileSpeedMultiplier = 1.f;
+
 	// --- Targeting -----------------------------------------------------------------------------------------------------
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Targeting")
