@@ -25,7 +25,8 @@ struct FFPSRLRoomPlacement
 	UPROPERTY(BlueprintReadOnly, Category = "Depth")
 	FTransform Transform;
 
-	/** Traversal spaces: rolled from the Depth's TraversalRewards. None for every other room. */
+	/** Rolled from the Depth's TraversalRewards for each traversal, then moved onto the encounter room before it (spawned
+	 *  by its exit door when cleared). None for every other room. */
 	UPROPERTY(BlueprintReadOnly, Category = "Depth")
 	EFPSRLTraversalReward Reward = EFPSRLTraversalReward::None;
 };
@@ -53,8 +54,10 @@ DECLARE_MULTICAST_DELEGATE(FFPSRLLayoutEvent);
  *
  * Sequence (server, rolled once from the Depth definition's pools, then replicated):
  *   Entry map -> [Preparation] -> Combat -> Traversal -> Combat -> ... -> Combat -> [Miniboss] -> [Traversal -> Final Level
- *   Boss arena] -> Exit room. Each room's origin is chained onto the previous room's exit. Traversals carry their rolled
- *   reward (Blessing Altar, Upgrade Altar, ...), spawned at the traversal's AFPSRLRewardSpawnPoint when it loads.
+ *   Boss arena] -> Exit room. Each room's origin is chained onto the previous room's exit. Each traversal's reward (Blessing
+ *   Altar, Upgrade Altar, ...) is rolled for it but given by the encounter room before it: spawned beside that room's exit
+ *   door when it is cleared (nobody can walk past it). A traversal after anything else spawns its own at its
+ *   AFPSRLRewardSpawnPoint when it loads.
  *
  * Streaming (server decides, every machine follows): only a window of the sequence is loaded. It reaches one room past
  * the first uncleared encounter, so clearing a combat room starts loading the next one while the party crosses the

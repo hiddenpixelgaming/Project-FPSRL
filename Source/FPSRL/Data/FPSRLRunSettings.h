@@ -32,6 +32,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Rooms")
 	TMap<EFPSRLTraversalReward, TSoftClassPtr<AActor>> TraversalRewardClasses;
 
+	/** A traversal's reward (Blessing / Upgrade Altar) is given at the end of the encounter room before it instead, so
+	 *  nobody can walk past it: spawned when that room is cleared, here relative to its exit (the next room's origin,
+	 *  facing on). Default: beside the exit door, at the side of the exit passage. */
+	UPROPERTY(Config, EditAnywhere, Category = "Rooms")
+	FVector EncounterRewardOffsetFromExit = FVector(-280.f, -230.f, 60.f);
+
 	/** Seconds between an occupancy check and the next when unloading rooms every player has left behind. */
 	UPROPERTY(Config, EditAnywhere, Category = "Rooms", meta = (ClampMin = "0.1"))
 	float RoomUnloadCheckInterval = 1.f;

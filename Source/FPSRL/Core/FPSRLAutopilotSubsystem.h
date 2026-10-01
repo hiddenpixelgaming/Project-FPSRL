@@ -58,6 +58,9 @@ private:
 
 	/** fpsrl.Autopilot.Shots: viewpoints still to screenshot in the first combat room (before its fight). */
 	int32 ShotIndex = INDEX_NONE;
+
+	/** fpsrl.Autopilot.ShotsAfterClear: next view to take in the first cleared room (-2 = done). */
+	int32 AfterClearShotIndex = INDEX_NONE;
 	int32 MinPlayers = 1;
 	int32 Steps = 0;
 	int32 MaxSteps = 900;

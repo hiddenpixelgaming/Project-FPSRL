@@ -281,6 +281,18 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 	}
 
 	Placements = RollSequence(*Depth);
+	// The rewards rolled for traversals are given at the end of the encounter room before them instead (user: nobody can
+	// miss them on the way through), beside its exit door once it is cleared. A traversal after anything else keeps its own.
+	for (int32 Index = 1; Index < Placements.Num(); ++Index)
+	{
+		FFPSRLRoomPlacement& Before = Placements[Index - 1];
+		if (Placements[Index].Reward != EFPSRLTraversalReward::None && Before.Room && IsEncounterRoom(Before.Room->RoomType)
+			&& Before.Reward == EFPSRLTraversalReward::None)
+		{
+			Before.Reward = Placements[Index].Reward;
+			Placements[Index].Reward = EFPSRLTraversalReward::None;
+		}
+	}
 	// The next Depth avoids these arenas when it can (no back-to-back repeats).
 	if (UFPSRLRunSubsystem* RunState = GetWorld()->GetGameInstance() ? GetWorld()->GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr)
 	{
@@ -673,7 +685,8 @@ void UFPSRLDepthLayoutComponent::OnPlacementShownOnServer(int32 Index)
 
 	// A traversal's reward: spawn what the data rolled (nothing for None, and nothing yet for Future).
 	const FFPSRLRoomPlacement& Placement = Placements[Index];
-	if (Placement.Reward != EFPSRLTraversalReward::None)
+	const bool bEncounterRoom = Placement.Room && IsEncounterRoom(Placement.Room->RoomType);
+	if (Placement.Reward != EFPSRLTraversalReward::None && !bEncounterRoom)	// an encounter room's comes when it is cleared
 	{
 		UClass* RewardClass = UFPSRLRunSettings::Get().TraversalRewardClasses.FindRef(Placement.Reward).LoadSynchronous();
 		if (RewardClass && RewardPoint)
@@ -759,6 +772,23 @@ void UFPSRLDepthLayoutComponent::NotifyEncounterCleared(const AActor* RoomActor)
 	}
 	EncounterCleared[Index] = true;
 	SetRoomState(Index, EFPSRLRoomState::Completed);
+
+	// Its reward (Blessing / Upgrade Altar), beside the exit door, so everyone passes it on the way out.
+	const EFPSRLTraversalReward Reward = Placements.IsValidIndex(Index) ? Placements[Index].Reward : EFPSRLTraversalReward::None;
+	if (Reward != EFPSRLTraversalReward::None && Placements.IsValidIndex(Index + 1) && !RewardActors.Contains(Index))
+	{
+		UClass* RewardClass = UFPSRLRunSettings::Get().TraversalRewardClasses.FindRef(Reward).LoadSynchronous();
+		const FTransform& Exit = Placements[Index + 1].Transform;	// this room's exit = where the next one starts
+		const FTransform At(Exit.Rotator(), Exit.TransformPosition(UFPSRLRunSettings::Get().EncounterRewardOffsetFromExit));
+		if (RewardClass)
+		{
+			FActorSpawnParameters Params;
+			Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			RewardActors.Add(Index, GetWorld()->SpawnActor<AActor>(RewardClass, At, Params));
+			UE_LOG(LogFPSRL, Log, TEXT("[Depth] Room %d cleared: spawned %s by its exit at %s"), Index,
+				*UEnum::GetDisplayValueAsText(Reward).ToString(), *At.GetLocation().ToCompactString());
+		}
+	}
 	ExpireCatchUpOffers(Index, false);	// nothing left to catch up to
 	UpdateWindow();	// start loading what comes next
 }
@@ -884,7 +914,7 @@ void UFPSRLDepthLayoutComponent::OfferCatchUp(int32 RoomIndex)
 		const AFPSRLPlayerState* PS = It->Get() ? It->Get()->GetPlayerState<AFPSRLPlayerState>() : nullptr;
 		Leader = PS && PS->ExpeditionRoomIndex >= RoomIndex ? PS->GetPlayerName() : FString();
 	}
-	const FText Message = FText::Format(NSLOCTEXT("FPSRL", "CatchUpOffer", "{0} is fighting in {1}"),
+	const FText Message = FText::Format(NSLOCTEXT("FPSRL", "CatchUpOffer", "{0} is engaged in combat"),
 		Leader.IsEmpty() ? NSLOCTEXT("FPSRL", "ATeammate", "A teammate") : FText::FromString(Leader), GetRoomDisplayName(RoomIndex));
 
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)

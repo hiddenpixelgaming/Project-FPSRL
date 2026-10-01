@@ -38,6 +38,8 @@ namespace FPSRLAutopilot
 	static TAutoConsoleVariable<bool> CVarMoveParty(TEXT("fpsrl.Autopilot.MoveParty"), false,
 		TEXT("Autopilot: move every player into each room with the host (default: only the host; the others stay behind)."));
 
+	static TAutoConsoleVariable<FString> CVarShotsAfterClear(TEXT("fpsrl.Autopilot.ShotsAfterClear"), TEXT(""),
+		TEXT("Autopilot: screenshot viewpoints in the first room fought, once it is cleared (same format as Shots): what it leaves behind."));
 }
 #include "FPSRL.h"
 
@@ -162,6 +164,37 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 			}
 			return true;
 		}
+	}
+
+	// Review of what a cleared room leaves (its reward by the exit): screenshots in the first room fought, after its clear.
+	const FString AfterClearShots = FPSRLAutopilot::CVarShotsAfterClear.GetValueOnGameThread();
+	if (!AfterClearShots.IsEmpty() && AfterClearShotIndex != -2 && Layout->EncounterCleared.IsValidIndex(FightRoom) && Layout->EncounterCleared[FightRoom])
+	{
+		AFPSRLRoom* Cleared = nullptr;
+		for (TActorIterator<AFPSRLRoom> It(World); It && !Cleared; ++It)
+		{
+			Cleared = Layout->FindPlacementIndex(*It) == FightRoom ? *It : nullptr;
+		}
+		TArray<FString> Views;
+		AfterClearShots.ParseIntoArray(Views, TEXT(";"));
+		AfterClearShotIndex = FMath::Max(AfterClearShotIndex, 0);
+		if (Cleared && Views.IsValidIndex(AfterClearShotIndex))
+		{
+			TArray<FString> Parts;
+			Views[AfterClearShotIndex].ParseIntoArrayWS(Parts);
+			if (Parts.Num() >= 5)
+			{
+				const FVector Spot = Cleared->GetActorTransform().TransformPositionNoScale(FVector(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2])));
+				const FRotator View(FCString::Atof(*Parts[4]), Cleared->GetActorRotation().Yaw + FCString::Atof(*Parts[3]), 0.f);
+				Pawn->TeleportTo(Spot, FRotator(0.f, View.Yaw, 0.f), false, true);
+				PC->SetControlRotation(View);
+				PC->ConsoleCommand(FString::Printf(TEXT("HighResShot 1600x900 filename=Cleared_%s_%02d"), *Cleared->GetLevel()->GetOuter()->GetName(), AfterClearShotIndex));
+				UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] cleared-room shot %d at %s"), AfterClearShotIndex, *Spot.ToCompactString());
+			}
+			++AfterClearShotIndex;
+			return true;
+		}
+		AfterClearShotIndex = -2;	// done
 	}
 
 	if (Next == INDEX_NONE || Layout->ReadyThrough < Next)
