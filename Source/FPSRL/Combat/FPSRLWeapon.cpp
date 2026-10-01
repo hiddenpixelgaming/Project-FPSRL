@@ -13,6 +13,7 @@
 #include "GameFramework/Pawn.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "TimerManager.h"
+#include "HAL/IConsoleManager.h"
 #include "FPSRL.h"
 
 AFPSRLWeapon::AFPSRLWeapon()
@@ -165,6 +166,11 @@ void AFPSRLWeapon::FireShot(const FVector& Target)
 		for (int32 Pellet = 0; Pellet < FMath::Max(1, ProjectilesPerShot); ++Pellet)
 		{
 			const FTransform Shot = CalculateShotTransform(Target);
+			if (IConsoleVariable* Debug = IConsoleManager::Get().FindConsoleVariable(TEXT("fpsrl.Debug.ProjectileHits")); Debug && Debug->GetBool())
+			{
+				UE_LOG(LogFPSRL, Log, TEXT("[ProjectileHit] %s shot from %s aiming at %s (spread %.1f), flies %s"), *GetNameSafe(PawnOwner.Get()),
+					*Shot.GetLocation().ToCompactString(), *Target.ToCompactString(), AimVariance, *Shot.GetRotation().Vector().ToCompactString());
+			}
 			AActor* Projectile = GetWorld()->SpawnActorDeferred<AActor>(BulletClass, Shot, GetOwner(), PawnOwner.Get(), ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
 			if (!Projectile)
 			{
