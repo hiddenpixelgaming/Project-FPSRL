@@ -730,8 +730,18 @@ bool UFPSRLAutopilotSubsystem::ShootRoom(UFPSRLDepthLayoutComponent* Layout, APl
 	const FTransform& Room = Layout->Placements[Index].Transform;
 	const FVector Spot = Room.TransformPosition(FVector(250.f, 0.f, 160.f));
 	const FRotator View(-5.f, Room.Rotator().Yaw, 0.f);
-	Pawn->TeleportTo(Spot, FRotator(0.f, View.Yaw, 0.f), false, true);
-	PC->SetControlRotation(View);
+	if (FVector::Dist2D(Pawn->GetActorLocation(), Spot) > 50.f)	// 2D: the pawn drops onto the floor
+	{
+		// Go there first and let the camera's auto exposure settle (3 steps), so the shot shows the room as a player sees it.
+		Pawn->TeleportTo(Spot, FRotator(0.f, View.Yaw, 0.f), false, true);
+		PC->SetControlRotation(View);
+		RoomShotSettle = 3;
+		return true;
+	}
+	if (--RoomShotSettle > 0)
+	{
+		return true;
+	}
 	PC->ConsoleCommand(FString::Printf(TEXT("HighResShot 1600x900 filename=Room_D%d_%02d_%s"), RoomShotDepth, Index, *GetNameSafe(Layout->Placements[Index].Room)));
 	UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] room shot %d (%s) at %s"), Index, *GetNameSafe(Layout->Placements[Index].Room), *Spot.ToCompactString());
 	LastRoomShot = Index;
