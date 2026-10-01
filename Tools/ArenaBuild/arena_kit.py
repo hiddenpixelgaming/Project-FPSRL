@@ -189,3 +189,31 @@ def finish(level_name, data_name, display_name, arena_type, exit_x, room_center,
             lib.save_loaded_asset(d, False)
         out.append("%s combat pool: %s" % (d.get_name(), [p.get_name() for p in d.get_editor_property("combat_rooms")]))
     return out
+
+
+def hazard_material():
+    """A near-black greyscale grid for hazard surfaces (reads instantly against the light stone). The grid material
+    colours top faces with its Top* parameters, so both sets are applied, on every build so tweaks here take effect."""
+    path = "/Game/MainProject/Contents/Materials/Arena/MI_Arena_HazardPool"
+    if lib.does_asset_exist(path):
+        mi = unreal.load_asset(path)
+    else:
+        mi = unreal.AssetToolsHelpers.get_asset_tools().create_asset("MI_Arena_HazardPool", "/Game/MainProject/Contents/Materials/Arena",
+                                                                     unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew())
+        unreal.MaterialEditingLibrary.set_material_instance_parent(mi, unreal.load_asset("/Game/LevelPrototyping/Materials/M_PrototypeGrid"))
+    for name, v in (("SurfaceColor", 0.008), ("GridColor", 0.03), ("SubGridColor", 0.016),
+                    ("TopSurfaceColor", 0.008), ("TopGridColor", 0.03), ("TopSubGridGridColor", 0.016)):
+        unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(v, v, v, 1))
+    lib.save_loaded_asset(mi, False)
+    return mi
+
+
+def hazard_zone(label, x0, x1, y0, y1, surface_z, damage_per_second=30.0):
+    """Hazard logic box just under walking height: a pawn standing ON the hazard surface (capsule bottom at surface_z)
+    overlaps it; one standing on stone 40 cm higher does not. Enemies' navigation avoids its footprint at that height."""
+    a = sub.spawn_actor_from_class(unreal.FPSRLHazardZone, unreal.Vector((x0 + x1) / 2.0, (y0 + y1) / 2.0, surface_z - 2.0), unreal.Rotator())
+    a.set_actor_label(label)
+    a.get_editor_property("zone").set_box_extent(unreal.Vector((x1 - x0) / 2.0, (y1 - y0) / 2.0, 27.0))
+    a.set_editor_property("damage_per_second", damage_per_second)
+    a.set_folder_path("Arena/Hazards")
+    return a
