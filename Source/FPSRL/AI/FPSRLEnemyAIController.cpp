@@ -547,6 +547,23 @@ void AFPSRLEnemyAIController::Think()
 void AFPSRLEnemyAIController::HandleLostSight(float Distance)
 {
 	const double Now = GetWorld()->GetTimeSeconds();
+	if (Profile->LostSightResponse == EFPSRLLostSightResponse::SeekLastSeen)
+	{
+		// Seek (user: enemies out of sight must come looking, not stand still): another player in sight takes over;
+		// otherwise walk to where the target was last seen, and from there keep hunting toward it. Never forgets it.
+		if (AActor* Other = ChooseTarget(true); Other && Other != Target.Get() && HasLineOfSightTo(Other))
+		{
+			AcquireTarget(Other, false);
+			return;
+		}
+		const bool bAtLastSeen = FVector::Dist2D(GetPawn()->GetActorLocation(), LastKnownTargetLocation) < 200.f;
+		const FVector Goal = bAtLastSeen ? Target->GetActorLocation() : LastKnownTargetLocation;
+		if (!bMoving || State != EFPSRLEnemyAIState::Pursuing || FVector::Dist2D(MoveGoal, Goal) > 300.f)
+		{
+			MoveToSpot(Goal, EFPSRLEnemyAIState::Pursuing);
+		}
+		return;
+	}
 	if (Now - LastSeenTime > Profile->TargetMemorySeconds)
 	{
 		// Forgotten: another visible player, else search / give up.

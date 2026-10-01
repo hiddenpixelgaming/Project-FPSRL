@@ -323,6 +323,16 @@ public:
 	UFUNCTION(Exec)
 	void FPSRLKillEnemies();
 
+	/** Playtesting: 5x movement speed on/off (also F9); off restores the speed from before it was turned on. Not in Shipping. */
+	UFUNCTION(Exec)
+	void FPSRLFastMove();
+
+	/** This machine: the walk speed saved when fast move went on (< 0 = off). Server and owning client each keep their own. */
+	float FastMoveSavedSpeed = -1.f;
+
+	/** Apply fast move on this machine's copy of the pawn (on: save the current speed, x5; off: restore it). */
+	void ApplyFastMove(bool bOn);
+
 	void HandleMeleePressed();
 	void HandleDashPressed();
 

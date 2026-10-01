@@ -70,7 +70,9 @@ enum class EFPSRLLostSightResponse : uint8
 	Reposition,		// find a spot with sight of the target
 	Pursue,			// go toward the target
 	Search,			// go to the last known position and look around, then give up
-	Retarget		// pick another (visible) player
+	Retarget,		// pick another (visible) player
+	SeekLastSeen	// go to where it last saw the target, then keep hunting toward it; never gives up while the target is
+					// valid (switches only to another player in sight)
 };
 
 /** When it takes damage. */

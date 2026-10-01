@@ -294,6 +294,7 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 		const FString ForcedReward = FPSRLDepthLayout::CVarForceReward.GetValueOnGameThread();
 		const int64 Forced = ForcedReward.IsEmpty() ? INDEX_NONE : StaticEnum<EFPSRLTraversalReward>()->GetValueByNameString(ForcedReward);
 		int32 RewardOrder = 0;
+		bool bHealingPlaced = false;
 		for (FFPSRLRoomPlacement& Placement : Placements)
 		{
 			const ERoomType Type = Placement.Room ? Placement.Room->RoomType : ERoomType::Entry;
@@ -304,7 +305,14 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 			}
 			const FFPSRLTraversalRewardOdds& Odds = Depth->TraversalRewards.IsValidIndex(RewardOrder) ? Depth->TraversalRewards[RewardOrder] : Depth->DefaultTraversalReward;
 			++RewardOrder;
-			Placement.Reward = Forced != INDEX_NONE ? static_cast<EFPSRLTraversalReward>(Forced) : Odds.Roll();
+			// At most one Healing Altar per Depth (user rule): once one is placed, later rolls leave it out.
+			FFPSRLTraversalRewardOdds Allowed = Odds;
+			if (bHealingPlaced)
+			{
+				Allowed.Weights.Remove(EFPSRLTraversalReward::HealingAltar);
+			}
+			Placement.Reward = Forced != INDEX_NONE ? static_cast<EFPSRLTraversalReward>(Forced) : Allowed.Roll();
+			bHealingPlaced |= Placement.Reward == EFPSRLTraversalReward::HealingAltar;
 			UE_LOG(LogFPSRL, Log, TEXT("[Depth] reward roll %d (%s odds, %d weights): %s"), RewardOrder - 1, Depth->TraversalRewards.IsValidIndex(RewardOrder - 1) ? TEXT("ordered") : TEXT("default"), Odds.Weights.Num(), *UEnum::GetValueAsString(Placement.Reward));
 			if (Placement.Reward == EFPSRLTraversalReward::None || Placement.Reward == EFPSRLTraversalReward::Future)
 			{

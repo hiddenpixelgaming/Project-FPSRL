@@ -36,6 +36,7 @@
 #include "UI/FPSRLCombatFeedback.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "InputMappingContext.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
@@ -342,6 +343,12 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 			bDone = true;
 			ClientShowNotice(NSLOCTEXT("FPSRL", "HealedToFull", "Healed to full"));
 		}
+	}
+	else if (Command == TEXT("FastMove"))
+	{
+		// Playtesting (F9): the server's copy of this player's speed follows the client's.
+		ApplyFastMove(Arg1 == TEXT("1"));
+		bDone = true;
 	}
 	else if (Command == TEXT("KillEnemies"))
 	{
@@ -1353,6 +1360,7 @@ void AFPSRLPlayerController::SetupInputComponent()
 		InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &ThisClass::FPSRLGod);	// F1-F5 are the engine's debug view modes
 		InputComponent->BindKey(EKeys::F7, IE_Pressed, this, &ThisClass::FPSRLHeal);
 		InputComponent->BindKey(EKeys::F8, IE_Pressed, this, &ThisClass::FPSRLKillEnemies);
+		InputComponent->BindKey(EKeys::F9, IE_Pressed, this, &ThisClass::FPSRLFastMove);
 	}
 #endif
 }
@@ -1647,6 +1655,39 @@ void AFPSRLPlayerController::FPSRLHeal()
 void AFPSRLPlayerController::FPSRLKillEnemies()
 {
 	ServerTestCommand(TEXT("KillEnemies"), FString(), FString());
+}
+
+void AFPSRLPlayerController::FPSRLFastMove()
+{
+	// Movement is predicted: the owning client and the server must both use the new speed.
+	const bool bOn = FastMoveSavedSpeed < 0.f;
+	ApplyFastMove(bOn);
+	if (!HasAuthority())
+	{
+		ServerTestCommand(TEXT("FastMove"), bOn ? TEXT("1") : TEXT("0"), FString());
+	}
+	ShowNotice(bOn ? NSLOCTEXT("FPSRL", "FastMoveOn", "Fast move ON (x5)") : NSLOCTEXT("FPSRL", "FastMoveOff", "Fast move OFF"));
+}
+
+void AFPSRLPlayerController::ApplyFastMove(bool bOn)
+{
+	ACharacter* MyCharacter = Cast<ACharacter>(GetPawn());
+	UCharacterMovementComponent* Movement = MyCharacter ? MyCharacter->GetCharacterMovement() : nullptr;
+	if (!Movement || bOn == (FastMoveSavedSpeed >= 0.f))
+	{
+		return;
+	}
+	if (bOn)
+	{
+		FastMoveSavedSpeed = Movement->MaxWalkSpeed;
+		Movement->MaxWalkSpeed = FastMoveSavedSpeed * 5.f;
+	}
+	else
+	{
+		Movement->MaxWalkSpeed = FastMoveSavedSpeed;
+		FastMoveSavedSpeed = -1.f;
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Test] fast move %s for %s: walk speed %.0f"), bOn ? TEXT("on") : TEXT("off"), *GetNameSafe(MyCharacter), Movement->MaxWalkSpeed);
 }
 
 void AFPSRLPlayerController::ClientShowNotice_Implementation(const FText& Message)
