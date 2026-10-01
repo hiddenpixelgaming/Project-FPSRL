@@ -163,7 +163,7 @@ bool AFPSRLBoonTerminal::TryOffer(AFPSRLPlayerController* PC, FText& OutReason)
 		// A choice already open elsewhere reopens on the client; otherwise there is truly nothing to pick or upgrade.
 		if (!PS->GetBoonComponent()->HasPendingSelection())
 		{
-			OutReason = NSLOCTEXT("FPSRL", "NothingLeft", "Nothing left to offer");
+			OutReason = GetNothingToOfferText();
 		}
 		return false;
 	}

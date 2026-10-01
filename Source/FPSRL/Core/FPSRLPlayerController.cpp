@@ -326,6 +326,39 @@ void AFPSRLPlayerController::ServerTestCommand_Implementation(FName Command, con
 		bDone = true;
 		ClientShowNotice(PS->bGodMode ? NSLOCTEXT("FPSRL", "GodOn", "God mode ON") : NSLOCTEXT("FPSRL", "GodOff", "God mode OFF"));
 	}
+	else if (Command == TEXT("Heal"))
+	{
+		// Playtesting (F7): this player back to full health; a downed player is revived at full.
+		if (UFPSRLHealthComponent* Health = GetPawn() ? GetPawn()->FindComponentByClass<UFPSRLHealthComponent>() : nullptr; Health && !Health->IsDead())
+		{
+			if (Health->IsDowned())
+			{
+				Health->Revive(1.f);
+			}
+			else
+			{
+				Health->Heal(Health->GetMaxHealth() - Health->GetCurrentHealth());
+			}
+			bDone = true;
+			ClientShowNotice(NSLOCTEXT("FPSRL", "HealedToFull", "Healed to full"));
+		}
+	}
+	else if (Command == TEXT("KillEnemies"))
+	{
+		// Playtesting (F8): every living enemy dies (rooms clear normally, as if the players had won).
+		int32 Killed = 0;
+		for (TActorIterator<APawn> It(GetWorld()); It; ++It)
+		{
+			UFPSRLHealthComponent* Health = It->IsPlayerControlled() ? nullptr : It->FindComponentByClass<UFPSRLHealthComponent>();
+			if (Health && !Health->IsDead())
+			{
+				Health->Kill();
+				++Killed;
+			}
+		}
+		bDone = true;
+		ClientShowNotice(FText::Format(NSLOCTEXT("FPSRL", "KilledEnemies", "Killed {0} enemies"), Killed));
+	}
 	else if (Command == TEXT("GiveRelic"))
 	{
 		UFPSRLRelicComponent* Relics = PS->GetRelicComponent();
@@ -603,12 +636,13 @@ void AFPSRLPlayerController::UseBoonAltar(AFPSRLBoonTerminal* Altar)
 	{
 		return;
 	}
-	if (OpenBoonSelection())
+	if (Altar->OpensSelectionScreen() && OpenBoonSelection())
 	{
 		return;	// a choice is already open: just show it again
 	}
-	// Show the screen as soon as the server's options replicate (RefreshBoonSelectionUI).
-	bBoonSelectionOpen = true;
+	// Show the screen as soon as the server's options replicate (RefreshBoonSelectionUI). An altar that acts at once
+	// (Healing) has no screen.
+	bBoonSelectionOpen = Altar->OpensSelectionScreen();
 	ServerUseBoonAltar(Altar);
 }
 
@@ -1316,6 +1350,8 @@ void AFPSRLPlayerController::SetupInputComponent()
 	if (InputComponent)
 	{
 		InputComponent->BindKey(EKeys::F6, IE_Pressed, this, &ThisClass::FPSRLGod);	// F1-F5 are the engine's debug view modes
+		InputComponent->BindKey(EKeys::F7, IE_Pressed, this, &ThisClass::FPSRLHeal);
+		InputComponent->BindKey(EKeys::F8, IE_Pressed, this, &ThisClass::FPSRLKillEnemies);
 	}
 #endif
 }
@@ -1600,6 +1636,16 @@ void AFPSRLPlayerController::RefreshEncounterBar(AFPSRLRoom* Room)
 void AFPSRLPlayerController::FPSRLGod()
 {
 	ServerTestCommand(TEXT("God"), FString(), FString());
+}
+
+void AFPSRLPlayerController::FPSRLHeal()
+{
+	ServerTestCommand(TEXT("Heal"), FString(), FString());
+}
+
+void AFPSRLPlayerController::FPSRLKillEnemies()
+{
+	ServerTestCommand(TEXT("KillEnemies"), FString(), FString());
 }
 
 void AFPSRLPlayerController::ClientShowNotice_Implementation(const FText& Message)

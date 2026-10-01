@@ -40,6 +40,9 @@ namespace FPSRLAutopilot
 
 	static TAutoConsoleVariable<FString> CVarShotsAfterClear(TEXT("fpsrl.Autopilot.ShotsAfterClear"), TEXT(""),
 		TEXT("Autopilot: screenshot viewpoints in the first room fought, once it is cleared (same format as Shots): what it leaves behind."));
+	static TAutoConsoleVariable<bool> CVarShotEveryRoom(TEXT("fpsrl.Autopilot.ShotEveryRoom"), false,
+		TEXT("Autopilot: screenshot every room of each Depth from its entrance as it loads (Room_D<depth>_<index>_<room>)."));
+
 }
 #include "FPSRL.h"
 
@@ -149,6 +152,22 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	{
 		LastStatus = Status;
 		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] %s"), *Status);
+	}
+
+	// Room review: every room of the Depth from its entrance, in order, as soon as it is loaded (before its fight).
+	const bool bShootRooms = FPSRLAutopilot::CVarShotEveryRoom.GetValueOnGameThread();
+	if (bShootRooms)
+	{
+		if (RoomShotDepth != Run->GetDepthNumber())
+		{
+			RoomShotDepth = Run->GetDepthNumber();
+			LastRoomShot = INDEX_NONE;
+		}
+		const int32 Through = Next == INDEX_NONE ? Layout->Placements.Num() - 1 : Next;
+		if (LastRoomShot < Through && ShootRoom(Layout, PC, Pawn, LastRoomShot + 1))
+		{
+			return true;
+		}
 	}
 
 	// Depth done: go to the portal and vote to continue.
@@ -701,3 +720,20 @@ static FAutoConsoleCommandWithWorld GFPSRLProgressionTestCommand(TEXT("FPSRL.Pro
 		}
 		UE_LOG(LogFPSRL, Log, TEXT("[ProgressionTest] done: %d problem(s)"), Problems);
 	}));
+
+bool UFPSRLAutopilotSubsystem::ShootRoom(UFPSRLDepthLayoutComponent* Layout, APlayerController* PC, APawn* Pawn, int32 Index)
+{
+	if (!Layout || !PC || !Pawn || !Layout->Placements.IsValidIndex(Index) || !Layout->Window.Contains(Index) || Layout->ReadyThrough < Index)
+	{
+		return false;	// not loaded yet: try again next step
+	}
+	const FTransform& Room = Layout->Placements[Index].Transform;
+	const FVector Spot = Room.TransformPosition(FVector(250.f, 0.f, 160.f));
+	const FRotator View(-5.f, Room.Rotator().Yaw, 0.f);
+	Pawn->TeleportTo(Spot, FRotator(0.f, View.Yaw, 0.f), false, true);
+	PC->SetControlRotation(View);
+	PC->ConsoleCommand(FString::Printf(TEXT("HighResShot 1600x900 filename=Room_D%d_%02d_%s"), RoomShotDepth, Index, *GetNameSafe(Layout->Placements[Index].Room)));
+	UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] room shot %d (%s) at %s"), Index, *GetNameSafe(Layout->Placements[Index].Room), *Spot.ToCompactString());
+	LastRoomShot = Index;
+	return true;
+}

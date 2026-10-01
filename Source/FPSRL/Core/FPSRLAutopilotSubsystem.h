@@ -61,6 +61,13 @@ private:
 
 	/** fpsrl.Autopilot.ShotsAfterClear: next view to take in the first cleared room (-2 = done). */
 	int32 AfterClearShotIndex = INDEX_NONE;
+
+	/** fpsrl.Autopilot.ShotEveryRoom: the last placement screenshotted (rooms are shot in order as they load). */
+	int32 LastRoomShot = INDEX_NONE;
+	int32 RoomShotDepth = INDEX_NONE;
+
+	/** Screenshot placement Index from its entrance if it is loaded and not shot yet. True if a shot was taken. */
+	bool ShootRoom(class UFPSRLDepthLayoutComponent* Layout, APlayerController* PC, APawn* Pawn, int32 Index);
 	int32 MinPlayers = 1;
 	int32 Steps = 0;
 	int32 MaxSteps = 900;

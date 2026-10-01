@@ -31,6 +31,9 @@ namespace FPSRLDepthLayout
 {
 	static TAutoConsoleVariable<FString> CVarForceCombatRoom(TEXT("fpsrl.Depth.ForceCombatRoom"), TEXT(""),
 		TEXT("Testing: every combat room of the next Depth is this room definition (asset name, e.g. DA_Room_Arena01_SunkenPlaza; empty = random)."));
+	static TAutoConsoleVariable<FString> CVarForceReward(TEXT("fpsrl.Depth.ForceReward"), TEXT(""),
+		TEXT("Testing: every reward of the next Depth is this altar (BlessingAltar, UpgradeAltar, HealingAltar; empty = rolled)."));
+
 }
 
 namespace
@@ -286,6 +289,12 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 	for (int32 Index = 1; Index < Placements.Num(); ++Index)
 	{
 		FFPSRLRoomPlacement& Before = Placements[Index - 1];
+		const FString ForcedReward = FPSRLDepthLayout::CVarForceReward.GetValueOnGameThread();
+		if (!ForcedReward.IsEmpty() && Placements[Index].Reward != EFPSRLTraversalReward::None)
+		{
+			const int64 Value = StaticEnum<EFPSRLTraversalReward>()->GetValueByNameString(ForcedReward);
+			Placements[Index].Reward = Value == INDEX_NONE ? Placements[Index].Reward : static_cast<EFPSRLTraversalReward>(Value);
+		}
 		if (Placements[Index].Reward != EFPSRLTraversalReward::None && Before.Room && IsEncounterRoom(Before.Room->RoomType)
 			&& Before.Reward == EFPSRLTraversalReward::None)
 		{

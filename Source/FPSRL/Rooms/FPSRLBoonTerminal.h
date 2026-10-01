@@ -59,6 +59,15 @@ protected:
 	 *  AFPSRLUpgradeAltar: always upgrades). */
 	virtual bool BeginPlayerSelection(AFPSRLPlayerState* Player);
 
+public:
+	/** Using it opens a choice screen (Blessings, upgrades). False: it acts at once (Healing Altar). */
+	virtual bool OpensSelectionScreen() const { return true; }
+
+protected:
+
+	/** What the player is told when BeginPlayerSelection has nothing for them. */
+	virtual FText GetNothingToOfferText() const { return NSLOCTEXT("FPSRL", "NothingLeft", "Nothing left to offer"); }
+
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 

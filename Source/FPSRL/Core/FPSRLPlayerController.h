@@ -315,6 +315,14 @@ public:
 	UFUNCTION(Exec)
 	void FPSRLGod();
 
+	/** Playtesting: this player back to full health, a downed player revived (also F7). Not in Shipping. */
+	UFUNCTION(Exec)
+	void FPSRLHeal();
+
+	/** Playtesting: kill every living enemy (also F8). Not in Shipping. */
+	UFUNCTION(Exec)
+	void FPSRLKillEnemies();
+
 	void HandleMeleePressed();
 	void HandleDashPressed();
 

@@ -62,6 +62,7 @@ enum class EFPSRLTraversalReward : uint8
 	None,
 	BlessingAltar,
 	UpgradeAltar,
+	HealingAltar,
 	Future
 };
 
