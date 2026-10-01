@@ -225,6 +225,10 @@ void AFPSRLEnemyAIController::SetState(EFPSRLEnemyAIState NewState)
 	{
 		UE_LOG(LogFPSRL, VeryVerbose, TEXT("[AI] %s: %s -> %s"), *GetNameSafe(GetPawn()), FPSRLEnemyAI::StateName(State), FPSRLEnemyAI::StateName(NewState));
 		State = NewState;
+		if (NewState == EFPSRLEnemyAIState::Idle && GetWorld())
+		{
+			IdleSince = GetWorld()->GetTimeSeconds();
+		}
 	}
 }
 
@@ -468,6 +472,16 @@ void AFPSRLEnemyAIController::Think()
 		if (State == EFPSRLEnemyAIState::Searching && Now < SearchEndTime)
 		{
 			return;	// still looking around (moves continue from OnMoveCompleted)
+		}
+		// Alerted enemies know the fight is on: after a short pause without a target (lost behind a wall, its memory
+		// ran out) they take the nearest player again and work their way back into sight, instead of idling.
+		if (Profile->bAlertedOnEncounterStart && State == EFPSRLEnemyAIState::Idle && Now - IdleSince >= Profile->IdleRehuntSeconds)
+		{
+			if (AActor* Anyone = ChooseTarget(false))
+			{
+				AcquireTarget(Anyone, false);
+				return;
+			}
 		}
 		if (State != EFPSRLEnemyAIState::Idle)
 		{

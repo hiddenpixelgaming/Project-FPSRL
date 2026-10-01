@@ -202,6 +202,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Detection")
 	bool bAlertedOnEncounterStart = true;
 
+	/** Alerted enemies left without a target (lost behind cover, memory ran out) take the nearest player again after
+	 *  this many seconds instead of idling for the rest of the fight. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Detection", meta = (ClampMin = "0", EditCondition = "bAlertedOnEncounterStart"))
+	float IdleRehuntSeconds = 2.f;
+
 	/** Delay between noticing and acting. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Detection", meta = (ClampMin = "0"))
 	float ReactionTime = 0.3f;

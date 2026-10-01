@@ -151,6 +151,7 @@ private:
 	double NextRetargetTime = 0.0;
 	double NextRepositionTime = 0.0;
 	double SearchEndTime = 0.0;
+	double IdleSince = 0.0;
 	double LastThinkTime = 0.0;
 	bool bMoving = false;
 
