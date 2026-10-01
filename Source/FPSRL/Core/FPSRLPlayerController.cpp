@@ -30,6 +30,9 @@
 #include "Components/FPSRLHealthComponent.h"
 #include "Combat/FPSRLProjectile.h"
 #include "Combat/FPSRLCombatRules.h"
+#include "UI/FPSRLCombatFeedback.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/Character.h"
 #include "InputMappingContext.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
@@ -1478,6 +1481,24 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	}
 	LastServerMeleeTime = Now;
 
+	// The hit lands after a short windup: the swing is a commitment (an enemy can step out of reach meanwhile).
+	if (MeleeWindup > 0.f)
+	{
+		GetWorldTimerManager().SetTimer(MeleeSwingTimer, this, &ThisClass::ResolveServerMelee, MeleeWindup, false);
+	}
+	else
+	{
+		ResolveServerMelee();
+	}
+}
+
+void AFPSRLPlayerController::ResolveServerMelee()
+{
+	APawn* Attacker = GetPawn();
+	if (!Attacker || !AFPSRLProjectile::CanPawnShoot(Attacker))
+	{
+		return;	// went down during the windup
+	}
 	// A MeleeRadius sphere along the facing, MeleeRange long (FPSRLCombat::MeleeSweep, shared with enemies). (The character
 	// Blueprint's own swing traced on Visibility, which character bodies don't block, so it never damaged anyone; it still
 	// runs, harmlessly.)
@@ -1487,12 +1508,19 @@ void AFPSRLPlayerController::ServerMelee_Implementation()
 	CurrentMeleeAttackId = FPSRLCombat::NewAttackId();
 	FPSRLCombat::NotifyAttack(Attacker, EFPSRLItemSource::Melee, CurrentMeleeAttackId);
 	const TArray<AActor*> Struck = FPSRLCombat::MeleeSweep(Attacker, this, Range, MeleeRadius, Damage, MeleeMaxTargets);
-	for (const AActor* Victim : Struck)
+	for (AActor* Victim : Struck)
 	{
+		// Impact: a push away from the player (spacing; the enemy's own movement takes it from there).
+		if (ACharacter* VictimCharacter = Cast<ACharacter>(Victim); VictimCharacter && MeleeKnockback > 0.f)
+		{
+			const FVector Away = (Victim->GetActorLocation() - Attacker->GetActorLocation()).GetSafeNormal2D();
+			VictimCharacter->LaunchCharacter(Away * MeleeKnockback + FVector(0.f, 0.f, MeleeKnockback * 0.3f), true, true);
+		}
 		UE_LOG(LogFPSRL, Log, TEXT("[Melee] %s hit %s for %.0f"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))), *Victim->GetName(), Damage);
 	}
 	if (Struck.IsEmpty())
 	{
+		ClientCombatFeedback(EFPSRLHitFeedback::MeleeMiss, 0.f);	// the swing whiffed: tell the player clearly
 		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))));
 	}
 	CurrentMeleeAttackId = INDEX_NONE;
@@ -1524,4 +1552,45 @@ float AFPSRLPlayerController::GetEffectiveMeleeCooldown() const
 	const float Multiplier = ASC && ASC->HasAttributeSetForAttribute(UFPSRLCombatSet::GetMeleeCooldownMultiplierAttribute())
 		? ASC->GetNumericAttribute(UFPSRLCombatSet::GetMeleeCooldownMultiplierAttribute()) : 1.f;
 	return MeleeCooldown * FMath::Max(0.1f, Multiplier);
+}
+
+void AFPSRLPlayerController::ClientCombatFeedback_Implementation(EFPSRLHitFeedback Kind, float Damage)
+{
+	if (CombatHUD)
+	{
+		CombatHUD->ShowHitFeedback(Kind);
+	}
+	FPSRLCombatFeedback::PlaySound(this, Kind);
+	if ((Kind == EFPSRLHitFeedback::MeleeHit || Kind == EFPSRLHitFeedback::MeleeKill) && PlayerCameraManager)
+	{
+		PlayerCameraManager->StartCameraShake(UFPSRLMeleePunchShake::StaticClass(), 1.f);	// the swing connected
+	}
+	UE_LOG(LogFPSRL, Verbose, TEXT("[Feedback] %s %.0f"), *StaticEnum<EFPSRLHitFeedback>()->GetNameStringByValue(static_cast<int64>(Kind)), Damage);
+}
+
+bool AFPSRLPlayerController::IsEnemyInMeleeReach() const
+{
+	// The same sweep the server swing uses (MeleeRange along the facing, MeleeRadius wide): what the brackets promise
+	// is what the swing hits.
+	const APawn* Me = GetPawn();
+	UWorld* World = GetWorld();
+	if (!Me || !World)
+	{
+		return false;
+	}
+	const FVector Start = Me->GetActorLocation();
+	const FVector End = Start + Me->GetActorForwardVector() * MeleeRange;
+	TArray<FHitResult> Hits;
+	UKismetSystemLibrary::SphereTraceMultiForObjects(const_cast<AFPSRLPlayerController*>(this), Start, End, MeleeRadius, { UEngineTypes::ConvertToObjectType(ECC_Pawn) },
+		false, { const_cast<APawn*>(Me) }, EDrawDebugTrace::None, Hits, true);
+	for (const FHitResult& Hit : Hits)
+	{
+		const AActor* Other = Hit.GetActor();
+		const UFPSRLHealthComponent* Health = Other ? Other->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+		if (Health && !Health->IsDead() && Health->GetCurrentHealth() > 0.f && !UFPSRLHealthComponent::IsPlayerSide(nullptr, Other))
+		{
+			return true;
+		}
+	}
+	return false;
 }

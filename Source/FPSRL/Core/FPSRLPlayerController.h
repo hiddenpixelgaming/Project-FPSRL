@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "GameplayTagContainer.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLPlayerController.generated.h"
 
 class UInputAction;
@@ -131,6 +132,14 @@ public:
 	/** Seconds between swings (the swing's recovery). Checked locally, and on the server with a little slack for lag. */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
 	float MeleeCooldown = 1.f;
+
+	/** Seconds between pressing melee and the hit landing (commit to the swing: an enemy can step out of reach). */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
+	float MeleeWindup = 0.12f;
+
+	/** Push given to an enemy the swing hits (cm/s, away from the player), for impact and spacing. */
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|Melee", meta = (ClampMin = "0"))
+	float MeleeKnockback = 500.f;
 
 	/** MeleeCooldown x the player's MeleeCooldownMultiplier (Blessings). */
 	float GetEffectiveMeleeCooldown() const;
@@ -292,6 +301,13 @@ public:
 	/** The local player's combat HUD (null for others). */
 	class UFPSRLCombatHUDWidget* GetCombatHUD() const { return CombatHUD; }
 
+	/** Server -> this player: feedback on one of their hits (hit marker, sound, view punch on melee). */
+	UFUNCTION(Client, Unreliable)
+	void ClientCombatFeedback(EFPSRLHitFeedback Kind, float Damage);
+
+	/** Local: an enemy is within melee reach in front of the player (the HUD's reach brackets). */
+	bool IsEnemyInMeleeReach() const;
+
 	/** Server -> this player: a short message on screen. */
 	UFUNCTION(Client, Reliable)
 	void ClientShowNotice(const FText& Message);
@@ -402,6 +418,10 @@ private:
 	double LastServerShotTime = -1.0;
 	double LastServerMeleeTime = -1.0;
 	int32 CurrentMeleeAttackId = INDEX_NONE;
+	FTimerHandle MeleeSwingTimer;
+
+	/** Server: the swing lands (MeleeWindup after the press). */
+	void ResolveServerMelee();
 	double LastLocalMeleeTime = -1000.0;
 
 	/** Local: weapon inputs are currently removed (downed); priority to restore them at. */

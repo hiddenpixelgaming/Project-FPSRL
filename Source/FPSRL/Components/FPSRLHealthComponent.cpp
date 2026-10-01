@@ -210,6 +210,16 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 	if (PlayerHit.AttackerASC)
 	{
 		FPSRLCombat::SendHitEvents(PlayerHit, GetOwner(), Damage, IsDead() || GetCurrentHealth() <= 0.f);
+
+		// The attacker sees and hears it land (hit marker, sound; melee also a view punch).
+		if (AFPSRLPlayerController* AttackerPC = PlayerHit.AttackerState ? Cast<AFPSRLPlayerController>(PlayerHit.AttackerState->GetPlayerController()) : nullptr)
+		{
+			const bool bKilled = IsDead() || GetCurrentHealth() <= 0.f;
+			const bool bMelee = PlayerHit.Source == EFPSRLItemSource::Melee;
+			const EFPSRLHitFeedback Kind = bMelee ? (bKilled ? EFPSRLHitFeedback::MeleeKill : EFPSRLHitFeedback::MeleeHit)
+				: bKilled ? EFPSRLHitFeedback::Kill : PlayerHit.bCritical ? EFPSRLHitFeedback::Critical : EFPSRLHitFeedback::Hit;
+			AttackerPC->ClientCombatFeedback(Kind, Damage);
+		}
 	}
 
 	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s took %.0f damage. HP now %.0f"),

@@ -173,6 +173,10 @@ static FAutoConsoleCommandWithWorld GFPSRLAITestCommand(TEXT("FPSRL.AITest"),
 				if (Ranged)
 				{
 					Ranged->SetProfile(Live->Keep(MakeProfile(TEXT("TEST_AI_Ranged"), EFPSRLEnemyAttackAction::FireWeapon)));
+					if (UFPSRLHealthComponent* EnemyHealth = Ranged->GetPawn()->FindComponentByClass<UFPSRLHealthComponent>())
+					{
+						EnemyHealth->OutgoingDamageMultiplier = 0.2f;	// 10 per shot: the player must survive to the melee checks
+					}
 					Live->HealthMark = PlayerHealth->GetCurrentHealth();
 					Ranged->SetEncounterActive(true);
 				}
@@ -264,6 +268,10 @@ static FAutoConsoleCommandWithWorld GFPSRLAITestCommand(TEXT("FPSRL.AITest"),
 				if (Ranged)
 				{
 					Ranged->SetEncounterActive(false);	// out of the way for the melee checks
+					if (UFPSRLHealthComponent* EnemyHealth = Ranged->GetPawn()->FindComponentByClass<UFPSRLHealthComponent>())
+					{
+						EnemyHealth->OutgoingDamageMultiplier = 0.f;	// its bullets still in flight must not count as melee damage
+					}
 				}
 				Spawn(TEXT("150"), TEXT("0"));
 				break;

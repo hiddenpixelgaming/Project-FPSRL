@@ -333,6 +333,7 @@ static FAutoConsoleCommandWithWorld GFPSRLProcTestCommand(TEXT("FPSRL.ProcTest")
 				if (AFPSRLWeapon* Weapon = FindWeapon(World, Pawn))
 				{
 					Weapon->ProjectilesPerShot = 8;
+					Weapon->ShotDamage = 12.f;	// 8 x 12 = 96: the 100-health test enemy survives the blast
 					Weapon->AimVariance = 0.f;
 				}
 				const float PelletChance = Boons->GetCurrentProcChance(Live->Normalized.Get(), 0, EFPSRLBoonChannel::Primary);
@@ -355,7 +356,7 @@ static FAutoConsoleCommandWithWorld GFPSRLProcTestCommand(TEXT("FPSRL.ProcTest")
 			case 1016:
 			{
 				const float Taken = Live->HealthBefore - NearestEnemyHealth(World, Pawn);
-				const int32 PelletsHit = FMath::RoundToInt(Taken / 12.f);
+				const int32 PelletsHit = FMath::RoundToInt(Taken / 12.f);	// 12 per pellet (set below)
 				const int32 Attacks = Procs(Boons, Live->AttackEvent.Get(), EFPSRLBoonChannel::Primary);
 				const int32 OncePer = Procs(Boons, Live->PerAttack.Get(), EFPSRLBoonChannel::Primary);
 				const int32 PerPellet = Procs(Boons, Live->PerPellet.Get(), EFPSRLBoonChannel::Primary);

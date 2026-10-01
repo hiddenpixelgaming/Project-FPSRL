@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Types/FPSRLTypes.h"
 #include "FPSRLCombatHUDWidget.generated.h"
 
 class AFPSRLPlayerController;
@@ -36,6 +37,9 @@ public:
 
 	/** The dash key was pressed (the dash square watches the character's cooldown from here). */
 	void NotifyDashPressed() { StartAnimating(); }
+
+	/** One of this player's hits landed (or a swing missed): flash the hit marker. */
+	void ShowHitFeedback(EFPSRLHitFeedback Kind);
 
 	/** Test: what the HUD shows right now, as text. */
 	FString DescribeForTest() const;
@@ -103,4 +107,18 @@ private:
 
 	/** The dash is character Blueprint logic: its bCanDash / DashCooldown, read by name (-1 if missing). */
 	float GetDashCooldownFraction();
+
+	/** Melee reach brackets around the crosshair (an enemy is within reach in front), checked on a slow timer. */
+	void RefreshReach();
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UImage>> MarkerLines;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> ReachText;
+
+	FTimerHandle ReachTimer;
+	double MarkerStartTime = -1000.0;
+	EFPSRLHitFeedback MarkerKind = EFPSRLHitFeedback::Hit;
+	int32 FeedbackCount = 0;
 };

@@ -194,3 +194,15 @@ enum class EFPSRLBoonScope : uint8
 	Target,
 	Area
 };
+
+/** What the attacking player is told about one of their hits (HUD marker, sound, view punch). */
+UENUM(BlueprintType)
+enum class EFPSRLHitFeedback : uint8
+{
+	Hit,
+	Critical,
+	Kill,
+	MeleeHit,
+	MeleeKill,
+	MeleeMiss		// a swing that hit nothing
+};

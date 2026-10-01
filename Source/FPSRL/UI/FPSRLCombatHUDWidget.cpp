@@ -60,6 +60,37 @@ void UFPSRLCombatHUDWidget::BuildDefaultLayout()
 		FlashSlot->SetOffsets(FMargin(0.f));
 	}
 
+	// Hit marker: four short diagonal strokes around the crosshair, invisible until a hit lands.
+	for (int32 Corner = 0; Corner < 4; ++Corner)
+	{
+		UImage* Line = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), *FString::Printf(TEXT("HitMarker%d"), Corner));
+		Line->SetColorAndOpacity(FLinearColor(1.f, 1.f, 1.f, 0.f));
+		Line->SetVisibility(ESlateVisibility::HitTestInvisible);
+		const float X = (Corner % 2 == 0) ? -1.f : 1.f;
+		const float Y = (Corner < 2) ? -1.f : 1.f;
+		Line->SetRenderTransformAngle(X * Y > 0.f ? 45.f : -45.f);
+		if (UCanvasPanelSlot* LineSlot = Canvas->AddChildToCanvas(Line))
+		{
+			LineSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+			LineSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+			LineSlot->SetSize(FVector2D(12.f, 2.5f));
+			LineSlot->SetPosition(FVector2D(X * 11.f, Y * 11.f));
+		}
+		MarkerLines.Add(Line);
+	}
+
+	// Melee reach brackets: shown around the crosshair while an enemy is within melee reach in front.
+	ReachText = MakeText(TEXT("MeleeReach"), 22);
+	ReachText->SetText(FText::FromString(TEXT("[          ]")));
+	ReachText->SetColorAndOpacity(FSlateColor(FLinearColor(1.f, 0.85f, 0.4f, 0.85f)));
+	ReachText->SetVisibility(ESlateVisibility::Collapsed);
+	if (UCanvasPanelSlot* ReachSlot = Canvas->AddChildToCanvas(ReachText))
+	{
+		ReachSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+		ReachSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		ReachSlot->SetAutoSize(true);
+	}
+
 	// Bottom left: health.
 	UVerticalBox* HealthColumn = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("HealthColumn"));
 	HealthText = MakeText(TEXT("HealthText"), 16);
@@ -173,6 +204,7 @@ void UFPSRLCombatHUDWidget::SetController(AFPSRLPlayerController* InController)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(BindTimer, this, &ThisClass::CheckBindings, 0.25f, true);
+		World->GetTimerManager().SetTimer(ReachTimer, this, &ThisClass::RefreshReach, 0.1f, true);	// melee reach brackets
 	}
 }
 
@@ -182,6 +214,7 @@ void UFPSRLCombatHUDWidget::NativeDestruct()
 	{
 		World->GetTimerManager().ClearTimer(BindTimer);
 		World->GetTimerManager().ClearTimer(AnimTimer);
+		World->GetTimerManager().ClearTimer(ReachTimer);
 	}
 	if (UFPSRLHealthComponent* Health = BoundHealth.Get())
 	{
@@ -328,6 +361,21 @@ void UFPSRLCombatHUDWidget::Animate()
 	}
 	bMoving |= bReloading;
 
+	// Hit marker fades out (kills linger a little longer; melee hits are bigger).
+	const bool bKill = MarkerKind == EFPSRLHitFeedback::Kill || MarkerKind == EFPSRLHitFeedback::MeleeKill;
+	const bool bMeleeMarker = MarkerKind == EFPSRLHitFeedback::MeleeHit || MarkerKind == EFPSRLHitFeedback::MeleeKill;
+	const float MarkerDuration = bKill ? 0.35f : 0.2f;
+	const double SinceMarker = GetWorld() ? GetWorld()->GetTimeSeconds() - MarkerStartTime : 1000.0;
+	const float MarkerAlpha = MarkerKind != EFPSRLHitFeedback::MeleeMiss && SinceMarker < MarkerDuration ? static_cast<float>(1.0 - SinceMarker / MarkerDuration) : 0.f;
+	const FLinearColor MarkerColor = bKill ? FLinearColor(1.f, 0.15f, 0.1f) : MarkerKind == EFPSRLHitFeedback::Critical ? FLinearColor(1.f, 0.85f, 0.1f)
+		: bMeleeMarker ? FLinearColor(1.f, 0.55f, 0.15f) : FLinearColor::White;
+	for (UImage* Line : MarkerLines)
+	{
+		Line->SetColorAndOpacity(FLinearColor(MarkerColor.R, MarkerColor.G, MarkerColor.B, MarkerAlpha));
+		Line->SetRenderScale(FVector2D(bMeleeMarker || bKill ? 1.5f : 1.f));
+	}
+	bMoving |= MarkerAlpha > 0.f;
+
 	// Damage flash fades out.
 	const double SinceHit = GetWorld() ? GetWorld()->GetTimeSeconds() - FlashStartTime : 1000.0;
 	const float Alpha = SinceHit < DamageFlashDuration ? DamageFlashOpacity * static_cast<float>(1.0 - SinceHit / DamageFlashDuration) : 0.f;
@@ -365,14 +413,33 @@ float UFPSRLCombatHUDWidget::GetDashCooldownFraction()
 	return FMath::Clamp(static_cast<float>(1.0 - (Now - DashLockStart) / Cooldown), 0.01f, 1.f);	// never 0 while still locked
 }
 
+void UFPSRLCombatHUDWidget::ShowHitFeedback(EFPSRLHitFeedback Kind)
+{
+	MarkerKind = Kind;
+	MarkerStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	++FeedbackCount;
+	StartAnimating();
+}
+
+void UFPSRLCombatHUDWidget::RefreshReach()
+{
+	const bool bInReach = Controller.IsValid() && Controller->IsEnemyInMeleeReach();
+	if (ReachText)
+	{
+		ReachText->SetVisibility(bInReach ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+}
+
 FString UFPSRLCombatHUDWidget::DescribeForTest() const
 {
 	auto Text = [](const UTextBlock* Block) { return Block && Block->GetVisibility() != ESlateVisibility::Collapsed ? Block->GetText().ToString() : FString(TEXT("-")); };
 	const UWidget* ReloadBox = ReloadBar ? ReloadBar->GetParent() : nullptr;
-	return FString::Printf(TEXT("health '%s' bar %.2f | ammo '%s' | dash shade %.0f px | melee shade %.0f px | reload bar %s %.2f | damage flash %.2f"),
+	return FString::Printf(TEXT("health '%s' bar %.2f | ammo '%s' | dash shade %.0f px | melee shade %.0f px | reload bar %s %.2f | damage flash %.2f | hit marker %s %.2f (%d shown) | melee reach %s"),
 		*Text(HealthText), HealthBar ? HealthBar->GetPercent() : -1.f, *Text(AmmoText), DashShade ? DashShade->GetHeightOverride() : -1.f, MeleeShade ? MeleeShade->GetHeightOverride() : -1.f,
 		ReloadBox && ReloadBox->GetVisibility() != ESlateVisibility::Collapsed ? TEXT("shown") : TEXT("hidden"), ReloadBar ? ReloadBar->GetPercent() : -1.f,
-		DamageFlash ? DamageFlash->GetColorAndOpacity().A : -1.f);
+		DamageFlash ? DamageFlash->GetColorAndOpacity().A : -1.f,
+		*StaticEnum<EFPSRLHitFeedback>()->GetNameStringByValue(static_cast<int64>(MarkerKind)), MarkerLines.IsEmpty() ? -1.f : MarkerLines[0]->GetColorAndOpacity().A, FeedbackCount,
+		ReachText && ReachText->GetVisibility() != ESlateVisibility::Collapsed ? TEXT("shown") : TEXT("hidden"));
 }
 
 #undef LOCTEXT_NAMESPACE
