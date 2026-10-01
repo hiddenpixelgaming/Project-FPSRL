@@ -7,6 +7,7 @@
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
 #include "Components/PrimitiveComponent.h"
 #include "GameFramework/Pawn.h"
 #include "UObject/UnrealType.h"
@@ -51,18 +52,23 @@ void AFPSRLProjectile::BeginPlay()
 		return;
 	}
 
-	// Pellets of the same shot start in the same spot: they must not block each other (every machine, every copy).
-	if (UPrimitiveComponent* Body = AttackId != INDEX_NONE ? Cast<UPrimitiveComponent>(GetRootComponent()) : nullptr)
+	// Projectiles never block each other (the Projectile channel blocks by default): a rifle's next bullet would hit the
+	// one ahead of it (or one that bounced), and a shotgun's pellets start in the same spot. Every machine, every copy.
+	// Whatever its components do later (the Blueprint turns a bullet into a physics sphere after a hit, resetting its
+	// collision; the next rifle bullets piled up on those in front of the enemy), projectiles ignore each other as actors.
+	if (UPrimitiveComponent* Body = Cast<UPrimitiveComponent>(GetRootComponent()))
 	{
+		Body->SetCollisionResponseToChannel(Body->GetCollisionObjectType(), ECR_Ignore);
 		for (TActorIterator<AFPSRLProjectile> It(World); It; ++It)
 		{
-			if (*It != this && It->AttackId == AttackId && It->GetInstigator() == Shooter)
+			if (*It == this)
 			{
-				Body->IgnoreActorWhenMoving(*It, true);
-				if (UPrimitiveComponent* OtherBody = Cast<UPrimitiveComponent>(It->GetRootComponent()))
-				{
-					OtherBody->IgnoreActorWhenMoving(this, true);
-				}
+				continue;
+			}
+			Body->IgnoreActorWhenMoving(*It, true);
+			if (UPrimitiveComponent* OtherBody = Cast<UPrimitiveComponent>(It->GetRootComponent()))
+			{
+				OtherBody->IgnoreActorWhenMoving(this, true);
 			}
 		}
 	}
@@ -161,5 +167,18 @@ void AFPSRLProjectile::ImportSpawnSettings(const TArray<FString>& Settings)
 		{
 			Property->ClearValue_InContainer(this);	// a client can't point the projectile at a world object
 		}
+	}
+}
+
+static TAutoConsoleVariable<bool> CVarProjectileHits(TEXT("fpsrl.Debug.ProjectileHits"), false,
+	TEXT("Log what every projectile hits (shots that don't land)."));
+
+void AFPSRLProjectile::NotifyHit(UPrimitiveComponent* MyComp, AActor* Other, UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit)
+{
+	Super::NotifyHit(MyComp, Other, OtherComp, bSelfMoved, HitLocation, HitNormal, NormalImpulse, Hit);
+	if (CVarProjectileHits.GetValueOnGameThread())
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[ProjectileHit] %s (from %s) hit %s.%s at %s"), *GetName(), *GetNameSafe(GetInstigator()), *GetNameSafe(Other),
+			*GetNameSafe(OtherComp), *HitLocation.ToCompactString());
 	}
 }

@@ -49,6 +49,9 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	/** fpsrl.Debug.ProjectileHits: logs what each projectile hits (diagnosing shots that don't land). */
+	virtual void NotifyHit(class UPrimitiveComponent* MyComp, AActor* Other, class UPrimitiveComponent* OtherComp, bool bSelfMoved, FVector HitLocation, FVector HitNormal, FVector NormalImpulse, const FHitResult& Hit) override;
+
 private:
 	/** A property pointing at a world object (actor, component): can't be sent as text, each machine names its copies differently. */
 	bool IsMachineLocalReference(const FProperty* Property) const;
