@@ -57,7 +57,7 @@ public:
 
 	/** ReturnToSafety: share of max health lost per fall (can down the player). */
 	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "0", ClampMax = "1"))
-	float FallDamageFraction = 0.2f;
+	float FallDamageFraction = 0.05f;	// user: 20% was too punishing
 
 	/** How far below the lowest room the fall volume's top sits. */
 	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "100"))
