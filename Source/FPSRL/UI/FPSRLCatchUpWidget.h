@@ -10,7 +10,7 @@ class UTextBlock;
 
 /**
  * The optional catch-up prompt (presentation only: the server decides everything, see UFPSRLDepthLayoutComponent).
- * Upper middle of the screen, never takes input or the cursor, so the player keeps playing: "[T] Catch up  [X] Stay"
+ * Upper middle of the screen, never takes input or the cursor, so the player keeps playing: "Press [G] to teleport to them"
  * (the keys are AFPSRLPlayerController's). Builds a default layout in code; a Blueprint subclass may supply its own with
  * widgets named Title and Keys.
  */

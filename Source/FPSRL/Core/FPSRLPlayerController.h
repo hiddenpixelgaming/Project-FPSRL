@@ -217,8 +217,9 @@ public:
 	/** Local: show, update or hide the Miniboss / Final Level Boss health bar for this room's encounter. */
 	void RefreshEncounterBar(class AFPSRLRoom* Room);
 
-	/** Server -> this player only: a teammate started room RoomIndex while you are behind. Optional: [T] catch up (the
-	 *  server moves you to that room's entrance), [X] stay; ignoring it changes nothing (UFPSRLDepthLayoutComponent). */
+	/** Server -> this player only: a teammate started room RoomIndex (the latest combat room) while you are elsewhere.
+	 *  Optional: press G to be moved to that room's entrance; not pressing it changes nothing. The prompt closes when you
+	 *  get there yourself or the room is cleared (UFPSRLDepthLayoutComponent). */
 	UFUNCTION(Client, Reliable)
 	void ClientCatchUpOffer(int32 RoomIndex, const FText& Message, const FText& RoomName);
 

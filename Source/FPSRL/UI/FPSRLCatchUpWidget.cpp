@@ -68,7 +68,7 @@ void UFPSRLCatchUpWidget::ShowOffer(const FText& Message, const FText& RoomName)
 	}
 	if (Keys)
 	{
-		Keys->SetText(FText::Format(NSLOCTEXT("FPSRL", "CatchUpKeys", "[T] Catch up to {0}      [X] Stay"), RoomName));
+		Keys->SetText(FText::Format(NSLOCTEXT("FPSRL", "CatchUpKeys", "Press [G] to teleport to them"), RoomName));
 		Keys->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 	if (!IsInViewport())

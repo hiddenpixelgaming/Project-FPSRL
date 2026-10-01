@@ -884,7 +884,7 @@ void UFPSRLDepthLayoutComponent::OfferCatchUp(int32 RoomIndex)
 		const AFPSRLPlayerState* PS = It->Get() ? It->Get()->GetPlayerState<AFPSRLPlayerState>() : nullptr;
 		Leader = PS && PS->ExpeditionRoomIndex >= RoomIndex ? PS->GetPlayerName() : FString();
 	}
-	const FText Message = FText::Format(NSLOCTEXT("FPSRL", "CatchUpOffer", "{0} has entered {1}"),
+	const FText Message = FText::Format(NSLOCTEXT("FPSRL", "CatchUpOffer", "{0} is fighting in {1}"),
 		Leader.IsEmpty() ? NSLOCTEXT("FPSRL", "ATeammate", "A teammate") : FText::FromString(Leader), GetRoomDisplayName(RoomIndex));
 
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)

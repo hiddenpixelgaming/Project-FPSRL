@@ -1308,9 +1308,9 @@ void AFPSRLPlayerController::SetupInputComponent()
 	}
 	if (InputComponent)
 	{
-		// The catch-up prompt's answers (they do nothing without an open offer). T and X are free in every mapping context.
-		InputComponent->BindKey(EKeys::T, IE_Pressed, this, &ThisClass::HandleCatchUpAccept);
-		InputComponent->BindKey(EKeys::X, IE_Pressed, this, &ThisClass::HandleCatchUpDecline);
+		// The catch-up prompt's key (does nothing without an open offer; G is free in every mapping context). Not answering
+		// is staying: there is no "stay" key.
+		InputComponent->BindKey(EKeys::G, IE_Pressed, this, &ThisClass::HandleCatchUpAccept);
 	}
 #if !UE_BUILD_SHIPPING
 	if (InputComponent)
@@ -1454,7 +1454,7 @@ namespace FPSRLCatchUpDebug
 {
 	static TAutoConsoleVariable<int32> CVarAutoAnswer(TEXT("fpsrl.Debug.CatchUpAutoAnswer"), 0,
 		TEXT("Testing, this machine: answer catch-up offers by themselves 1 s after they arrive. 0 = no (the player decides), ")
-		TEXT("1 = catch up, 2 = stay, 3 = ask for the wrong room first (must be refused), then catch up."));
+		TEXT("1 = catch up, 2 = stay, 3 = ask for the wrong room first (must be refused), then catch up, 4 = press G."));
 }
 
 #if !UE_BUILD_SHIPPING
@@ -1496,6 +1496,13 @@ void AFPSRLPlayerController::ClientCatchUpOffer_Implementation(int32 RoomIndex, 
 			{
 				UE_LOG(LogFPSRL, Log, TEXT("[CatchUp] test: asking for room %d (not offered)"), RoomIndex + 2);
 				ServerRequestCatchUp(RoomIndex + 2);
+			}
+			if (AutoAnswer == 4)
+			{
+				// Press the real key, through this player's input (checks the binding, not just the request).
+				InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::G, IE_Pressed, 1.f));
+				InputKey(FInputKeyEventArgs::CreateSimulated(EKeys::G, IE_Released, 0.f));
+				return;
 			}
 			AutoAnswer == 2 ? HandleCatchUpDecline() : HandleCatchUpAccept();
 		}), 1.f, false);
