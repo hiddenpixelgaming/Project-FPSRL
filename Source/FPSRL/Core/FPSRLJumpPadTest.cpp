@@ -77,7 +77,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJumpPadTestCommand(TEXT("FPSRL.JumpPad
 					const float Feet = Land.Z - Pawn->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 					const bool bWalking = Pawn->GetCharacterMovement()->IsMovingOnGround();
 					Check(bWalking && FVector::Dist2D(Land, Pad->GetActorLocation()) > 200.f,
-						FString::Printf(TEXT("%s velocity %s: landed at %s, feet at %.0f, %s"), *Pad->GetActorLabel(), *Pad->Velocity.ToCompactString(),
+						FString::Printf(TEXT("%s velocity %s: landed at %s, feet at %.0f, %s"), *Pad->GetActorNameOrLabel(), *Pad->Velocity.ToCompactString(),
 							*FVector(Land.X, Land.Y, 0.f).ToCompactString(), Feet, bWalking ? TEXT("walking") : TEXT("still in the air")));
 				}
 				return true;
@@ -105,7 +105,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJumpPadTestCommand(TEXT("FPSRL.JumpPad
 			{
 				const AFPSRLJumpPad* Pad = (*Pads)[0].Get();
 				const float Moved = Enemy->IsValid() && Pad ? FVector::Dist2D(Enemy->Get()->GetActorLocation(), Pad->GetActorLocation()) : -1.f;
-				Check(Moved >= 0.f && Moved < 100.f, FString::Printf(TEXT("enemy put on %s stayed there (%.0f cm from it)"), Pad ? *Pad->GetActorLabel() : TEXT("?"), Moved));
+				Check(Moved >= 0.f && Moved < 100.f, FString::Printf(TEXT("enemy put on %s stayed there (%.0f cm from it)"), Pad ? *Pad->GetActorNameOrLabel() : TEXT("?"), Moved));
 				UE_LOG(LogFPSRL, Log, TEXT("[JumpPadTest] done: %d problem(s)"), *Problems);
 				PC->ConsoleCommand(TEXT("quit"));
 				return false;
