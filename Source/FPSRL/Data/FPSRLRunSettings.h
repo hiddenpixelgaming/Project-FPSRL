@@ -134,5 +134,10 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0.01", ClampMax = "1"))
 	float ReviveHealthFraction = 0.15f;
 
+	/** Damage a reviver can take during one revive before it is interrupted (total since the revive started; 0 = damage
+	 *  never interrupts). Playtest v0.1.32: enemies should be able to break a revive. */
+	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0"))
+	float ReviveInterruptDamage = 40.f;
+
 	virtual FName GetCategoryName() const override { return TEXT("Game"); }
 };

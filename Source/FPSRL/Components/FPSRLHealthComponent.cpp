@@ -546,6 +546,7 @@ void UFPSRLHealthComponent::ApplyEnvironmentDamage(float Amount)
 		return;
 	}
 	ApplyHealthEffect(UFPSRLDamageEffect::StaticClass(), FPSRLGameplayTags::SetByCaller_Damage, Amount, nullptr, nullptr);
+	OnDamagedBy.Broadcast(Amount, nullptr);	// no attacker (hazards also count toward interrupting a revive)
 	FPSRLHealthDebug::Show(FString::Printf(TEXT("%s took %.0f environment damage. HP now %.0f"),
 		*GetOwner()->GetActorNameOrLabel(), Amount, GetCurrentHealth()), FColor::Orange);
 }

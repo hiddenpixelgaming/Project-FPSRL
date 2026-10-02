@@ -56,6 +56,7 @@ void AFPSRLReviveMarker::HandleTargetDestroyed(AActor* DestroyedActor)
 
 void AFPSRLReviveMarker::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	StopWatchingReviver();
 	GetWorldTimerManager().ClearTimer(ReviveTimer);
 
 	// Revive finished (the marker goes with it), or the downed player died: take the bar down.
@@ -112,6 +113,15 @@ bool AFPSRLReviveMarker::TryStartRevive(APlayerController* ReviverPC)
 	Reviver = ReviverPC->PlayerState;
 	ReviveEndTime = GetWorld()->GetGameState()->GetServerWorldTimeSeconds() + UFPSRLRunSettings::Get().ReviveSeconds;
 	GetWorldTimerManager().SetTimer(ReviveTimer, this, &ThisClass::CheckRevive, 0.2f, true);
+
+	// Enemies can break a revive: enough damage to the reviver during it interrupts (event-driven, no polling).
+	StopWatchingReviver();
+	ReviveDamageTaken = 0.f;
+	if (UFPSRLHealthComponent* Health = ReviverPawn->FindComponentByClass<UFPSRLHealthComponent>(); Health && UFPSRLRunSettings::Get().ReviveInterruptDamage > 0.f)
+	{
+		ReviverHealth = Health;
+		ReviverDamagedHandle = Health->OnDamagedBy.AddUObject(this, &ThisClass::HandleReviverDamaged);
+	}
 	UE_LOG(LogFPSRL, Log, TEXT("[Revive] %s started reviving %s"), *Reviver->GetPlayerName(), *GetNameSafe(Target));
 	ForceNetUpdate();
 	OnRep_Revive();
@@ -137,8 +147,35 @@ void AFPSRLReviveMarker::CheckRevive()
 	}
 }
 
+void AFPSRLReviveMarker::HandleReviverDamaged(float Damage, APawn* Attacker)
+{
+	if (!Reviver)
+	{
+		return;
+	}
+	ReviveDamageTaken += Damage;
+	const float Threshold = UFPSRLRunSettings::Get().ReviveInterruptDamage;
+	if (Threshold > 0.f && ReviveDamageTaken >= Threshold)
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Revive] %s was interrupted: took %.0f damage (limit %.0f)"), *Reviver->GetPlayerName(), ReviveDamageTaken, Threshold);
+		CancelRevive();
+	}
+}
+
+void AFPSRLReviveMarker::StopWatchingReviver()
+{
+	if (UFPSRLHealthComponent* Health = ReviverHealth.Get())
+	{
+		Health->OnDamagedBy.Remove(ReviverDamagedHandle);
+	}
+	ReviverHealth.Reset();
+	ReviverDamagedHandle.Reset();
+	ReviveDamageTaken = 0.f;
+}
+
 void AFPSRLReviveMarker::CancelRevive()
 {
+	StopWatchingReviver();
 	GetWorldTimerManager().ClearTimer(ReviveTimer);
 	UE_LOG(LogFPSRL, Log, TEXT("[Revive] revive of %s cancelled"), *GetNameSafe(Target));
 	Reviver = nullptr;

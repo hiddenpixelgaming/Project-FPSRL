@@ -33,6 +33,11 @@ public:
 	/** Server: a teammate pressed E. False if they can't revive right now. */
 	bool TryStartRevive(APlayerController* Reviver);
 
+	/** Who is reviving right now (null = nobody), and the damage they took during it (tests, debug). */
+	APlayerState* GetReviver() const { return Reviver; }
+	float GetReviveDamageTaken() const { return ReviveDamageTaken; }
+	APawn* GetTarget() const { return Target; }
+
 	virtual bool CanInteract() const override;
 	virtual void Interact_Implementation(APlayerController* User) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
@@ -65,6 +70,13 @@ private:
 	double ReviveEndTime = 0.0;
 
 	FTimerHandle ReviveTimer;
+
+	/** Server: the reviver's damage during this revive (interrupts at ReviveInterruptDamage). */
+	float ReviveDamageTaken = 0.f;
+	TWeakObjectPtr<class UFPSRLHealthComponent> ReviverHealth;
+	FDelegateHandle ReviverDamagedHandle;
+	void HandleReviverDamaged(float Damage, APawn* Attacker);
+	void StopWatchingReviver();
 
 	/** Local: this machine's player is shown the revive bar for this marker. */
 	bool bLocalProgressShown = false;
