@@ -136,6 +136,15 @@ private:
 	bool IsInsideBounds(const FVector& WorldLocation) const;
 	void CompleteRoom();
 
+	/** Server: unlock the exit once the next room is loaded on every player's machine (or the safety timeout passes).
+	 *  Walking on before a client has the next room loaded drops that client through the missing floor while the server
+	 *  still sees them standing (playtest v0.1.35). */
+	void UnlockExitWhenNextRoomReady();
+	void TryUnlockExit();
+	FDelegateHandle ExitReadinessHandle;
+	FTimerHandle ExitSafetyTimer;
+	bool bExitUnlocked = false;
+
 	bool bBroadcastCombatStarted = false;
 	bool bBroadcastCompleted = false;
 };

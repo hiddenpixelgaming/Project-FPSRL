@@ -59,6 +59,11 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "0", ClampMax = "1"))
 	float FallDamageFraction = 0.05f;	// user: 20% was too punishing
 
+	/** A cleared room's exit opens once the next room is loaded on every player's machine (else a fast player falls
+	 *  through floor their PC has not loaded yet). If a client never reports it, the exit opens anyway after this long. */
+	UPROPERTY(Config, EditAnywhere, Category = "Depth", meta = (ClampMin = "1"))
+	float ExitReadyTimeoutSeconds = 15.f;
+
 	/** How far below the lowest room the fall volume's top sits. */
 	UPROPERTY(Config, EditAnywhere, Category = "Falling", meta = (ClampMin = "100"))
 	float FallVolumeDepth = 1500.f;

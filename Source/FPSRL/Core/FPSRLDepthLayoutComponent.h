@@ -29,6 +29,10 @@ struct FFPSRLRoomPlacement
 	 *  by its exit door when cleared). None for every other room. */
 	UPROPERTY(BlueprintReadOnly, Category = "Depth")
 	EFPSRLTraversalReward Reward = EFPSRLTraversalReward::None;
+
+	/** This Depth's id (same for every placement), part of the streamed room instance names. */
+	UPROPERTY()
+	int32 LayoutId = 0;
 };
 
 /** The range of placements that should be loaded right now (inclusive). Empty when Last < First. */

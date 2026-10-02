@@ -88,10 +88,11 @@ namespace
 
 	bool AnyRoom(const UFPSRLRoomDefinition&) { return true; }
 
-	FString InstanceName(int32 Index, const UFPSRLRoomDefinition* Room)
+	FString InstanceName(int32 Index, const FFPSRLRoomPlacement& Placement)
 	{
-		// Same instance name on server and clients -> the rooms' placed actors match up over the network.
-		return FString::Printf(TEXT("FPSRLRoom_%02d_%s"), Index, *GetNameSafe(Room));
+		// Same instance name on server and clients -> the rooms' placed actors match up over the network. Unique per Depth
+		// (LayoutId), so it never collides with a previous Depth's instance still in memory.
+		return FString::Printf(TEXT("FPSRLRoom_%08X_%02d_%s"), Placement.LayoutId, Index, *GetNameSafe(Placement.Room));
 	}
 }
 
@@ -297,6 +298,16 @@ bool UFPSRLDepthLayoutComponent::BuildLayout(const UFPSRLDepthDefinition* Depth)
 	}
 
 	Placements = RollSequence(*Depth);
+
+	// One id for this Depth's streamed room instances (sent with every placement, so clients use the same names). Room
+	// names repeat Depth after Depth ("Traversal_01" is room 1 every time); with the bare names, a client still holding the
+	// previous Depth's instance in memory got a renamed copy and could not match the server's actors (playtest v0.1.35: a
+	// client stood on floor the server named differently, ignored every correction and fell for a minute).
+	const int32 LayoutId = FMath::RandRange(1, MAX_int32 - 1);
+	for (FFPSRLRoomPlacement& Placement : Placements)
+	{
+		Placement.LayoutId = LayoutId;
+	}
 	// Rewards (user rules): every Combat and Miniboss room gives exactly one altar (Blessing / Upgrade / Healing), standing
 	// by its exit; the Final Level Boss room has a fixed set instead (Blessing, Upgrade and Healing: FinalBossRewards); no
 	// other room ever gets one. The Depth's reward odds are used in room order: the first combat room rolls TraversalRewards[0], the
@@ -512,7 +523,7 @@ void UFPSRLDepthLayoutComponent::ApplyWindow()
 		const FFPSRLRoomPlacement& Placement = Placements[Index];
 		bool bSuccess = false;
 		ULevelStreamingDynamic* Streaming = ULevelStreamingDynamic::LoadLevelInstanceBySoftObjectPtr(GetWorld(), Placement.Room->Level,
-			Placement.Transform.GetLocation(), Placement.Transform.Rotator(), bSuccess, InstanceName(Index, Placement.Room));
+			Placement.Transform.GetLocation(), Placement.Transform.Rotator(), bSuccess, InstanceName(Index, Placement));
 		if (!bSuccess || !Streaming)
 		{
 			UE_LOG(LogFPSRL, Error, TEXT("[Depth] Failed to stream %s"), *Placement.Room->GetName());

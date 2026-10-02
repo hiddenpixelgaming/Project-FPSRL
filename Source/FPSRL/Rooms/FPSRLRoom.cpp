@@ -9,6 +9,9 @@
 #include "Components/BoxComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Core/FPSRLGameState.h"
+#include "Core/FPSRLDepthLayoutComponent.h"
+#include "Data/FPSRLRunSettings.h"
+#include "TimerManager.h"
 #include "Core/FPSRLPlayerController.h"
 #include "Data/FPSRLEncounterDefinition.h"
 #include "EngineUtils.h"
@@ -240,6 +243,56 @@ void AFPSRLRoom::HandleEnemyDeath(AController* Killer, AActor* Causer)
 	}
 }
 
+void AFPSRLRoom::UnlockExitWhenNextRoomReady()
+{
+	AFPSRLGameState* GameState = GetWorld()->GetGameState<AFPSRLGameState>();
+	UFPSRLDepthLayoutComponent* Layout = GameState ? GameState->DepthLayout.Get() : nullptr;
+	const int32 Index = Layout && Layout->HasLayout() ? Layout->FindPlacementIndex(this) : INDEX_NONE;
+	if (Index != INDEX_NONE && Index + 1 < Layout->Placements.Num() && Layout->ReadyThrough < Index + 1)
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Room %s] exit waits until room %d is loaded for every player"), *GetActorNameOrLabel(), Index + 1);
+		ExitReadinessHandle = Layout->OnReadinessChanged.AddUObject(this, &ThisClass::TryUnlockExit);
+		// Never trap the party behind a client that stops reporting: open anyway after a while.
+		GetWorldTimerManager().SetTimer(ExitSafetyTimer, FTimerDelegate::CreateWeakLambda(this, [this]()
+		{
+			if (!bExitUnlocked)
+			{
+				UE_LOG(LogFPSRL, Warning, TEXT("[Room %s] next room still not loaded everywhere after %.0f s: opening the exit anyway"),
+					*GetActorNameOrLabel(), UFPSRLRunSettings::Get().ExitReadyTimeoutSeconds);
+				bExitUnlocked = true;
+				TryUnlockExit();
+			}
+		}), UFPSRLRunSettings::Get().ExitReadyTimeoutSeconds, false);
+		return;
+	}
+	bExitUnlocked = true;
+	TryUnlockExit();
+}
+
+void AFPSRLRoom::TryUnlockExit()
+{
+	AFPSRLGameState* GameState = GetWorld() ? GetWorld()->GetGameState<AFPSRLGameState>() : nullptr;
+	UFPSRLDepthLayoutComponent* Layout = GameState ? GameState->DepthLayout.Get() : nullptr;
+	const int32 Index = Layout && Layout->HasLayout() ? Layout->FindPlacementIndex(this) : INDEX_NONE;
+	const bool bReady = bExitUnlocked || Index == INDEX_NONE || Index + 1 >= Layout->Placements.Num() || Layout->ReadyThrough >= Index + 1;
+	if (!bReady)
+	{
+		return;
+	}
+	bExitUnlocked = true;
+	GetWorldTimerManager().ClearTimer(ExitSafetyTimer);
+	if (Layout && ExitReadinessHandle.IsValid())
+	{
+		Layout->OnReadinessChanged.Remove(ExitReadinessHandle);
+		ExitReadinessHandle.Reset();
+	}
+	if (ExitDoor)
+	{
+		ExitDoor->Unlock();
+		UE_LOG(LogFPSRL, Log, TEXT("[Room %s] exit unlocked (next room loaded for every player)"), *GetActorNameOrLabel());
+	}
+}
+
 void AFPSRLRoom::CompleteRoom()
 {
 	if (bRoomComplete)
@@ -249,10 +302,7 @@ void AFPSRLRoom::CompleteRoom()
 	bRoomComplete = true;
 	UE_LOG(LogFPSRL, Log, TEXT("[Room %s] cleared"), *GetActorNameOrLabel());
 
-	if (ExitDoor)
-	{
-		ExitDoor->Unlock();
-	}
+	UnlockExitWhenNextRoomReady();
 	ForceNetUpdate();
 	OnRep_RoomState();
 
