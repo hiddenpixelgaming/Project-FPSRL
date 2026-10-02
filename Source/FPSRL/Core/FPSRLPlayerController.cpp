@@ -38,6 +38,11 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InputMappingContext.h"
+#include "Components/EditableTextBox.h"
+#include "GameFramework/PlayerInput.h"
+#include "Social/FPSRLChatSettings.h"
+#include "Social/FPSRLChatSubsystem.h"
+#include "UI/FPSRLChatWidget.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Data/FPSRLAspectDefinition.h"
@@ -1281,6 +1286,15 @@ void AFPSRLPlayerController::BeginPlay()
 			Subsystem->AddMappingContext(PauseMappingContext, 100);
 		}
 	}
+	if (IsLocalController())
+	{
+		UInputMappingContext* ChatContext = UFPSRLChatSettings::Get()->ChatMappingContext.LoadSynchronous();
+		UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
+		if (ChatContext && Subsystem)
+		{
+			Subsystem->AddMappingContext(ChatContext, 100);	// the open-chat key (T, D-pad Left)
+		}
+	}
 
 	// Listen host / cases where the PlayerState already exists (clients also get OnRep_PlayerState).
 	BindToPlayerStateComponents();
@@ -1310,6 +1324,15 @@ void AFPSRLPlayerController::EnsureLocalHUD()
 	{
 		CombatHUD->AddToViewport(-1);	// under menus and prompts
 		CombatHUD->SetController(this);
+	}
+	// Session chat: one widget per local player, reading the chat subsystem's history (which outlives the level).
+	if (!ChatWidget)
+	{
+		ChatWidget = CreateWidget<UFPSRLChatWidget>(this, UFPSRLChatWidget::StaticClass());
+	}
+	if (ChatWidget && !ChatWidget->IsInViewport())
+	{
+		ChatWidget->AddToViewport(1);	// over the HUD, under menus
 	}
 
 	// The crosshair is the Blueprint's widget (CrosshairUI, typed WB_Crosshair): its BeginPlay only makes one in the
@@ -1346,6 +1369,10 @@ void AFPSRLPlayerController::SetupInputComponent()
 		if (UInputAction* Dash = DashAction.LoadSynchronous())
 		{
 			EnhancedInput->BindAction(Dash, ETriggerEvent::Started, this, &ThisClass::HandleDashPressed);
+		}
+		if (UInputAction* OpenChatAction = UFPSRLChatSettings::Get()->OpenChatAction.LoadSynchronous())
+		{
+			EnhancedInput->BindAction(OpenChatAction, ETriggerEvent::Started, this, &ThisClass::OpenChat);
 		}
 	}
 	if (InputComponent)
@@ -1693,6 +1720,109 @@ void AFPSRLPlayerController::ApplyFastMove(bool bOn)
 void AFPSRLPlayerController::ClientShowNotice_Implementation(const FText& Message)
 {
 	ShowNotice(Message);
+}
+
+// --- Chat ----------------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerController::ServerSendChatMessage_Implementation(const FString& Text)
+{
+	// Untrusted input: the subsystem validates everything and stamps sender, id and time itself. A refusal is only
+	// reported back to this player; nothing else happens to them.
+	UFPSRLChatSubsystem* Chat = UFPSRLChatSubsystem::Get(this);
+	const EFPSRLChatRejectReason Result = Chat ? Chat->ServerSubmit(this, Text) : EFPSRLChatRejectReason::NotInSession;
+	if (Result != EFPSRLChatRejectReason::None)
+	{
+		ClientChatRejected(Result);
+	}
+}
+
+void AFPSRLPlayerController::ClientReceiveChatMessage_Implementation(const FFPSRLChatMessage& Message)
+{
+	if (UFPSRLChatSubsystem* Chat = UFPSRLChatSubsystem::Get(this))
+	{
+		Chat->ClientAddMessage(Message);
+	}
+}
+
+void AFPSRLPlayerController::ClientReceiveChatHistory_Implementation(const TArray<FFPSRLChatMessage>& Messages)
+{
+	if (UFPSRLChatSubsystem* Chat = UFPSRLChatSubsystem::Get(this))
+	{
+		Chat->ClientMergeHistory(Messages);
+	}
+}
+
+void AFPSRLPlayerController::ClientChatRejected_Implementation(EFPSRLChatRejectReason Reason)
+{
+	if (!ChatWidget)
+	{
+		return;
+	}
+	FText Notice;
+	switch (Reason)
+	{
+	case EFPSRLChatRejectReason::RateLimited:	Notice = NSLOCTEXT("FPSRLChat", "RateLimited", "Slow down: wait a moment before sending again."); break;
+	case EFPSRLChatRejectReason::TooLong:		Notice = NSLOCTEXT("FPSRLChat", "TooLong", "Message too long."); break;
+	case EFPSRLChatRejectReason::Empty:			Notice = NSLOCTEXT("FPSRLChat", "Empty", "Nothing to send."); break;
+	case EFPSRLChatRejectReason::Disabled:		Notice = NSLOCTEXT("FPSRLChat", "Disabled", "Chat is not available right now."); break;
+	default:									Notice = NSLOCTEXT("FPSRLChat", "Refused", "Message not sent."); break;
+	}
+	ChatWidget->ShowNotice(Notice);
+}
+
+bool AFPSRLPlayerController::IsChatOpen() const
+{
+	return ChatWidget && ChatWidget->IsOpen();
+}
+
+void AFPSRLPlayerController::OpenChat()
+{
+	// Not over a screen that owns the input (altar choice, portal vote, pause menu); the death screen is fine.
+	if (!IsLocalController() || !ChatWidget || ChatWidget->IsOpen() || IsPauseMenuOpen()
+		|| (BoonSelectionWidget && BoonSelectionWidget->IsInViewport()) || (PortalMenu && PortalMenu->IsInViewport()))
+	{
+		return;
+	}
+	bChatRestoreCursor = bShowMouseCursor;
+	ChatWidget->SetOpen(true);
+	// Held keys (moving, firing) are released now: while the text box has the keyboard the game sees no key at all,
+	// so typing can never move, shoot or open anything. The world, the AI and the network keep running.
+	if (PlayerInput)
+	{
+		PlayerInput->FlushPressedKeys();
+	}
+	// Focus on the next frame, so the T that opened the chat is not typed into the box.
+	GetWorldTimerManager().SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		if (ChatWidget && ChatWidget->IsOpen() && ChatWidget->GetInputBox())
+		{
+			FInputModeUIOnly Mode;
+			Mode.SetWidgetToFocus(ChatWidget->GetInputBox()->TakeWidget());
+			Mode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
+			SetInputMode(Mode);
+		}
+	}));
+	UE_LOG(LogFPSRL, Verbose, TEXT("[Chat] Opened"));
+}
+
+void AFPSRLPlayerController::CloseChat()
+{
+	if (!ChatWidget || !ChatWidget->IsOpen())
+	{
+		return;
+	}
+	ChatWidget->SetOpen(false);
+	if (bChatRestoreCursor)
+	{
+		FInputModeGameAndUI Mode;	// a screen with a cursor (the death screen) was up: give it back
+		Mode.SetHideCursorDuringCapture(false);
+		SetInputMode(Mode);
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+	UE_LOG(LogFPSRL, Verbose, TEXT("[Chat] Closed"));
 }
 
 

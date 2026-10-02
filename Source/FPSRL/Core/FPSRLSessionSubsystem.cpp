@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Core/FPSRLSessionSubsystem.h"
+#include "Social/FPSRLChatSubsystem.h"
 #include "Data/FPSRLRunSettings.h"
 #include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
@@ -235,6 +236,10 @@ void UFPSRLSessionSubsystem::HandleDestroyBeforeJoinComplete(FName SessionName, 
 
 void UFPSRLSessionSubsystem::StartJoin()
 {
+	if (UFPSRLChatSubsystem* Chat = GetGameInstance()->GetSubsystem<UFPSRLChatSubsystem>())
+	{
+		Chat->ResetSession(TEXT("joining a session"));
+	}
 	const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld());
 	if (!Sessions.IsValid() || !Search.IsValid() || !Search->SearchResults.IsValidIndex(JoinResultIndex))
 	{
@@ -382,6 +387,10 @@ void UFPSRLSessionSubsystem::HandleDestroyBeforeHostComplete(FName SessionName, 
 
 void UFPSRLSessionSubsystem::StartCreate()
 {
+	if (UFPSRLChatSubsystem* Chat = GetGameInstance()->GetSubsystem<UFPSRLChatSubsystem>())
+	{
+		Chat->ResetSession(TEXT("hosting a session"));
+	}
 	const IOnlineSessionPtr Sessions = Online::GetSessionInterface(GetWorld());
 	const ULocalPlayer* LocalPlayer = GetGameInstance()->GetFirstGamePlayer();
 	const FUniqueNetIdRepl UserId = LocalPlayer ? LocalPlayer->GetPreferredUniqueNetId() : FUniqueNetIdRepl();

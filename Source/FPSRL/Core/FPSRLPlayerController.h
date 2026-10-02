@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "GameplayTagContainer.h"
 #include "Types/FPSRLTypes.h"
+#include "Social/FPSRLChatTypes.h"
 #include "FPSRLPlayerController.generated.h"
 
 class UInputAction;
@@ -354,6 +355,33 @@ public:
 	UFUNCTION(Server, Reliable)
 	void ServerTestCommand(FName Command, const FString& Arg1, const FString& Arg2);
 
+	// --- Chat (session text chat; state in UFPSRLChatSubsystem) ---------------------------------------------------
+
+	/** Client -> server: send a chat message. Text only: the server decides the sender, id, time and who gets it. */
+	UFUNCTION(Server, Reliable)
+	void ServerSendChatMessage(const FString& Text);
+
+	/** Server -> this player: one accepted chat message. */
+	UFUNCTION(Client, Reliable)
+	void ClientReceiveChatMessage(const FFPSRLChatMessage& Message);
+
+	/** Server -> this player: the session's recent chat history (once, on joining). */
+	UFUNCTION(Client, Reliable)
+	void ClientReceiveChatHistory(const TArray<FFPSRLChatMessage>& Messages);
+
+	/** Server -> this player: their message was refused (why). */
+	UFUNCTION(Client, Unreliable)
+	void ClientChatRejected(EFPSRLChatRejectReason Reason);
+
+	/** Local: open the chat input (T / D-pad Left). The game keeps running; only text entry takes the keyboard. */
+	void OpenChat();
+
+	/** Local: back to gameplay input (after sending, Esc, gamepad B). */
+	void CloseChat();
+
+	bool IsChatOpen() const;
+	class UFPSRLChatWidget* GetChatWidget() const { return ChatWidget; }
+
 	// --- Pause -------------------------------------------------------------------------------------------------
 
 	UFUNCTION(BlueprintCallable, Category = "Pause")
@@ -415,6 +443,12 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<class UFPSRLCombatHUDWidget> CombatHUD;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UFPSRLChatWidget> ChatWidget;
+
+	/** The cursor was showing when the chat opened (a screen with buttons was up): restore that mode on close. */
+	bool bChatRestoreCursor = false;
 
 	/** Revive progress bar (default C++ layout; set a Blueprint subclass to restyle). */
 	UPROPERTY(EditDefaultsOnly, Category = "Revive")

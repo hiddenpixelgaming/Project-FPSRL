@@ -1,12 +1,19 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Core/FPSRLGameModeMenu.h"
+#include "Social/FPSRLChatSubsystem.h"
 #include "Engine/Engine.h"
 #include "FPSRL.h"
 
 void AFPSRLGameModeMenu::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// Back in the main menu: the session (and its chat) is over.
+	if (UFPSRLChatSubsystem* Chat = UFPSRLChatSubsystem::Get(this))
+	{
+		Chat->ResetSession(TEXT("main menu"));
+	}
 
 	UWorld* World = GetWorld();
 	if (World && World->GetNetMode() == NM_ListenServer && GEngine)
