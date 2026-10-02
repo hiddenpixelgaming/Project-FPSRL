@@ -8,6 +8,7 @@
 #include "AbilitySystemComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Containers/Ticker.h"
+#include "Components/PrimitiveComponent.h"
 #include "Core/FPSRLPlayerController.h"
 #include "Data/FPSRLRunSettings.h"
 #include "Engine/GameInstance.h"
@@ -90,6 +91,10 @@ static FAutoConsoleCommandWithWorld GFPSRLReviveTestCommand(TEXT("FPSRL.ReviveTe
 			{
 			case 2004:
 				Check(OtherHealth->IsDowned() && Marker, FString::Printf(TEXT("client downed: %d, revive marker: %d"), OtherHealth->IsDowned(), Marker != nullptr));
+				if (const UPrimitiveComponent* Body = Cast<UPrimitiveComponent>(Other->GetRootComponent()))
+				{
+					Check(Body->GetCollisionResponseToChannel(ECC_GameTraceChannel1) == ECR_Ignore, TEXT("the downed body lets projectiles through (shots reach the reviver)"));
+				}
 				if (Marker)
 				{
 					HostPawn->TeleportTo(Marker->GetActorLocation() + FVector(80.f, 0.f, 0.f), HostPawn->GetActorRotation());
@@ -119,6 +124,10 @@ static FAutoConsoleCommandWithWorld GFPSRLReviveTestCommand(TEXT("FPSRL.ReviveTe
 			if (S->Step == DoneStep)
 			{
 				Check(!OtherHealth->IsDowned() && OtherHealth->GetCurrentHealth() > 0.f, FString::Printf(TEXT("%.0f damage on the second try, then %.1f s: client revived %d, health %.0f"), Limit * 0.75f, UFPSRLRunSettings::Get().ReviveSeconds, !OtherHealth->IsDowned(), OtherHealth->GetCurrentHealth()));
+				if (const UPrimitiveComponent* Body = Cast<UPrimitiveComponent>(Other->GetRootComponent()))
+				{
+					Check(Body->GetCollisionResponseToChannel(ECC_GameTraceChannel1) != ECR_Ignore, TEXT("revived: the body blocks projectiles again"));
+				}
 				UE_LOG(LogFPSRL, Log, TEXT("[ReviveTest] done: %d problem(s)"), S->Problems);
 				Host->ConsoleCommand(TEXT("quit"));
 				return false;

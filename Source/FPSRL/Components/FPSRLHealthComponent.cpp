@@ -337,20 +337,40 @@ void UFPSRLHealthComponent::HandleHealthAttributeChanged(const FOnAttributeChang
 	LastHealthSeen = Health;
 
 	// After the broadcast, so the character's own death handling (ragdoll profile) has already run.
-	if (!bBodyIgnoresProjectiles && GetHealthSet() && GetCurrentHealth() <= 0.f)
-	{
-		MakeBodyIgnoreProjectiles();
-	}
+	UpdateProjectileBlocking();
 }
 
-void UFPSRLHealthComponent::MakeBodyIgnoreProjectiles()
+void UFPSRLHealthComponent::UpdateProjectileBlocking()
 {
-	// Dead bodies no longer stop bullets (every machine: health replicates, and clients fly their own copies).
-	bBodyIgnoresProjectiles = true;
-	TInlineComponentArray<UPrimitiveComponent*> Primitives(GetOwner());
-	for (UPrimitiveComponent* Primitive : Primitives)
+	// Dead and DOWNED bodies let bullets through (every machine: health and the downed tag replicate, and clients fly
+	// their own projectile copies). Downed (held at 1 health) used to soak up the shots aimed at whoever revived them,
+	// so enemies could never interrupt a revive (playtest v0.1.34). A revived player blocks again.
+	const bool bIgnore = (GetHealthSet() && GetCurrentHealth() <= 0.f) || IsDowned() || bDied;
+	if (bIgnore == bBodyIgnoresProjectiles)
 	{
-		Primitive->SetCollisionResponseToChannel(ProjectileChannel, ECR_Ignore);
+		return;
+	}
+	bBodyIgnoresProjectiles = bIgnore;
+	if (bIgnore)
+	{
+		SavedProjectileResponses.Reset();
+		TInlineComponentArray<UPrimitiveComponent*> Primitives(GetOwner());
+		for (UPrimitiveComponent* Primitive : Primitives)
+		{
+			SavedProjectileResponses.Emplace(Primitive, Primitive->GetCollisionResponseToChannel(ProjectileChannel));
+			Primitive->SetCollisionResponseToChannel(ProjectileChannel, ECR_Ignore);
+		}
+	}
+	else
+	{
+		for (const TPair<TWeakObjectPtr<UPrimitiveComponent>, ECollisionResponse>& Saved : SavedProjectileResponses)
+		{
+			if (UPrimitiveComponent* Primitive = Saved.Key.Get())
+			{
+				Primitive->SetCollisionResponseToChannel(ProjectileChannel, Saved.Value);
+			}
+		}
+		SavedProjectileResponses.Reset();
 	}
 }
 
@@ -614,6 +634,7 @@ void UFPSRLHealthComponent::HandleDownedTagChanged(const FGameplayTag Tag, int32
 {
 	const bool bDowned = NewCount > 0;
 	SetTargetableByAI(!bDowned && !bDied);	// a downed player who dies stays untargetable
+	UpdateProjectileBlocking();	// downed: shots pass through to whoever revives them; revived: blocks again
 	ApplyDownedMovement(bDowned);
 	OnDownedChanged.Broadcast(bDowned);
 

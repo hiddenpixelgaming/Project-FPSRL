@@ -137,8 +137,11 @@ private:
 	void HandleDownedTagChanged(const struct FGameplayTag Tag, int32 NewCount);
 	void ApplyDownedMovement(bool bDowned);
 
-	/** Dead: stop the body from blocking projectiles. */
-	void MakeBodyIgnoreProjectiles();
+	/** Dead or downed: the body lets projectiles through (shots reach a reviver); alive again: it blocks. */
+	void UpdateProjectileBlocking();
+
+	/** Each body part's projectile response before it was set to ignore (restored on revive). */
+	TArray<TPair<TWeakObjectPtr<UPrimitiveComponent>, ECollisionResponse>> SavedProjectileResponses;
 
 	/** Object channel projectiles fly on (the project's "Projectile" channel). Dead bodies ignore it. */
 	UPROPERTY(EditDefaultsOnly, Category = "Health")
