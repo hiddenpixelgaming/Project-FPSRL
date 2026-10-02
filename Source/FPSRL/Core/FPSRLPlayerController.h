@@ -384,6 +384,7 @@ public:
 	/** The pause menu widget (null until first opened). */
 	UFPSRLPauseMenuWidget* GetPauseMenu() const { return PauseMenu; }
 	class UFPSRLChatWidget* GetChatWidget() const { return ChatWidget; }
+	class UFPSRLTeamHUDWidget* GetTeamHUD() const { return TeamHUD; }
 
 	// --- Pause -------------------------------------------------------------------------------------------------
 
@@ -449,6 +450,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<class UFPSRLChatWidget> ChatWidget;
+
+	/** Teammate HUD (the other players; session-level, kept across travel). A Blueprint subclass can restyle it. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD")
+	TSubclassOf<class UFPSRLTeamHUDWidget> TeamHUDClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UFPSRLTeamHUDWidget> TeamHUD;
 
 	/** The cursor was showing when the chat opened (a screen with buttons was up): restore that mode on close. */
 	bool bChatRestoreCursor = false;
@@ -566,8 +574,11 @@ private:
 	int32 PendingCatchUpRoom = INDEX_NONE;
 	void HandleCatchUpAccept();
 
-	/** V while the exit-portal prompt is up: vote Continue from wherever the player is (joins a running vote). */
+	/** G while the exit-portal prompt is up: vote Continue from wherever the player is (joins a running vote). */
 	void HandlePortalQuickContinue();
+
+	/** G answers the catch-up offer when one is open (user: catch-up wins), otherwise the exit-portal prompt. */
+	void HandleGPressed();
 	void HandleCatchUpDecline();
 	FTimerHandle CatchUpAutoAnswerTimer;
 

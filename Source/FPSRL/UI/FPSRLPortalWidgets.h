@@ -75,7 +75,7 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Portal", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StatusText;
 
-	/** "[V] Continue" button line (or "You are continuing"), so players away from the portal can join the vote. */
+	/** "[G] Continue" button line (or "You are continuing"), so players away from the portal can join the vote. */
 	UPROPERTY(BlueprintReadOnly, Category = "Portal", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> ContinueKeyText;
 

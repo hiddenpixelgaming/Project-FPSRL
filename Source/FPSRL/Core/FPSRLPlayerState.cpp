@@ -85,6 +85,7 @@ void AFPSRLPlayerState::CopyProperties(APlayerState* PlayerState)
 			NewState->CarriedHealth = CarriedHealth >= 0.f ? CarriedHealth
 				: (AbilitySystemComponent->GetSet<UFPSRLHealthSet>() ? AbilitySystemComponent->GetNumericAttribute(UFPSRLHealthSet::GetHealthAttribute()) : -1.f);
 		}
+		OnPlayerStateChanged.Broadcast(NewState);	// it has the player's id and name now (the host's teammate HUD)
 	}
 }
 
@@ -248,6 +249,42 @@ void AFPSRLPlayerState::PersistTalentEssence()
 	{
 		PC->ClientPersistentCurrencyChanged(TalentEssence);
 	}
+}
+
+// --- Session roster events (teammate HUD) ------------------------------------------------------------------------
+
+FFPSRLPlayerStateEvent AFPSRLPlayerState::OnPlayerStateBegin;
+FFPSRLPlayerStateEndEvent AFPSRLPlayerState::OnPlayerStateEnd;
+FFPSRLPlayerStateEvent AFPSRLPlayerState::OnPlayerStateChanged;
+
+void AFPSRLPlayerState::BeginPlay()
+{
+	Super::BeginPlay();
+	OnPlayerStateBegin.Broadcast(this);
+}
+
+void AFPSRLPlayerState::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	OnPlayerStateEnd.Broadcast(this, EndPlayReason);
+	Super::EndPlay(EndPlayReason);
+}
+
+void AFPSRLPlayerState::SetPlayerName(const FString& S)
+{
+	Super::SetPlayerName(S);
+	OnPlayerStateChanged.Broadcast(this);	// the server's own copy (a listen host's HUD) gets no OnRep
+}
+
+void AFPSRLPlayerState::OnRep_PlayerName()
+{
+	Super::OnRep_PlayerName();
+	OnPlayerStateChanged.Broadcast(this);
+}
+
+void AFPSRLPlayerState::OnRep_bIsInactive()
+{
+	Super::OnRep_bIsInactive();
+	OnPlayerStateChanged.Broadcast(this);
 }
 
 // --- Pawn / ASC --------------------------------------------------------------------------------------------------

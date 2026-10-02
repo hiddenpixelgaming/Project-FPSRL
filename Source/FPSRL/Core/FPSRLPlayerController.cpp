@@ -43,6 +43,7 @@
 #include "Social/FPSRLChatSettings.h"
 #include "Social/FPSRLChatSubsystem.h"
 #include "UI/FPSRLChatWidget.h"
+#include "UI/FPSRLTeamHUDWidget.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Data/FPSRLAspectDefinition.h"
@@ -600,6 +601,16 @@ namespace FPSRLPortalDebug
 }
 #endif
 
+void AFPSRLPlayerController::HandleGPressed()
+{
+	if (PendingCatchUpRoom != INDEX_NONE)
+	{
+		HandleCatchUpAccept();
+		return;
+	}
+	HandlePortalQuickContinue();
+}
+
 void AFPSRLPlayerController::HandlePortalQuickContinue()
 {
 	const AFPSRLExitPortal* Portal = PortalStatus && PortalStatus->IsInViewport() ? PortalStatus->GetPortal() : nullptr;
@@ -651,7 +662,7 @@ void AFPSRLPlayerController::RefreshPortalUI(AFPSRLExitPortal* Portal)
 		}
 		PortalStatus->ShowPortal(Portal);
 #if !UE_BUILD_SHIPPING
-		// Test aid: press the prompt's [V] automatically (headless multiplayer runs).
+		// Test aid: press the prompt's [G] automatically (headless multiplayer runs).
 		if (FPSRLPortalDebug::CVarAutoContinue.GetValueOnGameThread() != 0)
 		{
 			HandlePortalQuickContinue();
@@ -781,6 +792,10 @@ void AFPSRLPlayerController::OnRep_PlayerState()
 	Super::OnRep_PlayerState();
 	BindToPlayerStateComponents();
 	ReportTalentEssenceIfNeeded();
+	if (TeamHUD)
+	{
+		TeamHUD->Resync();	// our own PlayerState is known now: it never has a teammate entry
+	}
 }
 
 // --- Local selection UI ------------------------------------------------------------------------------------------
@@ -1359,6 +1374,16 @@ void AFPSRLPlayerController::EnsureLocalHUD()
 	{
 		ChatWidget->AddToViewport(1);	// over the HUD, under menus
 	}
+	// Teammate HUD: the other players only (the personal HUD shows this player's own health). Session-level: it lives
+	// on the local player, so the controller a travel brings adopts the same one.
+	if (UFPSRLTeamHUDSubsystem* TeamHUDHolder = ULocalPlayer::GetSubsystem<UFPSRLTeamHUDSubsystem>(GetLocalPlayer()))
+	{
+		TeamHUD = TeamHUDHolder->GetOrCreateTeamHUD(this, TeamHUDClass);
+	}
+	if (TeamHUD && !TeamHUD->IsInViewport())
+	{
+		TeamHUD->AddToViewport(-1);	// with the personal HUD, under menus and prompts
+	}
 
 	// The crosshair is the Blueprint's widget (CrosshairUI, typed WB_Crosshair): its BeginPlay only makes one in the
 	// Lobby (v0.1.25: no crosshair in a run for anyone), so make it here when it is missing.
@@ -1402,11 +1427,9 @@ void AFPSRLPlayerController::SetupInputComponent()
 	}
 	if (InputComponent)
 	{
-		// The catch-up prompt's key (does nothing without an open offer; G is free in every mapping context). Not answering
-		// is staying: there is no "stay" key.
-		InputComponent->BindKey(EKeys::G, IE_Pressed, this, &ThisClass::HandleCatchUpAccept);
-		// The exit-portal prompt's button: join the Continue vote without walking back to the portal.
-		InputComponent->BindKey(EKeys::V, IE_Pressed, this, &ThisClass::HandlePortalQuickContinue);
+		// G answers the catch-up offer (not answering is staying: there is no "stay" key) and joins the exit portal's
+		// Continue vote from anywhere; the catch-up offer wins when both are up (user). V is Push-to-Talk.
+		InputComponent->BindKey(EKeys::G, IE_Pressed, this, &ThisClass::HandleGPressed);
 	}
 #if !UE_BUILD_SHIPPING
 	if (InputComponent)

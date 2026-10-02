@@ -198,7 +198,7 @@ void AFPSRLExitPortal::SetContinueVote(APlayerController* Voter, bool bContinue)
 	if (bContinue)
 	{
 		// Starting a vote needs a player at the portal; once one is running, anyone alive may join it from anywhere
-		// (the HUD prompt's [V]; everyone travels together anyway; playtest v0.1.32).
+		// (the HUD prompt's [G]; everyone travels together anyway; playtest v0.1.32).
 		const APawn* Pawn = Voter->GetPawn();
 		const float MaxDistance = InteractionRange->GetScaledSphereRadius() + 200.f;
 		const bool bInRange = Pawn && FVector::Dist(Pawn->GetActorLocation(), GetActorLocation()) <= MaxDistance;

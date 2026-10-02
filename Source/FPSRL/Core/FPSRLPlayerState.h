@@ -15,6 +15,11 @@ class UFPSRLBoonComponent;
 class UFPSRLCombatSet;
 class UFPSRLHealthSet;
 class UFPSRLProgressionSet;
+class AFPSRLPlayerState;
+
+/** Every machine: a player's state began / ended in its world, or its name or active state changed. */
+DECLARE_MULTICAST_DELEGATE_OneParam(FFPSRLPlayerStateEvent, AFPSRLPlayerState*);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FFPSRLPlayerStateEndEvent, AFPSRLPlayerState*, EEndPlayReason::Type);
 
 /**
  * Base PlayerState for every FPSRL level (Lobby and Match). BP_PlayerStateLobby derives from this.
@@ -116,11 +121,26 @@ public:
 	/** Server: run is over. Removes only temporary Blessing / relic grants and state; safe to call more than once. */
 	void ClearRunState();
 
+	/**
+	 * Session roster events for the teammate HUD (static: one stream for every player on this machine; listeners filter
+	 * by world). Begin = this player's state exists here (the PlayerId and name have arrived with it); End = it left this
+	 * world (EEndPlayReason::Destroyed = the player left the session, LevelTransition = a Depth travel, a new state follows);
+	 * Changed = name or inactive flag.
+	 */
+	static FFPSRLPlayerStateEvent OnPlayerStateBegin;
+	static FFPSRLPlayerStateEndEvent OnPlayerStateEnd;
+	static FFPSRLPlayerStateEvent OnPlayerStateChanged;
+
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void CopyProperties(APlayerState* PlayerState) override;
+	virtual void SetPlayerName(const FString& S) override;
+	virtual void OnRep_PlayerName() override;
+	virtual void OnRep_bIsInactive() override;
 
 protected:
 	virtual void PostInitializeComponents() override;
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	/**

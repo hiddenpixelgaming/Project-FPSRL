@@ -9,6 +9,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Core/FPSRLPlayerController.h"
 #include "Data/FPSRLRunSettings.h"
 #include "GameFramework/GameStateBase.h"
 #include "Rooms/FPSRLExitPortal.h"
@@ -208,7 +209,9 @@ void UFPSRLPortalStatusWidget::UpdateText()
 		const APlayerController* PC = GetOwningPlayer();
 		const bool bVoted = Portal.IsValid() && PC && Portal->HasVotedToContinue(PC->PlayerState);
 		ContinueKeyText->SetText(bVoted ? NSLOCTEXT("FPSRL", "PortalContinuing", "You are continuing")
-			: NSLOCTEXT("FPSRL", "PortalContinueKey", "Press [V] to Continue"));
+			: Cast<AFPSRLPlayerController>(PC) && Cast<AFPSRLPlayerController>(PC)->GetPendingCatchUpRoom() != INDEX_NONE
+				? NSLOCTEXT("FPSRL", "PortalContinueKeyAfterOffer", "Press [G] to Continue (after the teleport offer)")
+				: NSLOCTEXT("FPSRL", "PortalContinueKey", "Press [G] to Continue"));
 		if (UWidget* Button = ContinueKeyText->GetParent())
 		{
 			Button->SetVisibility(Portal.IsValid() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
