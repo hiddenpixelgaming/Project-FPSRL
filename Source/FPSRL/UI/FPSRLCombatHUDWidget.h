@@ -41,6 +41,9 @@ public:
 	/** One of this player's hits landed (or a swing missed): flash the hit marker. */
 	void ShowHitFeedback(EFPSRLHitFeedback Kind);
 
+	/** A floating damage number above the target at WorldLocation: white, yellow when critical; rises and fades. */
+	void ShowDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical);
+
 	/** Test: what the HUD shows right now, as text. */
 	FString DescribeForTest() const;
 
@@ -84,6 +87,26 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "HUD")
 	float DamageFlashDuration = 0.3f;
 
+	/** Damage numbers: how long one stays up, how far it rises (cm, in the world), its colours and font size. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	float DamageNumberDuration = 0.8f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	float DamageNumberRise = 60.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	FLinearColor DamageNumberColor = FLinearColor::White;
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	FLinearColor CriticalDamageNumberColor = FLinearColor(1.f, 0.85f, 0.1f);
+
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	int32 DamageNumberFontSize = 20;
+
+	/** At most this many numbers on screen; the oldest is reused when more land at once. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Damage Numbers")
+	int32 MaxDamageNumbers = 24;
+
 private:
 	void BuildDefaultLayout();
 	void CheckBindings();
@@ -118,6 +141,24 @@ private:
 	TObjectPtr<UTextBlock> ReachText;
 
 	FTimerHandle ReachTimer;
+
+	/** One floating damage number (a pooled text block). */
+	struct FDamageNumber
+	{
+		TWeakObjectPtr<UTextBlock> Text;
+		FVector WorldLocation = FVector::ZeroVector;
+		double StartTime = -1000.0;
+		bool bCritical = false;
+	};
+	TArray<FDamageNumber> DamageNumbers;
+
+	/** Moves and fades the damage numbers; returns true while any is still showing. */
+	bool AnimateDamageNumbers();
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UCanvasPanel> RootCanvas;
+
+	FString LastDamageNumberText;
 	double MarkerStartTime = -1000.0;
 	EFPSRLHitFeedback MarkerKind = EFPSRLHitFeedback::Hit;
 	int32 FeedbackCount = 0;

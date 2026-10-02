@@ -103,6 +103,17 @@ static FAutoConsoleCommandWithWorld GFPSRLFeedbackTestCommand(TEXT("FPSRL.Feedba
 				break;
 			case 1011:
 				Check(Marker.StartsWith(TEXT("hit marker Hit")) && Hud.Contains(TEXT("(1 shown)")), FString::Printf(TEXT("pistol hit: %s; enemy at %.0f (expect a Hit marker)"), *Marker, EnemyHealth()));
+				{
+					// The damage number shows what the enemy actually lost, in white (no critical).
+					const FString Numbers = Hud.Mid(Hud.Find(TEXT("damage numbers")));
+					const UFPSRLHealthComponent* H = Enemy ? Enemy->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+					const FString Expected = FString::Printf(TEXT("last '%d' white"), H ? FMath::RoundToInt(H->GetMaxHealth() - H->GetCurrentHealth()) : -1);
+					Check(Numbers.StartsWith(TEXT("damage numbers 1 on screen")) && Numbers.Contains(Expected), FString::Printf(TEXT("pistol hit: %s (expect 1 number, %s)"), *Numbers, *Expected));
+					if (FApp::CanEverRender())
+					{
+						PC->ConsoleCommand(TEXT("Shot showui"));	// rendered runs: a screenshot with the number on screen
+					}
+				}
 				Press(PC, Shoot);	// 50 + 50 = the 100-health test enemy
 				break;
 			case 1014:

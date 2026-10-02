@@ -1765,7 +1765,7 @@ void AFPSRLPlayerController::ResolveServerMelee()
 	}
 	if (Struck.IsEmpty())
 	{
-		ClientCombatFeedback(EFPSRLHitFeedback::MeleeMiss, 0.f);	// the swing whiffed: tell the player clearly
+		ClientCombatFeedback(EFPSRLHitFeedback::MeleeMiss, 0.f, false, FVector::ZeroVector);	// the swing whiffed: tell the player clearly
 		UE_LOG(LogFPSRL, Verbose, TEXT("[Melee] %s swung at nothing"), *(PlayerState ? PlayerState->GetPlayerName() : FString(TEXT("?"))));
 	}
 	CurrentMeleeAttackId = INDEX_NONE;
@@ -1799,11 +1799,15 @@ float AFPSRLPlayerController::GetEffectiveMeleeCooldown() const
 	return MeleeCooldown * FMath::Max(0.1f, Multiplier);
 }
 
-void AFPSRLPlayerController::ClientCombatFeedback_Implementation(EFPSRLHitFeedback Kind, float Damage)
+void AFPSRLPlayerController::ClientCombatFeedback_Implementation(EFPSRLHitFeedback Kind, float Damage, bool bCritical, FVector_NetQuantize WorldLocation)
 {
 	if (CombatHUD)
 	{
 		CombatHUD->ShowHitFeedback(Kind);
+		if (Kind != EFPSRLHitFeedback::MeleeMiss && Damage > 0.f)
+		{
+			CombatHUD->ShowDamageNumber(WorldLocation, Damage, bCritical);
+		}
 	}
 	FPSRLCombatFeedback::PlaySound(this, Kind);
 	if ((Kind == EFPSRLHitFeedback::MeleeHit || Kind == EFPSRLHitFeedback::MeleeKill) && PlayerCameraManager)

@@ -19,6 +19,7 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Core/FPSRLPlayerController.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "TimerManager.h"
@@ -39,6 +40,7 @@ void UFPSRLCombatHUDWidget::BuildDefaultLayout()
 {
 	UCanvasPanel* Canvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("Canvas"));
 	WidgetTree->RootWidget = Canvas;
+	RootCanvas = Canvas;
 	auto MakeText = [this](const TCHAR* Name, int32 Size)
 	{
 		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
@@ -388,6 +390,9 @@ void UFPSRLCombatHUDWidget::Animate()
 	}
 	bMoving |= Alpha > 0.f;
 
+	// Damage numbers rise and fade.
+	bMoving |= AnimateDamageNumbers();
+
 	if (!bMoving && GetWorld())
 	{
 		GetWorld()->GetTimerManager().ClearTimer(AnimTimer);
@@ -424,6 +429,101 @@ void UFPSRLCombatHUDWidget::ShowHitFeedback(EFPSRLHitFeedback Kind)
 	StartAnimating();
 }
 
+void UFPSRLCombatHUDWidget::ShowDamageNumber(const FVector& WorldLocation, float Damage, bool bCritical)
+{
+	UCanvasPanel* Canvas = RootCanvas ? RootCanvas.Get() : Cast<UCanvasPanel>(WidgetTree ? WidgetTree->RootWidget : nullptr);
+	if (!Canvas || Damage <= 0.f)
+	{
+		return;
+	}
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+
+	// A free pooled text block, a new one while under the cap, else the oldest number is reused.
+	FDamageNumber* Pick = nullptr;
+	for (FDamageNumber& Number : DamageNumbers)
+	{
+		if (Number.Text.IsValid() && Now - Number.StartTime >= DamageNumberDuration)
+		{
+			Pick = &Number;
+			break;
+		}
+	}
+	if (!Pick && DamageNumbers.Num() < MaxDamageNumbers)
+	{
+		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *FString::Printf(TEXT("DamageNumber%d"), DamageNumbers.Num()));
+		FSlateFontInfo Font = Text->GetFont();
+		Font.Size = DamageNumberFontSize;
+		Text->SetFont(Font);
+		Text->SetShadowOffset(FVector2D(1.5f, 1.5f));
+		Text->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f));
+		Text->SetJustification(ETextJustify::Center);
+		Text->SetVisibility(ESlateVisibility::Collapsed);
+		if (UCanvasPanelSlot* TextSlot = Canvas->AddChildToCanvas(Text))
+		{
+			TextSlot->SetAlignment(FVector2D(0.5f, 1.f));	// centred, sitting on its point
+			TextSlot->SetAutoSize(true);
+		}
+		Pick = &DamageNumbers.AddDefaulted_GetRef();
+		Pick->Text = Text;
+	}
+	if (!Pick)
+	{
+		Pick = &DamageNumbers[0];
+		for (FDamageNumber& Number : DamageNumbers)
+		{
+			Pick = Number.StartTime < Pick->StartTime ? &Number : Pick;
+		}
+	}
+
+	// Spread a little sideways so several hits on one enemy don't stack on one spot.
+	Pick->WorldLocation = WorldLocation + FVector(FMath::FRandRange(-20.f, 20.f), FMath::FRandRange(-20.f, 20.f), FMath::FRandRange(0.f, 15.f));
+	Pick->StartTime = Now;
+	Pick->bCritical = bCritical;
+	LastDamageNumberText = FText::AsNumber(FMath::Max(1, FMath::RoundToInt(Damage))).ToString();
+	if (UTextBlock* Text = Pick->Text.Get())
+	{
+		Text->SetText(FText::FromString(LastDamageNumberText));
+		Text->SetRenderScale(FVector2D(bCritical ? 1.3f : 1.f));
+	}
+	StartAnimating();
+}
+
+bool UFPSRLCombatHUDWidget::AnimateDamageNumbers()
+{
+	APlayerController* PC = Controller.Get();
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	bool bAny = false;
+	for (FDamageNumber& Number : DamageNumbers)
+	{
+		UTextBlock* Text = Number.Text.Get();
+		if (!Text)
+		{
+			continue;
+		}
+		const float Age = static_cast<float>(Now - Number.StartTime);
+		FVector2D ScreenPosition;
+		if (!PC || Age >= DamageNumberDuration
+			|| !UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Number.WorldLocation + FVector(0.f, 0.f, DamageNumberRise * Age / DamageNumberDuration), ScreenPosition, false))
+		{
+			Text->SetVisibility(ESlateVisibility::Collapsed);	// finished, or behind the camera
+			bAny |= PC && Age < DamageNumberDuration;
+			continue;
+		}
+		// Full strength for the first half, then fades out.
+		const float Alpha = Age < DamageNumberDuration * 0.5f ? 1.f : 1.f - (Age - DamageNumberDuration * 0.5f) / (DamageNumberDuration * 0.5f);
+		const FLinearColor Base = Number.bCritical ? CriticalDamageNumberColor : DamageNumberColor;
+		Text->SetColorAndOpacity(FSlateColor(FLinearColor(Base.R, Base.G, Base.B, Alpha)));
+		Text->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f * Alpha));
+		if (UCanvasPanelSlot* TextSlot = Cast<UCanvasPanelSlot>(Text->Slot))
+		{
+			TextSlot->SetPosition(ScreenPosition);
+		}
+		Text->SetVisibility(ESlateVisibility::HitTestInvisible);
+		bAny = true;
+	}
+	return bAny;
+}
+
 void UFPSRLCombatHUDWidget::RefreshReach()
 {
 	const bool bInReach = Controller.IsValid() && Controller->IsEnemyInMeleeReach();
@@ -437,12 +537,24 @@ FString UFPSRLCombatHUDWidget::DescribeForTest() const
 {
 	auto Text = [](const UTextBlock* Block) { return Block && Block->GetVisibility() != ESlateVisibility::Collapsed ? Block->GetText().ToString() : FString(TEXT("-")); };
 	const UWidget* ReloadBox = ReloadBar ? ReloadBar->GetParent() : nullptr;
-	return FString::Printf(TEXT("health '%s' bar %.2f | ammo '%s' | dash shade %.0f px | melee shade %.0f px | reload bar %s %.2f | damage flash %.2f | hit marker %s %.2f (%d shown) | melee reach %s"),
+	int32 NumbersShown = 0;
+	FString NumberColour = TEXT("-");
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	for (const FDamageNumber& Number : DamageNumbers)
+	{
+		if (Number.Text.IsValid() && Now - Number.StartTime < DamageNumberDuration)	// live (drawn wherever it projects)
+		{
+			++NumbersShown;
+			NumberColour = Number.bCritical ? TEXT("yellow") : TEXT("white");
+		}
+	}
+	return FString::Printf(TEXT("health '%s' bar %.2f | ammo '%s' | dash shade %.0f px | melee shade %.0f px | reload bar %s %.2f | damage flash %.2f | hit marker %s %.2f (%d shown) | melee reach %s | damage numbers %d on screen, last '%s' %s"),
 		*Text(HealthText), HealthBar ? HealthBar->GetPercent() : -1.f, *Text(AmmoText), DashShade ? DashShade->GetHeightOverride() : -1.f, MeleeShade ? MeleeShade->GetHeightOverride() : -1.f,
 		ReloadBox && ReloadBox->GetVisibility() != ESlateVisibility::Collapsed ? TEXT("shown") : TEXT("hidden"), ReloadBar ? ReloadBar->GetPercent() : -1.f,
 		DamageFlash ? DamageFlash->GetColorAndOpacity().A : -1.f,
 		*StaticEnum<EFPSRLHitFeedback>()->GetNameStringByValue(static_cast<int64>(MarkerKind)), MarkerLines.IsEmpty() ? -1.f : MarkerLines[0]->GetColorAndOpacity().A, FeedbackCount,
-		ReachText && ReachText->GetVisibility() != ESlateVisibility::Collapsed ? TEXT("shown") : TEXT("hidden"));
+		ReachText && ReachText->GetVisibility() != ESlateVisibility::Collapsed ? TEXT("shown") : TEXT("hidden"),
+		NumbersShown, *LastDamageNumberText, *NumberColour);
 }
 
 #undef LOCTEXT_NAMESPACE

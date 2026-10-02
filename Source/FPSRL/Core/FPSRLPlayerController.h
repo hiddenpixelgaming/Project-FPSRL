@@ -341,7 +341,7 @@ public:
 
 	/** Server -> this player: feedback on one of their hits (hit marker, sound, view punch on melee). */
 	UFUNCTION(Client, Unreliable)
-	void ClientCombatFeedback(EFPSRLHitFeedback Kind, float Damage);
+	void ClientCombatFeedback(EFPSRLHitFeedback Kind, float Damage, bool bCritical, FVector_NetQuantize WorldLocation);
 
 	/** Local: an enemy is within melee reach in front of the player (the HUD's reach brackets). */
 	bool IsEnemyInMeleeReach() const;

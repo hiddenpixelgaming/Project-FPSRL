@@ -17,6 +17,7 @@
 #include "Types/FPSRLGameplayTags.h"
 #include "Data/FPSRLRunSettings.h"
 #include "GameFramework/Character.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/PlayerState.h"
@@ -218,7 +219,19 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 			const bool bMelee = PlayerHit.Source == EFPSRLItemSource::Melee;
 			const EFPSRLHitFeedback Kind = bMelee ? (bKilled ? EFPSRLHitFeedback::MeleeKill : EFPSRLHitFeedback::MeleeHit)
 				: bKilled ? EFPSRLHitFeedback::Kill : PlayerHit.bCritical ? EFPSRLHitFeedback::Critical : EFPSRLHitFeedback::Hit;
-			AttackerPC->ClientCombatFeedback(Kind, Damage);
+			// The damage number floats up from just above the target's head (capsule top, or the actor's bounds).
+			FVector NumberAt = GetOwner()->GetActorLocation();
+			if (const ACharacter* Victim = Cast<ACharacter>(GetOwner()); Victim && Victim->GetCapsuleComponent())
+			{
+				NumberAt.Z += Victim->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 25.f;
+			}
+			else
+			{
+				FVector Origin, Extent;
+				GetOwner()->GetActorBounds(true, Origin, Extent);
+				NumberAt.Z = Origin.Z + Extent.Z + 25.f;
+			}
+			AttackerPC->ClientCombatFeedback(Kind, Damage, PlayerHit.bCritical, NumberAt);
 		}
 	}
 
