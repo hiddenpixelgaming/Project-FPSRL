@@ -1,4 +1,4 @@
-"""Arena 07 - Drowned Nave (Temple, two levels, 36 x 30 m). Not in the Depth rotation yet.
+"""Arena 07 - Drowned Nave (Temple, two levels, 36 x 30 m). In the Depth 1-3 rotation.
 
 Abyssus reference: the Abandoned Temple's rooms (stone ruins, shallow pools, braziers, collapsed sections) and the
 reviewers' "tight, vertical arenas with ledges above and low ground below": height is how you escape a swarm.
@@ -78,7 +78,7 @@ try:
 
     out += k.finish(NAME, "DA_Room_Arena07_DrownedNave", "Drowned Nave", unreal.FPSRLArenaType.VERTICAL, EXIT_X,
                     room_center=(2400, 0, 450), room_extent=(2000, 2300, 900), nav_center=(2350, 0, 300), nav_extent=(2700, 2400, 800),
-                    enemy_count=6, active_zones=2, depths=())
+                    enemy_count=6, active_zones=2)
 except Exception as ex:
     out.append("FAILED %s %s" % (ex, traceback.format_exc()))
 for line in out:

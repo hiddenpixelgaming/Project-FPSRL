@@ -1,4 +1,4 @@
-"""Arena 09 - Hanging Gardens (King of the hill, 37 x 34 m). Not in the Depth rotation yet.
+"""Arena 09 - Hanging Gardens (King of the hill, 37 x 34 m). In the Depth 1-3 rotation.
 
 Abyssus reference: the Gardens: overgrown ruins with large deep pools crossed on raised paths and stone bridges, and
 wider rooms than the Temple. Design rule from the reviews: rooms need something to fight over, not only to look at.
@@ -78,7 +78,7 @@ try:
 
     out += k.finish(NAME, "DA_Room_Arena09_HangingGardens", "Hanging Gardens", unreal.FPSRLArenaType.OPEN, EXIT_X,
                     room_center=(2450, 0, 450), room_extent=(2100, 2500, 900), nav_center=(2400, 0, 300), nav_extent=(2800, 2600, 800),
-                    enemy_count=6, active_zones=2, depths=())
+                    enemy_count=6, active_zones=2)
 except Exception as ex:
     out.append("FAILED %s %s" % (ex, traceback.format_exc()))
 for line in out:

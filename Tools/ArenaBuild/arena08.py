@@ -1,4 +1,4 @@
-"""Arena 08 - Wreck Chasm (Void, 35 x 30 m). Not in the Depth rotation yet.
+"""Arena 08 - Wreck Chasm (Void, 35 x 30 m). In the Depth 1-3 rotation.
 
 Abyssus reference: shipwreck wood (masts, planks, hulls) used as walkways in the Abandoned Temple, and the Void: dark
 chasms that cost a little health and put you back on safe ground (here: our fall response, -5%, back at the room's
@@ -79,7 +79,7 @@ try:
 
     out += k.finish(NAME, "DA_Room_Arena08_WreckChasm", "Wreck Chasm", unreal.FPSRLArenaType.HAZARD, EXIT_X,
                     room_center=(2350, 0, 350), room_extent=(2000, 2300, 900), nav_center=(2300, 0, 0), nav_extent=(2650, 2400, 1000),
-                    enemy_count=6, active_zones=2, depths=())
+                    enemy_count=6, active_zones=2)
 except Exception as ex:
     out.append("FAILED %s %s" % (ex, traceback.format_exc()))
 for line in out:

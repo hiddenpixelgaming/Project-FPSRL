@@ -1,4 +1,4 @@
-"""Arena 12 - Collapsed Atrium (Ruin, 36 x 32 m). Not in the Depth rotation yet.
+"""Arena 12 - Collapsed Atrium (Ruin, 36 x 32 m). In the Depth 1-3 rotation.
 
 Abyssus reference: collapsed temple sections and rubble, carved pillars next to fallen ones, shallow pools; the dome
 rooms read as places where something fell in. Our open-elevation rule: height without walled-off areas.
@@ -66,7 +66,7 @@ try:
 
     out += k.finish(NAME, "DA_Room_Arena12_CollapsedAtrium", "Collapsed Atrium", unreal.FPSRLArenaType.COVER, EXIT_X,
                     room_center=(2400, 0, 450), room_extent=(2000, 2400, 900), nav_center=(2350, 0, 300), nav_extent=(2700, 2500, 800),
-                    enemy_count=6, active_zones=2, depths=())
+                    enemy_count=6, active_zones=2)
 except Exception as ex:
     out.append("FAILED %s %s" % (ex, traceback.format_exc()))
 for line in out:

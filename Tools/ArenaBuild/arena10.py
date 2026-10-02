@@ -1,4 +1,4 @@
-"""Arena 10 - Soul Canal (Lanes, 40 x 24 m). Not in the Depth rotation yet.
+"""Arena 10 - Soul Canal (Lanes, 40 x 24 m). In the Depth 1-3 rotation.
 
 Abyssus reference: the Sanctuary: catacomb chambers with burial niches, streams of hostile souls that hurt, and frequent
 diagonal jump pads. Reviewers liked hazards that change how you move through a room more than hazards that are scenery.
@@ -71,7 +71,7 @@ try:
 
     out += k.finish(NAME, "DA_Room_Arena10_SoulCanal", "Soul Canal", unreal.FPSRLArenaType.CHOKEPOINT, EXIT_X,
                     room_center=(2600, 0, 450), room_extent=(2300, 2000, 900), nav_center=(2550, 0, 300), nav_extent=(3000, 2100, 800),
-                    enemy_count=6, active_zones=2, depths=())
+                    enemy_count=6, active_zones=2)
 except Exception as ex:
     out.append("FAILED %s %s" % (ex, traceback.format_exc()))
 for line in out:

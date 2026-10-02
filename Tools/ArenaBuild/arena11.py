@@ -1,4 +1,4 @@
-"""Arena 11 - Bell Spire (Tiers, 35 x 34 m). Not in the Depth rotation yet.
+"""Arena 11 - Bell Spire (Tiers, 35 x 34 m). In the Depth 1-3 rotation.
 
 Abyssus reference: the Submarine / bell objectives and the general "ledges above, low ground below" verticality; jump
 pads as the fast way up. Reviewers: fights are better when there is a place everyone wants to stand.
@@ -65,7 +65,7 @@ try:
 
     out += k.finish(NAME, "DA_Room_Arena11_BellSpire", "Bell Spire", unreal.FPSRLArenaType.VERTICAL, EXIT_X,
                     room_center=(2350, 0, 450), room_extent=(2000, 2500, 900), nav_center=(2300, 0, 300), nav_extent=(2650, 2600, 800),
-                    enemy_count=6, active_zones=2, depths=())
+                    enemy_count=6, active_zones=2)
 except Exception as ex:
     out.append("FAILED %s %s" % (ex, traceback.format_exc()))
 for line in out:
