@@ -25,6 +25,12 @@ class FPSRL_API UFPSRLPauseMenuWidget : public UUserWidget
 {
 	GENERATED_BODY()
 
+public:
+	/** Tests: the Settings page (open / close) and its profanity checkbox, as a player would use them. */
+	void ShowSettingsPage(bool bShow) { bShow ? HandleOpenSettings() : HandleCloseSettings(); }
+	bool IsSettingsPageShown() const;
+	class UCheckBox* GetProfanityCheck() const { return ProfanityCheck; }
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
@@ -32,6 +38,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> ResumeButton;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SettingsButton;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> QuitToMenuButton;
@@ -43,8 +52,28 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> BuildSummary;
 
+	/** Settings screen (swapped in for the main column): the player's own preferences, saved per machine. */
+	UPROPERTY(Transient)
+	TObjectPtr<class UWidgetSwitcher> Pages;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UCheckBox> ProfanityCheck;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> SettingsBackButton;
+
 private:
 	void BuildDefaultLayout();
+	UWidget* BuildSettingsPage();
+
+	UFUNCTION()
+	void HandleOpenSettings();
+
+	UFUNCTION()
+	void HandleCloseSettings();
+
+	UFUNCTION()
+	void HandleProfanityChanged(bool bIsChecked);
 	void RefreshBuildSummary();
 	UButton* AddButton(UPanelWidget* Parent, const FName& Name, const FText& Label);
 

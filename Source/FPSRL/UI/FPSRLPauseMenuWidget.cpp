@@ -4,6 +4,9 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
+#include "Components/CheckBox.h"
+#include "Components/WidgetSwitcher.h"
+#include "Social/FPSRLUserSettings.h"
 #include "Components/FPSRLBoonComponent.h"
 #include "Components/FPSRLRelicComponent.h"
 #include "Components/HorizontalBox.h"
@@ -40,6 +43,14 @@ void UFPSRLPauseMenuWidget::NativeOnInitialized()
 	{
 		QuitToMenuButton->OnClicked.AddDynamic(this, &ThisClass::HandleQuitToMenu);
 	}
+	if (SettingsButton)
+	{
+		SettingsButton->OnClicked.AddDynamic(this, &ThisClass::HandleOpenSettings);
+	}
+	if (SettingsBackButton)
+	{
+		SettingsBackButton->OnClicked.AddDynamic(this, &ThisClass::HandleCloseSettings);
+	}
 	if (QuitGameButton)
 	{
 		QuitGameButton->OnClicked.AddDynamic(this, &ThisClass::HandleQuitGame);
@@ -55,9 +66,13 @@ void UFPSRLPauseMenuWidget::BuildDefaultLayout()
 	Backdrop->SetVerticalAlignment(VAlign_Center);
 	WidgetTree->RootWidget = Backdrop;
 
+	// Two pages: the main menu (buttons + build summary) and Settings.
+	Pages = WidgetTree->ConstructWidget<UWidgetSwitcher>(UWidgetSwitcher::StaticClass(), TEXT("Pages"));
+	Backdrop->SetContent(Pages);
+
 	// Menu buttons on the left, the build summary on the right.
 	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Row"));
-	Backdrop->SetContent(Row);
+	Pages->AddChild(Row);
 
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
 	if (UHorizontalBoxSlot* ColumnSlot = Row->AddChildToHorizontalBox(Column))
@@ -92,8 +107,94 @@ void UFPSRLPauseMenuWidget::BuildDefaultLayout()
 	}
 
 	ResumeButton = AddButton(Column, TEXT("ResumeButton"), LOCTEXT("Resume", "Resume"));
+	SettingsButton = AddButton(Column, TEXT("SettingsButton"), LOCTEXT("Settings", "Settings"));
 	QuitToMenuButton = AddButton(Column, TEXT("QuitToMenuButton"), LOCTEXT("QuitToMenu", "Quit to Main Menu"));
 	QuitGameButton = AddButton(Column, TEXT("QuitGameButton"), LOCTEXT("QuitGame", "Quit Game"));
+
+	Pages->AddChild(BuildSettingsPage());
+}
+
+UWidget* UFPSRLPauseMenuWidget::BuildSettingsPage()
+{
+	// The start of the settings menu: a titled column of sections; Chat is the first.
+	UVerticalBox* Page = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("SettingsPage"));
+	auto MakeText = [this](const FText& Value, int32 Size, const FLinearColor& Colour)
+	{
+		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass());
+		Text->SetText(Value);
+		FSlateFontInfo Font = Text->GetFont();
+		Font.Size = Size;
+		Text->SetFont(Font);
+		Text->SetColorAndOpacity(FSlateColor(Colour));
+		return Text;
+	};
+	if (UVerticalBoxSlot* TitleSlot = Page->AddChildToVerticalBox(MakeText(LOCTEXT("SettingsTitle", "SETTINGS"), 48, FLinearColor::White)))
+	{
+		TitleSlot->SetHorizontalAlignment(HAlign_Center);
+		TitleSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 28.f));
+	}
+
+	UBorder* Section = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ChatSection"));
+	Section->SetBrushColor(FLinearColor(0.05f, 0.05f, 0.07f, 0.9f));
+	Section->SetPadding(FMargin(24.f, 18.f));
+	UVerticalBox* Lines = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("ChatSectionLines"));
+	Section->SetContent(Lines);
+	Lines->AddChildToVerticalBox(MakeText(LOCTEXT("ChatHeading", "CHAT"), 18, FLinearColor(1.f, 0.85f, 0.45f)))->SetPadding(FMargin(0.f, 0.f, 0.f, 10.f));
+
+	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("ProfanityRow"));
+	ProfanityCheck = WidgetTree->ConstructWidget<UCheckBox>(UCheckBox::StaticClass(), TEXT("ProfanityCheck"));
+	ProfanityCheck->OnCheckStateChanged.AddDynamic(this, &ThisClass::HandleProfanityChanged);
+	ProfanityCheck->SetRenderScale(FVector2D(1.6f, 1.6f));	// the default box is tiny next to 20 pt text
+	if (UHorizontalBoxSlot* CheckSlot = Row->AddChildToHorizontalBox(ProfanityCheck))
+	{
+		CheckSlot->SetVerticalAlignment(VAlign_Center);
+		CheckSlot->SetPadding(FMargin(0.f, 0.f, 12.f, 0.f));
+	}
+	if (UHorizontalBoxSlot* LabelSlot = Row->AddChildToHorizontalBox(MakeText(LOCTEXT("ProfanityLabel", "Filter profanity in chat"), 20, FLinearColor(0.92f, 0.92f, 0.92f))))
+	{
+		LabelSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	Lines->AddChildToVerticalBox(Row);
+	Lines->AddChildToVerticalBox(MakeText(LOCTEXT("ProfanityHint", "Masks offensive words in messages you see. Only affects you."), 14, FLinearColor(0.65f, 0.65f, 0.65f)))
+		->SetPadding(FMargin(0.f, 6.f, 0.f, 0.f));
+	if (UVerticalBoxSlot* SectionSlot = Page->AddChildToVerticalBox(Section))
+	{
+		SectionSlot->SetHorizontalAlignment(HAlign_Fill);
+		SectionSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 24.f));
+	}
+
+	SettingsBackButton = AddButton(Page, TEXT("SettingsBackButton"), LOCTEXT("Back", "Back"));
+	return Page;
+}
+
+void UFPSRLPauseMenuWidget::HandleOpenSettings()
+{
+	if (ProfanityCheck)
+	{
+		ProfanityCheck->SetIsChecked(UFPSRLUserSettings::Get()->bFilterProfanity);
+	}
+	if (Pages)
+	{
+		Pages->SetActiveWidgetIndex(1);
+	}
+}
+
+void UFPSRLPauseMenuWidget::HandleCloseSettings()
+{
+	if (Pages)
+	{
+		Pages->SetActiveWidgetIndex(0);
+	}
+}
+
+bool UFPSRLPauseMenuWidget::IsSettingsPageShown() const
+{
+	return Pages && Pages->GetActiveWidgetIndex() == 1;
+}
+
+void UFPSRLPauseMenuWidget::HandleProfanityChanged(bool bIsChecked)
+{
+	UFPSRLUserSettings::SetFilterProfanity(bIsChecked);
 }
 
 UButton* UFPSRLPauseMenuWidget::AddButton(UPanelWidget* Parent, const FName& Name, const FText& Label)
@@ -120,9 +221,17 @@ FReply UFPSRLPauseMenuWidget::NativeOnKeyDown(const FGeometry& InGeometry, const
 {
 	// While open, input is UI-only, so the pause key arrives here rather than through Enhanced Input.
 	const FKey Key = InKeyEvent.GetKey();
-	if (Key == EKeys::Escape || Key == EKeys::Gamepad_Special_Right)
+	if (Key == EKeys::Escape || Key == EKeys::Gamepad_Special_Right || Key == EKeys::Gamepad_FaceButton_Right)
 	{
-		HandleResume();
+		// From Settings, back to the main page; from the main page, resume.
+		if (Pages && Pages->GetActiveWidgetIndex() != 0)
+		{
+			HandleCloseSettings();
+		}
+		else if (Key != EKeys::Gamepad_FaceButton_Right)
+		{
+			HandleResume();
+		}
 		return FReply::Handled();
 	}
 	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
@@ -153,6 +262,7 @@ void UFPSRLPauseMenuWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	RefreshBuildSummary();	// every time the menu opens
+	HandleCloseSettings();	// always opens on the main page
 }
 
 void UFPSRLPauseMenuWidget::RefreshBuildSummary()

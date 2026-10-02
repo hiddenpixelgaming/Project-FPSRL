@@ -105,4 +105,6 @@ private:
 	FTimerHandle FadeTimer;
 	FDelegateHandle AddedHandle;
 	FDelegateHandle ResetHandle;
+	FDelegateHandle SettingsHandle;
+	FString LastShownText;
 };

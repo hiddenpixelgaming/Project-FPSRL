@@ -71,7 +71,17 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Availability")
 	bool bChatEnabledDuringTraversal = true;
 
-	/** The server's filter step (sanitising today; profanity / moderation later by swapping the class). */
+	/** Words masked for players with "Filter profanity" on (their own setting; the server sends the original text).
+	 *  Whole words, case-insensitive; an entry ending in '*' also matches longer words starting with it. */
+	UPROPERTY(Config, EditAnywhere, Category = "Filtering")
+	TArray<FString> ProfanityWords;
+
+	/** Words the built-in slur rules would catch but that are ordinary words, plus abbreviations kept readable; these
+	 *  are let through ('*' = also longer words starting with it). */
+	UPROPERTY(Config, EditAnywhere, Category = "Filtering")
+	TArray<FString> ProfanityAllowWords;
+
+	/** The server's filter step (sanitising today; moderation later by swapping the class). */
 	UPROPERTY(Config, EditAnywhere, Category = "Filtering")
 	TSoftClassPtr<UFPSRLChatFilter> FilterClass;
 

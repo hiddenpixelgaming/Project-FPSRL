@@ -18,6 +18,8 @@
 #include "Social/FPSRLChatFilter.h"
 #include "Social/FPSRLChatSettings.h"
 #include "Social/FPSRLChatSubsystem.h"
+#include "Social/FPSRLProfanityFilter.h"
+#include "Social/FPSRLUserSettings.h"
 #include "TimerManager.h"
 
 #define LOCTEXT_NAMESPACE "FPSRLChat"
@@ -45,12 +47,14 @@ void UFPSRLChatWidget::NativeOnInitialized()
 		AddedHandle = Chat->OnMessageAdded.AddUObject(this, &ThisClass::HandleMessageAdded);
 		ResetHandle = Chat->OnHistoryReset.AddUObject(this, &ThisClass::HandleHistoryReset);
 	}
+	SettingsHandle = UFPSRLUserSettings::OnChanged.AddUObject(this, &ThisClass::Rebuild);	// filter toggled: redraw
 	Rebuild();
 	SetOpen(false);
 }
 
 void UFPSRLChatWidget::NativeDestruct()
 {
+	UFPSRLUserSettings::OnChanged.Remove(SettingsHandle);
 	if (UFPSRLChatSubsystem* Chat = UFPSRLChatSubsystem::Get(this))
 	{
 		Chat->OnMessageAdded.Remove(AddedHandle);
@@ -186,7 +190,9 @@ void UFPSRLChatWidget::AddLine(const FFPSRLChatMessage& Message, double ArrivedA
 	}
 	Name->SetText(FText::FromString(Message.DisplayName + TEXT(":")));
 	Name->SetColorAndOpacity(FSlateColor(bMine ? FPSRLChatUI::OwnName : FPSRLChatUI::OtherName));
-	Body->SetText(FText::FromString(Message.Text));
+	// This player's own preference: profanity masked for display (the history keeps the original).
+	Body->SetText(FText::FromString(UFPSRLUserSettings::Get()->bFilterProfanity ? FPSRLProfanity::Mask(Message.Text) : Message.Text));
+	LastShownText = Body->GetText().ToString();
 	Body->SetColorAndOpacity(FSlateColor(FPSRLChatUI::Body));
 	Body->SetAutoWrapText(true);
 	if (UHorizontalBoxSlot* NameSlot = Line->AddChildToHorizontalBox(Name))
@@ -421,8 +427,8 @@ FString UFPSRLChatWidget::DescribeForTest() const
 	{
 		Last = FString::Printf(TEXT("#%d"), LineWidgets.Last().MessageId);
 	}
-	return FString::Printf(TEXT("%s | %d line(s), %d shown, last %s | input '%s' | notice %s"),
-		bIsOpen ? TEXT("open") : TEXT("closed"), LineWidgets.Num(), Shown, *Last,
+	return FString::Printf(TEXT("%s | %d line(s), %d shown, last %s '%s' | input '%s' | notice %s"),
+		bIsOpen ? TEXT("open") : TEXT("closed"), LineWidgets.Num(), Shown, *Last, *LastShownText,
 		InputBox ? *InputBox->GetText().ToString() : TEXT("-"),
 		NoticeText && NoticeText->GetVisibility() != ESlateVisibility::Collapsed ? *NoticeText->GetText().ToString() : TEXT("-"));
 }

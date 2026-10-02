@@ -380,6 +380,9 @@ public:
 	void CloseChat();
 
 	bool IsChatOpen() const;
+
+	/** The pause menu widget (null until first opened). */
+	UFPSRLPauseMenuWidget* GetPauseMenu() const { return PauseMenu; }
 	class UFPSRLChatWidget* GetChatWidget() const { return ChatWidget; }
 
 	// --- Pause -------------------------------------------------------------------------------------------------

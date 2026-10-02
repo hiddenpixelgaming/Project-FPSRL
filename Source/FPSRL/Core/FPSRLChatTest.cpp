@@ -8,6 +8,7 @@
 //  - fpsrl.Chat.AutoSay <seconds>: keep sending numbered messages (multiplayer and level-travel checks); 0 stops.
 
 #include "Containers/Ticker.h"
+#include "Misc/Base64.h"
 #include "Core/FPSRLPlayerController.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/GameInstance.h"
@@ -19,6 +20,10 @@
 #include "InputAction.h"
 #include "Social/FPSRLChatSettings.h"
 #include "Social/FPSRLChatSubsystem.h"
+#include "Social/FPSRLProfanityFilter.h"
+#include "Social/FPSRLUserSettings.h"
+#include "UI/FPSRLPauseMenuWidget.h"
+#include "Components/CheckBox.h"
 #include "UI/FPSRLChatWidget.h"
 #include "FPSRL.h"
 
@@ -31,6 +36,7 @@ namespace FPSRLChatTest
 		int32 Problems = 0;
 		int32 ServerCountMark = 0;
 		double WorldTimeMark = 0.0;
+		bool bFilterWas = true;
 	};
 
 	AFPSRLPlayerController* LocalPC(UGameInstance* GI)
@@ -38,6 +44,14 @@ namespace FPSRLChatTest
 		UWorld* World = GI ? GI->GetWorld() : nullptr;
 		return World ? Cast<AFPSRLPlayerController>(GI->GetFirstLocalPlayerController(World)) : nullptr;
 	}
+}
+
+// Test strings for the profanity filter are stored encoded so no offensive text is readable in the source.
+static FString Decoded(const TCHAR* Encoded)
+{
+	FString Out;
+	FBase64::Decode(FString(Encoded), Out);
+	return Out;
 }
 
 static FAutoConsoleCommandWithWorld GFPSRLChatTestCommand(TEXT("FPSRL.ChatTest"),
@@ -170,6 +184,70 @@ static FAutoConsoleCommandWithWorld GFPSRLChatTestCommand(TEXT("FPSRL.ChatTest")
 						History.Num(), Settings->MaxClientChatHistory, bOrdered, *History.Last().Text));
 				Check(Widget->DescribeForTest().Contains(FString::Printf(TEXT("%d line(s), %d shown"), Settings->MaxClientChatHistory, Settings->MaxVisibleMessages)),
 					FString::Printf(TEXT("compact chat shows the newest %d: %s"), Settings->MaxVisibleMessages, *Widget->DescribeForTest()));
+				// Profanity: masked for display when this player's setting is on; the history keeps the original.
+				S->bFilterWas = UFPSRLUserSettings::Get()->bFilterProfanity;
+				UFPSRLUserSettings::SetFilterProfanity(true);
+				Settings->ChatMessageCooldown = 0.f;
+				Chat->ServerSubmit(PC, Decoded(TEXT("d2hhdCB0aGUgZnVjayBpcyB0aGlzIHNoaXQ=")));
+				break;
+			}
+			case 1068:
+			{
+				const FString Shown = Widget->DescribeForTest();
+				Check(Shown.Contains(TEXT("'what the **** is this ****'")) && History.Last().Text == Decoded(TEXT("d2hhdCB0aGUgZnVjayBpcyB0aGlzIHNoaXQ=")),
+					FString::Printf(TEXT("filter on: %s; history keeps '%s'"), *Shown, *History.Last().Text));
+				struct FCase { FString In; FString Out; };
+				const FCase Cases[] = {
+					{ Decoded(TEXT("Ri5VLkMuSyBvZmY=")), Decoded(TEXT("KioqKioqKiBvZmY=")) }, { Decoded(TEXT("c2ghdA==")), Decoded(TEXT("KioqKg==")) }, { Decoded(TEXT("c2gxdCBoYXBwZW5z")), Decoded(TEXT("KioqKiBoYXBwZW5z")) }, { Decoded(TEXT("ZnV1dXVjaw==")), Decoded(TEXT("KioqKioqKg==")) },
+					{ Decoded(TEXT("ZnVja2luZyBoZWxs")), Decoded(TEXT("KioqKioqKiBoZWxs")) }, { Decoded(TEXT("YW4gYXNzaXN0IGluIGNsYXNzIHRvIHBhc3M=")), Decoded(TEXT("YW4gYXNzaXN0IGluIGNsYXNzIHRvIHBhc3M=")) },
+					{ Decoded(TEXT("U2hpaXRha2UsIGNvY2twaXQsIHNjdW50aG9ycGU=")), Decoded(TEXT("U2hpaXRha2UsIGNvY2twaXQsIHNjdW50aG9ycGU=")) }, { Decoded(TEXT("eW91IGFzcyE=")), Decoded(TEXT("eW91ICoqKiE=")) },
+					{ Decoded(TEXT("d3RmIGZtbCBzdGZ1")), Decoded(TEXT("d3RmIGZtbCBzdGZ1")) },
+					{ Decoded(TEXT("bmFnZ2E=")), Decoded(TEXT("KioqKio=")) }, { Decoded(TEXT("bWlnZ2VyIHJpZ2dlciBnaWdnZXI=")), Decoded(TEXT("KioqKioqICoqKioqKiAqKioqKio=")) },
+					{ Decoded(TEXT("bjFnZzNyIG4hOTlAIG5sNjZlcg==")), Decoded(TEXT("KioqKioqICoqKioqICoqKioqKg==")) }, { Decoded(TEXT("bi5pLmcuZy5lLnI=")), Decoded(TEXT("KioqKioqKioqKio=")) },
+					{ Decoded(TEXT("TnxHR0A=")), Decoded(TEXT("KioqKio=")) }, { Decoded(TEXT("dHJpZ2dlciBiaWdnZXIgZGlnZ2Vy")), Decoded(TEXT("dHJpZ2dlciBiaWdnZXIgZGlnZ2Vy")) },
+					{ Decoded(TEXT("TmlhZ2FyYSBOaWdlciBuMWdlciBOSUdFUlM=")), Decoded(TEXT("TmlhZ2FyYSAqKioqKiAqKioqKiAqKioqKio=")) }, { Decoded(TEXT("TmlnZXJpYSBOaWdlcmlhbg==")), Decoded(TEXT("TmlnZXJpYSBOaWdlcmlhbg==")) },
+					{ Decoded(TEXT("bnhnZ2VyIG5pWGdlciBuaWdaZXIgbmlnZyNyIG5pZ2dlcQ==")), Decoded(TEXT("KioqKioqICoqKioqKiAqKioqKiogKioqKioqICoqKioqKg==")) }, { Decoded(TEXT("YWJjbmlnZzNyeHl6")), Decoded(TEXT("KioqKioqKioqKioq")) },
+					{ Decoded(TEXT("bnVnZ2V0IG5pZ2dsZSBudW1iZXIgZGlubmVy")), Decoded(TEXT("bnVnZ2V0IG5pZ2dsZSBudW1iZXIgZGlubmVy")) },
+					{ Decoded(TEXT("bmVncm8gTjNHUjAgbi5lLmcuci5vIG5lZ3JvZXMgbmV4cm8gbmVnciM=")), Decoded(TEXT("KioqKiogKioqKiogKioqKioqKioqICoqKioqKiogKioqKiogKioqKio=")) },
+					{ Decoded(TEXT("bmVjcm9tYW5jZXIgbmV1cm9uIG5pdHJvIG1ldHJv")), Decoded(TEXT("bmVjcm9tYW5jZXIgbmV1cm9uIG5pdHJvIG1ldHJv")) },
+					{ Decoded(TEXT("eW91IGdvb2ssIGFuIGFuYWwgcGlyYXRlIQ==")), Decoded(TEXT("eW91ICoqKiosIGFuICoqKiogKioqKioqIQ==")) }, { Decoded(TEXT("c3Bvb2t5IGFuYWx5c2lzIG9mIHRoZSBwaXJhdGUgc2hpcA==")), Decoded(TEXT("c3Bvb2t5IGFuYWx5c2lzIG9mIHRoZSBwaXJhdGUgc2hpcA==")) },
+					{ Decoded(TEXT("anVzdCBreXMgbG9s")), Decoded(TEXT("anVzdCAqKiogbG9s")) }, { Decoded(TEXT("Z28ga2lsbCB5b3Vyc2VsZiBub3c=")), Decoded(TEXT("KiogKioqKiAqKioqKioqKiBub3c=")) }, { Decoded(TEXT("a2lsbCB0aGUgYm9zcyB5b3Vyc2VsZg==")), Decoded(TEXT("a2lsbCB0aGUgYm9zcyB5b3Vyc2VsZg==")) } };
+				for (const FCase& Case : Cases)
+				{
+					const FString Masked = FPSRLProfanity::Mask(Case.In);
+					Check(Masked == Case.Out, FString::Printf(TEXT("mask '%s' -> '%s' (expect '%s')"), *Case.In, *Masked, *Case.Out));
+				}
+				// The pause menu's Settings page turns it off, as a player would.
+				PC->OpenPauseMenu();
+				break;
+			}
+			case 1070:
+			{
+				UFPSRLPauseMenuWidget* Pause = PC->GetPauseMenu();
+				if (Pause)
+				{
+					Pause->ShowSettingsPage(true);
+				}
+				Check(Pause && Pause->IsSettingsPageShown() && Pause->GetProfanityCheck() && Pause->GetProfanityCheck()->IsChecked(),
+					TEXT("pause > Settings shows the profanity box, ticked (filter on)"));
+				if (FApp::CanEverRender())
+				{
+					PC->ConsoleCommand(TEXT("Shot showui"));	// rendered runs: the Settings page
+				}
+				if (Pause && Pause->GetProfanityCheck())
+				{
+					Pause->GetProfanityCheck()->SetIsChecked(false);
+					Pause->GetProfanityCheck()->OnCheckStateChanged.Broadcast(false);	// the click
+				}
+				break;
+			}
+			case 1072:
+			{
+				const FString Shown = Widget->DescribeForTest();
+				Check(!UFPSRLUserSettings::Get()->bFilterProfanity && Shown.Contains(Decoded(TEXT("J3doYXQgdGhlIGZ1Y2sgaXMgdGhpcyBzaGl0Jw=="))), FString::Printf(TEXT("unticked: setting off, chat redrawn: %s"), *Shown));
+				PC->ClosePauseMenu();
+				UFPSRLUserSettings::SetFilterProfanity(S->bFilterWas);	// leave the player's setting as it was
+				Settings->ChatMessageCooldown = 0.75f;
 				UE_LOG(LogFPSRL, Log, TEXT("[ChatTest] state: %s"), *Chat->Describe(World));
 				UE_LOG(LogFPSRL, Log, TEXT("[ChatTest] done: %d problem(s)"), S->Problems);
 				PC->ConsoleCommand(TEXT("quit"));
