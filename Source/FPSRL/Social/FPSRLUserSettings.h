@@ -4,9 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
+#include "InputCoreTypes.h"
 #include "FPSRLUserSettings.generated.h"
 
 DECLARE_MULTICAST_DELEGATE(FFPSRLUserSettingsChanged);
+
+/** How this player's microphone is sent: always (voice activity decides when) or only while the Push-to-Talk key is held. */
+UENUM()
+enum class EFPSRLVoiceInputMode : uint8
+{
+	OpenMic,
+	PushToTalk
+};
 
 /**
  * The player's own preferences (this machine only), saved to the user settings file (Saved/Config/<Platform>/
@@ -27,6 +36,39 @@ public:
 
 	/** Change the profanity filter, save, and tell listeners (the chat redraws its lines). */
 	static void SetFilterProfanity(bool bEnabled);
+
+	// --- Voice chat (applied by UFPSRLVoiceSubsystem) ---
+
+	/** Voice chat on: send this player's microphone and play teammates' voices. Off stays in the session, silent. */
+	UPROPERTY(Config)
+	bool bVoiceChatEnabled = true;
+
+	/** Incoming teammate voices, 0-1 (separate from every other sound). */
+	UPROPERTY(Config)
+	float VoiceChatVolume = 1.f;
+
+	/** Outgoing microphone level, 0-2 (1 = unchanged). */
+	UPROPERTY(Config)
+	float MicrophoneVolume = 1.f;
+
+	/** Open mic by default (user); Push-to-Talk is optional. */
+	UPROPERTY(Config)
+	EFPSRLVoiceInputMode VoiceInputMode = EFPSRLVoiceInputMode::OpenMic;
+
+	/** The Push-to-Talk key (V by default, user; keyboard and mouse only). */
+	UPROPERTY(Config)
+	FKey PushToTalkKey = EKeys::V;
+
+	/** Output device for teammate voices (its name as the audio system lists it); empty = the game's own output. */
+	UPROPERTY(Config)
+	FString VoiceOutputDevice;
+
+	static void SetVoiceChatEnabled(bool bEnabled);
+	static void SetVoiceChatVolume(float Volume);
+	static void SetMicrophoneVolume(float Volume);
+	static void SetVoiceInputMode(EFPSRLVoiceInputMode Mode);
+	static void SetPushToTalkKey(const FKey& Key);
+	static void SetVoiceOutputDevice(const FString& DeviceName);
 
 	/** Fired after any setting changes. */
 	static FFPSRLUserSettingsChanged OnChanged;

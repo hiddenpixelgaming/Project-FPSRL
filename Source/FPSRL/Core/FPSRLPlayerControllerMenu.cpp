@@ -10,6 +10,7 @@
 #include "UI/FPSRLMenuStatusWidget.h"
 #include "UI/FPSRLServerBrowserWidget.h"
 #include "UI/FPSRLTeamHUDWidget.h"
+#include "Social/FPSRLVoiceSubsystem.h"
 #include "Engine/LocalPlayer.h"
 #include "FPSRL.h"
 
@@ -27,6 +28,10 @@ void AFPSRLPlayerControllerMenu::BeginPlay()
 	if (UFPSRLTeamHUDSubsystem* TeamHUDHolder = IsLocalController() ? ULocalPlayer::GetSubsystem<UFPSRLTeamHUDSubsystem>(GetLocalPlayer()) : nullptr)
 	{
 		TeamHUDHolder->ResetTeamHUD();	// back in the main menu: the session's teammate HUD is over
+	}
+	if (UFPSRLVoiceSubsystem* Voice = IsLocalController() ? UFPSRLVoiceSubsystem::Get(this) : nullptr)
+	{
+		Voice->ResetSession();	// and its voice chat
 	}
 	if (IsLocalController())
 	{

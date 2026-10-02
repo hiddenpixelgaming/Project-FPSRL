@@ -385,6 +385,7 @@ public:
 	UFPSRLPauseMenuWidget* GetPauseMenu() const { return PauseMenu; }
 	class UFPSRLChatWidget* GetChatWidget() const { return ChatWidget; }
 	class UFPSRLTeamHUDWidget* GetTeamHUD() const { return TeamHUD; }
+	class UInputAction* GetPushToTalkAction() const { return PushToTalkAction; }
 
 	// --- Pause -------------------------------------------------------------------------------------------------
 
@@ -408,6 +409,9 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void ReceivedPlayer() override;
 	virtual void SetupInputComponent() override;
+
+	/** The server's voice hint at login and after each travel: the voice system decides (open mic / Push-to-Talk). */
+	virtual void ClientEnableNetworkVoice_Implementation(bool bEnable) override;
 
 	/** Local player only: the combat HUD and the Blueprint crosshair (CrosshairUI) are on screen. A seamless travel spawns
 	 *  a new controller that the Blueprint never gives a crosshair, and takes widgets off the screen; called from BeginPlay
@@ -457,6 +461,21 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<class UFPSRLTeamHUDWidget> TeamHUD;
+
+	/** Push-to-Talk (voice chat): an Enhanced Input action made at runtime, mapped to the player's chosen key
+	 *  (UFPSRLUserSettings::PushToTalkKey, V by default) in its own mapping context; remapped when it changes. */
+	UPROPERTY(Transient)
+	TObjectPtr<class UInputAction> PushToTalkAction;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UInputMappingContext> PushToTalkContext;
+
+	FKey MappedPushToTalkKey;
+	FDelegateHandle VoiceSettingsHandle;
+	void EnsurePushToTalkInput();
+	void RefreshPushToTalkMapping();
+	void HandlePushToTalkPressed();
+	void HandlePushToTalkReleased();
 
 	/** The cursor was showing when the chat opened (a screen with buttons was up): restore that mode on close. */
 	bool bChatRestoreCursor = false;

@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Framework/Commands/InputChord.h"
+#include "Types/SlateEnums.h"
 #include "FPSRLPauseMenuWidget.generated.h"
 
 class UButton;
@@ -30,6 +32,10 @@ public:
 	void ShowSettingsPage(bool bShow) { bShow ? HandleOpenSettings() : HandleCloseSettings(); }
 	bool IsSettingsPageShown() const;
 	class UCheckBox* GetProfanityCheck() const { return ProfanityCheck; }
+
+	/** Tests: the Voice tab of the Settings page and what it shows ("voice on 1, volume 100%, ..."). */
+	void ShowVoiceTab() { HandleShowVoiceTab(); }
+	FString DescribeVoiceSettings() const;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -62,6 +68,37 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UButton> SettingsBackButton;
 
+	/** Settings tabs (Chat, Voice). */
+	UPROPERTY(Transient)
+	TObjectPtr<class UWidgetSwitcher> SettingsTabs;
+
+	// Voice tab (UFPSRLUserSettings voice settings, applied by UFPSRLVoiceSubsystem).
+	UPROPERTY(Transient)
+	TObjectPtr<class UCheckBox> VoiceEnabledCheck;
+	UPROPERTY(Transient)
+	TObjectPtr<class USlider> VoiceVolumeSlider;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> VoiceVolumeText;
+	UPROPERTY(Transient)
+	TObjectPtr<class USlider> MicVolumeSlider;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> MicVolumeText;
+	UPROPERTY(Transient)
+	TObjectPtr<UButton> InputModeButton;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> InputModeText;
+	UPROPERTY(Transient)
+	TObjectPtr<class UInputKeySelector> PushToTalkKeySelector;
+	UPROPERTY(Transient)
+	TObjectPtr<class UComboBoxString> OutputDeviceCombo;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> VoiceStatusText;
+	UPROPERTY(Transient)
+	TObjectPtr<class UVerticalBox> MuteList;
+	/** Mute checkbox -> teammate PlayerId. */
+	UPROPERTY(Transient)
+	TMap<TObjectPtr<class UCheckBox>, int32> MuteChecks;
+
 private:
 	void BuildDefaultLayout();
 	UWidget* BuildSettingsPage();
@@ -74,6 +111,30 @@ private:
 
 	UFUNCTION()
 	void HandleProfanityChanged(bool bIsChecked);
+
+	UWidget* BuildChatSection();
+	UWidget* BuildVoiceSection();
+	/** Shows the current voice settings, devices, status and teammates on the Voice tab. */
+	void RefreshVoiceTab();
+
+	UFUNCTION()
+	void HandleShowChatTab();
+	UFUNCTION()
+	void HandleShowVoiceTab();
+	UFUNCTION()
+	void HandleVoiceEnabledChanged(bool bIsChecked);
+	UFUNCTION()
+	void HandleVoiceVolumeChanged(float Value);
+	UFUNCTION()
+	void HandleMicVolumeChanged(float Value);
+	UFUNCTION()
+	void HandleInputModeClicked();
+	UFUNCTION()
+	void HandlePushToTalkKeySelected(FInputChord SelectedKey);
+	UFUNCTION()
+	void HandleOutputDeviceChanged(FString SelectedItem, ESelectInfo::Type SelectionType);
+	UFUNCTION()
+	void HandleMuteChanged(bool bIsChecked);
 	void RefreshBuildSummary();
 	UButton* AddButton(UPanelWidget* Parent, const FName& Name, const FText& Label);
 

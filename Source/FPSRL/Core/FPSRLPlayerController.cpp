@@ -44,6 +44,9 @@
 #include "Social/FPSRLChatSubsystem.h"
 #include "UI/FPSRLChatWidget.h"
 #include "UI/FPSRLTeamHUDWidget.h"
+#include "Social/FPSRLVoiceSubsystem.h"
+#include "Social/FPSRLUserSettings.h"
+#include "InputMappingContext.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Data/FPSRLAspectDefinition.h"
@@ -1335,6 +1338,16 @@ void AFPSRLPlayerController::BeginPlay()
 			Subsystem->AddMappingContext(ChatContext, 100);	// the open-chat key (T, D-pad Left)
 		}
 	}
+	if (IsLocalController())
+	{
+		// Voice chat: the Push-to-Talk key, and whether this player sends voice now that they are in this world.
+		RefreshPushToTalkMapping();
+		VoiceSettingsHandle = UFPSRLUserSettings::OnChanged.AddUObject(this, &ThisClass::RefreshPushToTalkMapping);
+		if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(this))
+		{
+			Voice->RefreshTransmit();
+		}
+	}
 
 	// Listen host / cases where the PlayerState already exists (clients also get OnRep_PlayerState).
 	BindToPlayerStateComponents();
@@ -1424,6 +1437,10 @@ void AFPSRLPlayerController::SetupInputComponent()
 		{
 			EnhancedInput->BindAction(OpenChatAction, ETriggerEvent::Started, this, &ThisClass::OpenChat);
 		}
+		// Push-to-Talk: held = sending (only used in Push-to-Talk mode; open mic ignores it).
+		EnsurePushToTalkInput();
+		EnhancedInput->BindAction(PushToTalkAction, ETriggerEvent::Started, this, &ThisClass::HandlePushToTalkPressed);
+		EnhancedInput->BindAction(PushToTalkAction, ETriggerEvent::Completed, this, &ThisClass::HandlePushToTalkReleased);
 	}
 	if (InputComponent)
 	{
@@ -1444,6 +1461,11 @@ void AFPSRLPlayerController::SetupInputComponent()
 
 void AFPSRLPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	UFPSRLUserSettings::OnChanged.Remove(VoiceSettingsHandle);
+	if (UFPSRLVoiceSubsystem* Voice = IsLocalController() ? UFPSRLVoiceSubsystem::Get(this) : nullptr)
+	{
+		Voice->SetPushToTalkHeld(false);
+	}
 	if (PauseMenu)
 	{
 		PauseMenu->RemoveFromParent();
@@ -2022,4 +2044,67 @@ bool AFPSRLPlayerController::IsEnemyInMeleeReach() const
 		}
 	}
 	return false;
+}
+
+// --- Voice chat ----------------------------------------------------------------------------------------------------
+
+void AFPSRLPlayerController::ClientEnableNetworkVoice_Implementation(bool bEnable)
+{
+	// The engine would start / stop sending voice here at every login and travel; the voice system owns that decision.
+	if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(this))
+	{
+		Voice->RefreshTransmit();
+	}
+}
+
+void AFPSRLPlayerController::EnsurePushToTalkInput()
+{
+	if (!PushToTalkAction)
+	{
+		PushToTalkAction = NewObject<UInputAction>(this, TEXT("IA_PushToTalk"));
+		PushToTalkAction->ValueType = EInputActionValueType::Boolean;
+	}
+	if (!PushToTalkContext)
+	{
+		PushToTalkContext = NewObject<UInputMappingContext>(this, TEXT("IMC_PushToTalk"));
+	}
+}
+
+void AFPSRLPlayerController::RefreshPushToTalkMapping()
+{
+	UEnhancedInputLocalPlayerSubsystem* Subsystem = IsLocalController() ? ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()) : nullptr;
+	if (!Subsystem)
+	{
+		return;
+	}
+	EnsurePushToTalkInput();
+	const FKey Key = UFPSRLUserSettings::Get()->PushToTalkKey;
+	if (Key != MappedPushToTalkKey || !Subsystem->HasMappingContext(PushToTalkContext))
+	{
+		PushToTalkContext->UnmapAll();
+		if (Key.IsValid())
+		{
+			PushToTalkContext->MapKey(PushToTalkAction, Key);
+		}
+		MappedPushToTalkKey = Key;
+		Subsystem->RemoveMappingContext(PushToTalkContext);
+		Subsystem->AddMappingContext(PushToTalkContext, 100);	// above gameplay, like chat and pause
+		UE_LOG(LogFPSRL, Log, TEXT("[Voice] Push-to-Talk key: %s"), *Key.ToString());
+	}
+}
+
+void AFPSRLPlayerController::HandlePushToTalkPressed()
+{
+	if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(this); Voice && !IsChatOpen())
+	{
+		Voice->SetPushToTalkHeld(true);
+	}
+}
+
+void AFPSRLPlayerController::HandlePushToTalkReleased()
+{
+	if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(this))
+	{
+		Voice->SetPushToTalkHeld(false);
+	}
 }

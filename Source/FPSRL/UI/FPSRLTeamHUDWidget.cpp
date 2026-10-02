@@ -15,6 +15,7 @@
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
 #include "Core/FPSRLPlayerState.h"
+#include "Social/FPSRLVoiceSubsystem.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
@@ -267,6 +268,13 @@ void UFPSRLTeamHUDWidget::NativeOnInitialized()
 	EndHandle = AFPSRLPlayerState::OnPlayerStateEnd.AddUObject(this, &ThisClass::HandlePlayerStateEnd);
 	ChangedHandle = AFPSRLPlayerState::OnPlayerStateChanged.AddUObject(this, &ThisClass::HandlePlayerStateChanged);
 	TravelHandle = FWorldDelegates::OnSeamlessTravelStart.AddUObject(this, &ThisClass::HandleSeamlessTravelStart);
+	// Voice -> teammate HUD: the voice system says who is speaking / muted (the HUD never looks at audio).
+	if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer()))
+	{
+		BoundVoice = Voice;
+		SpeakingHandle = Voice->OnSpeakingChanged.AddUObject(this, &ThisClass::SetSpeakingState);
+		MuteHandle = Voice->OnMuteChanged.AddUObject(this, &ThisClass::SetMutedState);
+	}
 
 	if (!WidgetTree || WidgetTree->RootWidget)
 	{
@@ -309,6 +317,11 @@ void UFPSRLTeamHUDWidget::BeginDestroy()
 	AFPSRLPlayerState::OnPlayerStateEnd.Remove(EndHandle);
 	AFPSRLPlayerState::OnPlayerStateChanged.Remove(ChangedHandle);
 	FWorldDelegates::OnSeamlessTravelStart.Remove(TravelHandle);
+	if (UFPSRLVoiceSubsystem* Voice = BoundVoice.Get())
+	{
+		Voice->OnSpeakingChanged.Remove(SpeakingHandle);
+		Voice->OnMuteChanged.Remove(MuteHandle);
+	}
 	Super::BeginDestroy();
 }
 
@@ -483,7 +496,10 @@ void UFPSRLTeamHUDWidget::AddOrRebind(AFPSRLPlayerState* PlayerState)
 	}
 	Entries.Add(PlayerId, Entry);
 	Entry->BindPlayer(PlayerState);
-	Entry->SetSpeaking(false);	// voice starts inactive
+	// Voice state starts inactive (or as the voice system has it, e.g. muted earlier in the session).
+	const UFPSRLVoiceSubsystem* Voice = BoundVoice.Get();
+	Entry->SetSpeaking(Voice && Voice->IsSpeaking(PlayerId));
+	Entry->SetMuted(Voice && Voice->IsMuted(PlayerId));
 	RebuildOrder();
 	LogState(*FString::Printf(TEXT("%s joined (id %d, owner %s)"), *PlayerState->GetPlayerName(), PlayerId, PlayerState->GetOwner() ? *PlayerState->GetOwner()->GetClass()->GetName() : TEXT("none")));
 }

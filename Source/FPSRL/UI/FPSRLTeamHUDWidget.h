@@ -178,6 +178,9 @@ private:
 	FDelegateHandle EndHandle;
 	FDelegateHandle ChangedHandle;
 	FDelegateHandle TravelHandle;
+	FDelegateHandle SpeakingHandle;
+	FDelegateHandle MuteHandle;
+	TWeakObjectPtr<class UFPSRLVoiceSubsystem> BoundVoice;
 	/** When the last Depth travel started on this machine (shared: a travel can replace the controller and its HUD). */
 	static double LastTravelStart;
 	FTimerHandle PruneTimer;

@@ -35,7 +35,10 @@ public class FPSRL : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"OnlineSubsystem",		// Steam sessions via OnlineSubsystemSteam (enabled in .uproject)
-			"OnlineSubsystemUtils"
+			"OnlineSubsystemUtils",	// + voice chat (voice interface, voice packets)
+			"AudioMixer",			// voice output device list
+			"CoreOnline",			// online ids (voice talkers)
+			"AudioMixerCore"
 		});
 	}
 }

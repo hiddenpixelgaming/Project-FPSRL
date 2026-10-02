@@ -17,3 +17,53 @@ void UFPSRLUserSettings::SetFilterProfanity(bool bEnabled)
 	UE_LOG(LogFPSRL, Log, TEXT("[Settings] Profanity filter %s"), bEnabled ? TEXT("on") : TEXT("off"));
 	OnChanged.Broadcast();
 }
+
+namespace FPSRLUserSettingsPrivate
+{
+	template <typename T>
+	static void Set(T UFPSRLUserSettings::* Member, const T& Value, const TCHAR* What)
+	{
+		UFPSRLUserSettings* Settings = GetMutableDefault<UFPSRLUserSettings>();
+		if (Settings->*Member == Value)
+		{
+			return;
+		}
+		Settings->*Member = Value;
+		Settings->SaveConfig();
+		UE_LOG(LogFPSRL, Log, TEXT("[Settings] %s changed"), What);
+		UFPSRLUserSettings::OnChanged.Broadcast();
+	}
+}
+
+void UFPSRLUserSettings::SetVoiceChatEnabled(bool bEnabled)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::bVoiceChatEnabled, bEnabled, TEXT("Voice chat"));
+}
+
+void UFPSRLUserSettings::SetVoiceChatVolume(float Volume)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::VoiceChatVolume, FMath::Clamp(Volume, 0.f, 1.f), TEXT("Voice chat volume"));
+}
+
+void UFPSRLUserSettings::SetMicrophoneVolume(float Volume)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::MicrophoneVolume, FMath::Clamp(Volume, 0.f, 2.f), TEXT("Microphone volume"));
+}
+
+void UFPSRLUserSettings::SetVoiceInputMode(EFPSRLVoiceInputMode Mode)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::VoiceInputMode, Mode, TEXT("Voice input mode"));
+}
+
+void UFPSRLUserSettings::SetPushToTalkKey(const FKey& Key)
+{
+	if (Key.IsValid() && !Key.IsGamepadKey())	// keyboard and mouse only (user)
+	{
+		FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::PushToTalkKey, Key, TEXT("Push-to-Talk key"));
+	}
+}
+
+void UFPSRLUserSettings::SetVoiceOutputDevice(const FString& DeviceName)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::VoiceOutputDevice, DeviceName, TEXT("Voice output device"));
+}
