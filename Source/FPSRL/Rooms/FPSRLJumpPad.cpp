@@ -4,6 +4,7 @@
 #include "Components/BoxComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "NavAreas/NavArea_Null.h"
@@ -27,25 +28,56 @@ AFPSRLJumpPad::AFPSRLJumpPad()
 	Trigger->SetCanEverAffectNavigation(true);
 	RootComponent = Trigger;
 
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> BandMesh(TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Meshes/SM_CircularBand.SM_CircularBand"));
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> GlowMesh(TEXT("/Game/LevelPrototyping/Interactable/JumpPad/Assets/Meshes/SM_CircularGlow.SM_CircularGlow"));
-	Band = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Band"));
-	Band->SetupAttachment(Trigger);
-	Band->SetRelativeLocation(FVector(0.f, 0.f, -40.f));
-	Band->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Band->SetCanEverAffectNavigation(false);
-	Band->SetStaticMesh(BandMesh.Object);
-	Glow = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Glow"));
-	Glow->SetupAttachment(Trigger);
-	Glow->SetRelativeLocation(FVector(0.f, 0.f, -40.f));
-	Glow->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Glow->SetCanEverAffectNavigation(false);
-	Glow->SetStaticMesh(GlowMesh.Object);
+	// A bright cyan disc on the floor and an arrow along the launch direction (engine shapes: the template pad's glow
+	// meshes rendered invisible in our arenas; playtest v0.1.32).
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> CylinderMesh(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> ConeMesh(TEXT("/Engine/BasicShapes/Cone.Cone"));
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> Cyan(TEXT("/Game/MainProject/Contents/Materials/Debug/MI_JumpPad_Cyan.MI_JumpPad_Cyan"));
+	Disc = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Disc"));
+	Disc->SetupAttachment(Trigger);
+	Disc->SetRelativeLocation(FVector(0.f, 0.f, 3.f));	// the pad origin (and trigger centre) is on the floor
+	Disc->SetRelativeScale3D(FVector(1.8f, 1.8f, 0.06f));
+	Arrow = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Arrow"));
+	Arrow->SetupAttachment(Trigger);
+	Arrow->SetRelativeScale3D(FVector(0.45f, 0.45f, 0.6f));
+	for (UStaticMeshComponent* Part : { Disc.Get(), Arrow.Get() })
+	{
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetCanEverAffectNavigation(false);
+		Part->SetCastShadow(false);
+		Part->SetMaterial(0, Cyan.Object);
+	}
+	Disc->SetStaticMesh(CylinderMesh.Object);
+	Arrow->SetStaticMesh(ConeMesh.Object);
+	PointArrow();
 
 	NavModifier = CreateDefaultSubobject<UNavModifierComponent>(TEXT("NavModifier"));
 	NavModifier->SetAreaClass(UNavArea_Null::StaticClass());
 
 	Trigger->OnComponentBeginOverlap.AddDynamic(this, &ThisClass::OnTriggerBegin);
+}
+
+void AFPSRLJumpPad::PointArrow()
+{
+	// The cone points along the launch (straight up for a vertical pad), standing on the disc.
+	if (Arrow)
+	{
+		const FVector Direction = Velocity.IsNearlyZero() ? FVector::UpVector : Velocity.GetSafeNormal();
+		Arrow->SetRelativeRotation(FRotationMatrix::MakeFromZ(Direction).Rotator());
+		Arrow->SetRelativeLocation(FVector(0.f, 0.f, 6.f + 35.f));
+	}
+}
+
+void AFPSRLJumpPad::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	PointArrow();
+}
+
+void AFPSRLJumpPad::BeginPlay()
+{
+	Super::BeginPlay();
+	PointArrow();
 }
 
 void AFPSRLJumpPad::OnTriggerBegin(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp,

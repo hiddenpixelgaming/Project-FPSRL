@@ -197,9 +197,12 @@ void AFPSRLExitPortal::SetContinueVote(APlayerController* Voter, bool bContinue)
 
 	if (bContinue)
 	{
+		// Starting a vote needs a player at the portal; once one is running, anyone alive may join it from anywhere
+		// (the HUD prompt's [V]; everyone travels together anyway; playtest v0.1.32).
 		const APawn* Pawn = Voter->GetPawn();
 		const float MaxDistance = InteractionRange->GetScaledSphereRadius() + 200.f;
-		if (!IsLivingPlayer(Player) || !Pawn || FVector::Dist(Pawn->GetActorLocation(), GetActorLocation()) > MaxDistance)
+		const bool bInRange = Pawn && FVector::Dist(Pawn->GetActorLocation(), GetActorLocation()) <= MaxDistance;
+		if (!IsLivingPlayer(Player) || !Pawn || (!bInRange && ContinueVotes.IsEmpty()))
 		{
 			UE_LOG(LogFPSRL, Warning, TEXT("[Portal %s] Continue from %s rejected (dead or out of range)"), *GetActorNameOrLabel(), *Player->GetPlayerName());
 			return;

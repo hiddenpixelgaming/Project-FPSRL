@@ -562,6 +562,9 @@ private:
 	/** Local: the open catch-up offer (INDEX_NONE = none) and the keys that answer it. */
 	int32 PendingCatchUpRoom = INDEX_NONE;
 	void HandleCatchUpAccept();
+
+	/** V while the exit-portal prompt is up: vote Continue from wherever the player is (joins a running vote). */
+	void HandlePortalQuickContinue();
 	void HandleCatchUpDecline();
 	FTimerHandle CatchUpAutoAnswerTimer;
 

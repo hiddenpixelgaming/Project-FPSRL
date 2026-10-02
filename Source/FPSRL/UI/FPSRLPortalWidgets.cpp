@@ -12,6 +12,7 @@
 #include "Data/FPSRLRunSettings.h"
 #include "GameFramework/GameStateBase.h"
 #include "Rooms/FPSRLExitPortal.h"
+#include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
 
 namespace
@@ -166,6 +167,16 @@ void UFPSRLPortalStatusWidget::NativeOnInitialized()
 		UVerticalBoxSlot* TextSlot = Column->AddChildToVerticalBox(StatusText);
 		TextSlot->SetHorizontalAlignment(HAlign_Center);
 		TextSlot->SetPadding(FMargin(0.f, 90.f, 0.f, 0.f));	// below the top edge
+
+		// A key button under it: players away from the portal join the vote from anywhere (playtest v0.1.32).
+		UBorder* KeyButton = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ContinueKeyButton"));
+		KeyButton->SetBrushColor(FLinearColor(0.02f, 0.02f, 0.03f, 0.85f));
+		KeyButton->SetPadding(FMargin(16.f, 6.f));
+		ContinueKeyText = MakePortalText(WidgetTree, TEXT("ContinueKeyText"), 18, FLinearColor::White);
+		KeyButton->SetContent(ContinueKeyText);
+		UVerticalBoxSlot* KeySlot = Column->AddChildToVerticalBox(KeyButton);
+		KeySlot->SetHorizontalAlignment(HAlign_Center);
+		KeySlot->SetPadding(FMargin(0.f, 8.f, 0.f, 0.f));
 	}
 }
 
@@ -191,6 +202,17 @@ void UFPSRLPortalStatusWidget::UpdateText()
 	if (StatusText)
 	{
 		StatusText->SetText(FText::Format(NSLOCTEXT("FPSRL", "PortalStatus", "EXIT PORTAL: {0}"), FPSRLPortalText::GetTracker(Portal.Get())));
+	}
+	if (ContinueKeyText)
+	{
+		const APlayerController* PC = GetOwningPlayer();
+		const bool bVoted = Portal.IsValid() && PC && Portal->HasVotedToContinue(PC->PlayerState);
+		ContinueKeyText->SetText(bVoted ? NSLOCTEXT("FPSRL", "PortalContinuing", "You are continuing")
+			: NSLOCTEXT("FPSRL", "PortalContinueKey", "Press [V] to Continue"));
+		if (UWidget* Button = ContinueKeyText->GetParent())
+		{
+			Button->SetVisibility(Portal.IsValid() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		}
 	}
 }
 

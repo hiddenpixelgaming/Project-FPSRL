@@ -103,7 +103,7 @@ public:
 	/** Seconds after a room starts before players still behind get the offer (teammates a few steps behind arrive on
 	 *  their own and never see it). One offer per player per started room. */
 	UPROPERTY(Config, EditAnywhere, Category = "Catch-Up", meta = (ClampMin = "0"))
-	float CatchUpOfferDelay = 3.f;
+	float CatchUpOfferDelay = 0.5f;	// playtest v0.1.32: 3 s felt too slow
 
 	/** Candidate arrival spots, in the room's own space (every room's entrance is its origin, facing +X; Z = capsule
 	 *  centre above the floor). The first safe one is used: on the navmesh, clear of geometry, players, enemies and

@@ -592,6 +592,24 @@ void AFPSRLPlayerController::HandlePortalChoice(bool bContinue)
 	ClosePortalMenu();
 }
 
+#if !UE_BUILD_SHIPPING
+namespace FPSRLPortalDebug
+{
+	static TAutoConsoleVariable<int32> CVarAutoContinue(TEXT("fpsrl.Debug.PortalAutoContinue"), 0,
+		TEXT("Test: players press the exit-portal prompt's Continue key as soon as it appears."));
+}
+#endif
+
+void AFPSRLPlayerController::HandlePortalQuickContinue()
+{
+	const AFPSRLExitPortal* Portal = PortalStatus && PortalStatus->IsInViewport() ? PortalStatus->GetPortal() : nullptr;
+	if (!IsLocalController() || !Portal || IsChatOpen() || Portal->HasVotedToContinue(PlayerState))
+	{
+		return;
+	}
+	ServerPortalVote(const_cast<AFPSRLExitPortal*>(Portal), true);
+}
+
 void AFPSRLPlayerController::ServerPortalVote_Implementation(AFPSRLExitPortal* Portal, bool bContinue)
 {
 	if (Portal)
@@ -632,6 +650,13 @@ void AFPSRLPlayerController::RefreshPortalUI(AFPSRLExitPortal* Portal)
 			PortalStatus->AddToViewport(10);
 		}
 		PortalStatus->ShowPortal(Portal);
+#if !UE_BUILD_SHIPPING
+		// Test aid: press the prompt's [V] automatically (headless multiplayer runs).
+		if (FPSRLPortalDebug::CVarAutoContinue.GetValueOnGameThread() != 0)
+		{
+			HandlePortalQuickContinue();
+		}
+#endif
 	}
 	else if (PortalStatus && PortalStatus->IsInViewport())
 	{
@@ -1380,6 +1405,8 @@ void AFPSRLPlayerController::SetupInputComponent()
 		// The catch-up prompt's key (does nothing without an open offer; G is free in every mapping context). Not answering
 		// is staying: there is no "stay" key.
 		InputComponent->BindKey(EKeys::G, IE_Pressed, this, &ThisClass::HandleCatchUpAccept);
+		// The exit-portal prompt's button: join the Continue vote without walking back to the portal.
+		InputComponent->BindKey(EKeys::V, IE_Pressed, this, &ThisClass::HandlePortalQuickContinue);
 	}
 #if !UE_BUILD_SHIPPING
 	if (InputComponent)

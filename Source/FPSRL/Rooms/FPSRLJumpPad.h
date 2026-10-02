@@ -15,7 +15,7 @@ class ACharacter;
 /**
  * A jump pad for arenas: launches a player who steps on it with Velocity (world space; rooms are chained without
  * rotation). Players only: enemies are never launched (they would land off their navigation, e.g. in a hazard), and
- * their navigation avoids the pad's footprint. Same look as the template BP_JumpPad. No Tick.
+ * their navigation avoids the pad's footprint. A cyan disc with an arrow along the launch. No Tick.
  */
 UCLASS()
 class FPSRL_API AFPSRLJumpPad : public AActor
@@ -33,11 +33,17 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Jump Pad")
 	TObjectPtr<UBoxComponent> Trigger;
 
+	/** Bright cyan disc on the floor. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Jump Pad")
-	TObjectPtr<UStaticMeshComponent> Band;
+	TObjectPtr<UStaticMeshComponent> Disc;
 
+	/** Cyan arrow along the launch direction. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Jump Pad")
-	TObjectPtr<UStaticMeshComponent> Glow;
+	TObjectPtr<UStaticMeshComponent> Arrow;
+
+	virtual void OnConstruction(const FTransform& Transform) override;
+	virtual void BeginPlay() override;
+	void PointArrow();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Jump Pad")
 	TObjectPtr<UNavModifierComponent> NavModifier;

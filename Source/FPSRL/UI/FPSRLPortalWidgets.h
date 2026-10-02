@@ -65,12 +65,19 @@ class FPSRL_API UFPSRLPortalStatusWidget : public UUserWidget
 public:
 	void ShowPortal(const AFPSRLExitPortal* Portal);
 
+	/** The portal this prompt is about (the quick-continue key votes on it). */
+	const AFPSRLExitPortal* GetPortal() const { return Portal.Get(); }
+
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeDestruct() override;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Portal", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StatusText;
+
+	/** "[V] Continue" button line (or "You are continuing"), so players away from the portal can join the vote. */
+	UPROPERTY(BlueprintReadOnly, Category = "Portal", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ContinueKeyText;
 
 private:
 	void UpdateText();
