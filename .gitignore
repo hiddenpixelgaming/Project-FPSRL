@@ -73,3 +73,12 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Licensed third-party art (Fab Sci-Fi Troopers pack, Mixamo Y Bot and animations) and everything derived from it:
+# the GitHub repo is public and those licences don't allow sharing the raw files (user decision 2026-10-03: keep it
+# on this PC only). Rebuild with Tools/AnimImport (see its README).
+Content/Sci-FI_Troopers_Collection/
+Content/MainProject/Contents/Characters/Mixamo/
+Content/MainProject/Contents/Characters/Enemies/
+Content/MainProject/Contents/Characters/Players/Downed/
+Content/MainProject/Contents/Characters/Retarget/
