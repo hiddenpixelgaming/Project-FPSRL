@@ -11,10 +11,14 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerState.h"
+#include "HAL/IConsoleManager.h"
 #include "FPSRL.h"
 
 namespace FPSRLEnemyScaling
 {
+	static TAutoConsoleVariable<FString> CVarForceRole(TEXT("fpsrl.Enemy.ForceRole"), TEXT(""),
+		TEXT("Test: every enemy a normal combat room mixes is this role (part of its definition's name, e.g. Brute). Empty = the normal mix."));
+
 	FString FEncounterScaling::Describe() const
 	{
 		return FString::Printf(TEXT("%d player(s), %s profile: health x%.2f (players %.2f, depth %.2f, difficulty %.2f, expedition %.2f, encounter %.2f), damage x%.2f, max enemies %d"),
@@ -90,5 +94,93 @@ namespace FPSRLEnemyScaling
 		Health->OutgoingDamageMultiplier = BaseDamage * Scaling.GetDamageMultiplier();
 		UE_LOG(LogFPSRL, Verbose, TEXT("[Scaling] %s: base %.0f -> %.0f health, damage x%.2f"), *Enemy->GetName(), BaseHealth, Health->GetMaxHealth(),
 			Health->OutgoingDamageMultiplier);
+	}
+
+	TArray<TSubclassOf<APawn>> ChooseRoles(const UWorld* World, const TArray<FVector>& SpawnLocations)
+	{
+		TArray<TSubclassOf<APawn>> Result;
+		Result.Init(nullptr, SpawnLocations.Num());
+		const UFPSRLRunSubsystem* Run = World && World->GetGameInstance() ? World->GetGameInstance()->GetSubsystem<UFPSRLRunSubsystem>() : nullptr;
+		const int32 Depth = FMath::Max(1, Run ? Run->GetDepthNumber() : 1);
+		const FString Forced = CVarForceRole.GetValueOnGameThread();
+
+		struct FCandidate
+		{
+			const FFPSRLEnemyRoleMix* Role = nullptr;
+			const UFPSRLEnemyDefinition* Definition = nullptr;
+			TSubclassOf<APawn> Class;
+			int32 Count = 0;
+		};
+		TArray<FCandidate> Candidates;
+		for (const FFPSRLEnemyRoleMix& Role : UFPSRLEnemyScalingSettings::Get().RoleMix)
+		{
+			const UFPSRLEnemyDefinition* Definition = Role.Definition.LoadSynchronous();
+			UClass* Class = Definition ? Definition->EnemyClass.LoadSynchronous() : nullptr;
+			const bool bWanted = Forced.IsEmpty() ? Role.FirstDepth <= Depth && Role.Weight > 0.f : Definition && Definition->GetName().Contains(Forced);
+			if (Class && Class->IsChildOf(APawn::StaticClass()) && bWanted)
+			{
+				Candidates.Add({ &Role, Definition, Class });
+			}
+		}
+		if (Candidates.IsEmpty())
+		{
+			return Result;
+		}
+
+		// Roles first (weighted, within each role's cap), then places: high-ground roles on the highest spawn points.
+		TArray<int32> Picks;
+		for (int32 Index = 0; Index < SpawnLocations.Num(); ++Index)
+		{
+			auto Available = [&Forced](const FCandidate& Candidate)
+			{
+				return !Forced.IsEmpty() || Candidate.Role->MaxPerEncounter <= 0 || Candidate.Count < Candidate.Role->MaxPerEncounter;
+			};
+			float Total = 0.f;
+			for (const FCandidate& Candidate : Candidates)
+			{
+				Total += Available(Candidate) ? Candidate.Role->Weight : 0.f;
+			}
+			if (Total <= 0.f)
+			{
+				break;	// every role at its cap: the rest are the room's own enemy
+			}
+			float Roll = FMath::FRand() * Total;
+			int32 Pick = INDEX_NONE;
+			for (int32 CandidateIndex = 0; CandidateIndex < Candidates.Num(); ++CandidateIndex)
+			{
+				if (Available(Candidates[CandidateIndex]))
+				{
+					Pick = CandidateIndex;
+					Roll -= Candidates[CandidateIndex].Role->Weight;
+					if (Roll <= 0.f)
+					{
+						break;
+					}
+				}
+			}
+			++Candidates[Pick].Count;
+			Picks.Add(Pick);
+		}
+		Picks.StableSort([&Candidates](int32 A, int32 B) { return Candidates[A].Role->bHighGround && !Candidates[B].Role->bHighGround; });
+		TArray<int32> Highest;
+		for (int32 Index = 0; Index < SpawnLocations.Num(); ++Index)
+		{
+			Highest.Add(Index);
+		}
+		Highest.StableSort([&SpawnLocations](int32 A, int32 B) { return SpawnLocations[A].Z > SpawnLocations[B].Z; });
+		TArray<FString> Counts;
+		for (int32 Index = 0; Index < Picks.Num(); ++Index)
+		{
+			Result[Highest[Index]] = Candidates[Picks[Index]].Class;
+		}
+		for (const FCandidate& Candidate : Candidates)
+		{
+			if (Candidate.Count > 0)
+			{
+				Counts.Add(FString::Printf(TEXT("%s x%d"), *Candidate.Definition->DisplayName.ToString(), Candidate.Count));
+			}
+		}
+		UE_LOG(LogFPSRL, Log, TEXT("[Roles] Depth %d: %s"), Depth, *FString::Join(Counts, TEXT(", ")));
+		return Result;
 	}
 }

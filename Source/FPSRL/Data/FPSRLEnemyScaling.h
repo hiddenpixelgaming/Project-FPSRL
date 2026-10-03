@@ -7,6 +7,24 @@
 #include "Engine/DeveloperSettings.h"
 #include "FPSRLEnemyScaling.generated.h"
 
+class UAnimInstance;
+class UAnimSequenceBase;
+class UFPSRLEnemyDefinition;
+
+/** An attack's animation: played on the enemy class's own skeleton (its anim blueprint's DefaultSlot) when the attack
+ *  starts, timed so ImpactTime (seconds into the animation) lands when the attack executes. */
+USTRUCT(BlueprintType)
+struct FPSRL_API FFPSRLEnemyAttackAnim
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	TSoftObjectPtr<UAnimSequenceBase> Animation;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0"))
+	float ImpactTime = 0.5f;
+};
+
 /**
  * An enemy archetype's own base stats (every archetype has its own; there is no universal enemy health).
  * The final numbers come from the scaling stack (UFPSRLEnemyScalingSettings), applied on the server when an
@@ -43,6 +61,22 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
 	TSoftObjectPtr<USkeletalMesh> BodyMesh;
 
+	/** Replaces the enemy class's anim blueprint (e.g. the unarmed one for melee roles). Empty = the class's own. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
+	TSoftClassPtr<UAnimInstance> AnimClass;
+
+	/** By attack name (its behavior profile's attacks): the animation the attack plays. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
+	TMap<FName, FFPSRLEnemyAttackAnim> AttackAnims;
+
+	/** Size of the whole enemy (hit box included); 1 = the class's size. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance", meta = (ClampMin = "0.5", ClampMax = "2"))
+	float Scale = 1.f;
+
+	/** Movement speed (cm/s); 0 = the class's own. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy", meta = (ClampMin = "0"))
+	float WalkSpeed = 0.f;
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override { return FPrimaryAssetId(TEXT("Enemy"), GetFName()); }
 };
 
@@ -78,8 +112,35 @@ private:
 	}
 };
 
+/** One role in the mix normal combat rooms spawn (spawn points without their own enemy class). */
+USTRUCT(BlueprintType)
+struct FPSRL_API FFPSRLEnemyRoleMix
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles")
+	TSoftObjectPtr<UFPSRLEnemyDefinition> Definition;
+
+	/** Relative chance for each spawn. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "0"))
+	float Weight = 1.f;
+
+	/** First Depth of the run it appears in. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "1"))
+	int32 FirstDepth = 1;
+
+	/** Most of this role in one encounter; 0 = no limit. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles", meta = (ClampMin = "0"))
+	int32 MaxPerEncounter = 0;
+
+	/** Takes the highest spawn points (Marksman). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Roles")
+	bool bHighGround = false;
+};
+
 /**
- * Enemy scaling, one layer at a time (Project Settings > FPSRL Enemy Scaling). Final stats, computed on the server
+ * Enemy scaling, one layer at a time
+ (Project Settings > FPSRL Enemy Scaling). Final stats, computed on the server
  * when an encounter starts (FPSRLEnemyScaling::Compute), from the players taking part at that moment:
  *
  *   FinalHealth = BaseHealth x PlayerCount x Depth x Difficulty (x infinite scaling) x Expedition x Encounter
@@ -106,6 +167,10 @@ public:
 	/** Enemy archetypes' base stats (looked up by the spawned enemy's class). */
 	UPROPERTY(Config, EditAnywhere, Category = "Enemies")
 	TArray<TSoftObjectPtr<UFPSRLEnemyDefinition>> EnemyDefinitions;
+
+	/** The roles normal combat rooms mix (empty = the room's own enemy class everywhere). Test: fpsrl.Enemy.ForceRole. */
+	UPROPERTY(Config, EditAnywhere, Category = "Enemies")
+	TArray<FFPSRLEnemyRoleMix> RoleMix;
 
 	/** Normal enemies and Minibosses. Health and caps: Abyssus-verified. Damage: project balancing parameter. */
 	UPROPERTY(Config, EditAnywhere, Category = "Player Count")

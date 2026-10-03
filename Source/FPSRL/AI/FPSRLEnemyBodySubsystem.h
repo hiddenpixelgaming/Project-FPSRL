@@ -16,6 +16,10 @@ class APawn;
  * enemy looks like its role without new blueprints or animation graphs, and nothing about combat changes. A missing
  * body (the licensed art isn't in Git) leaves the class's own mesh visible.
  *
+ * Also the rest of the role's setup from its definition: walk speed, size (server; the spawn replicates it), the
+ * anim blueprint the hidden rig runs (unarmed for melee roles) and, on the server, the replicated
+ * UFPSRLEnemyRoleComponent that shows its attack animations and aim line.
+ *
  * Applied when an enemy spawns (server and clients: replicated enemies spawn on clients too), not polled.
  */
 UCLASS()

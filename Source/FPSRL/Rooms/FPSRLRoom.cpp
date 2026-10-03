@@ -170,13 +170,23 @@ void AFPSRLRoom::StartCombat()
 
 	// Enemies already placed in the room, then one per spawn point, up to the encounter's enemy cap; all scaled.
 	TArray<AActor*> ToTrack = GatherEnemies();
-	for (const AFPSRLEnemySpawnPoint* Point : ChooseSpawnPoints())
+	TArray<AFPSRLEnemySpawnPoint*> Points = ChooseSpawnPoints();
+	Points.SetNum(FMath::Min(Points.Num(), FMath::Max(0, Scaling.MaxEnemies - ToTrack.Num())));
+	// Normal rooms mix the enemy roles (Grunt, Brute, Skirmisher, Marksman); an encounter definition brings its own enemy.
+	TArray<TSubclassOf<APawn>> Roles;
+	if (!Encounter)
 	{
-		if (ToTrack.Num() >= Scaling.MaxEnemies)
+		TArray<FVector> Locations;
+		for (const AFPSRLEnemySpawnPoint* Point : Points)
 		{
-			break;
+			Locations.Add(Point->GetActorLocation());
 		}
-		if (APawn* Spawned = Point->SpawnEnemy(DefaultEnemy, 1.f, SizeMultiplier))
+		Roles = FPSRLEnemyScaling::ChooseRoles(GetWorld(), Locations);
+	}
+	for (int32 Index = 0; Index < Points.Num(); ++Index)
+	{
+		const TSubclassOf<APawn> Class = Roles.IsValidIndex(Index) && Roles[Index] ? Roles[Index] : DefaultEnemy;
+		if (APawn* Spawned = Points[Index]->SpawnEnemy(Class, 1.f, SizeMultiplier))
 		{
 			ToTrack.Add(Spawned);
 		}

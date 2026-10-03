@@ -8,6 +8,7 @@ Targets (role casting, user 2026-10-03: the four Sci-Fi Troopers are the four en
   Downed (players) = the UE5 Mannequin.
 Output: /Game/MainProject/Contents/Characters/Enemies/<Role>/Anims/ and Characters/Players/Downed/.
 Run: UnrealEditor-Cmd FPSRL.uproject -run=pythonscript -script=<this file>"""
+import os
 import unreal
 
 lib = unreal.EditorAssetLibrary
@@ -31,6 +32,8 @@ JOBS = [
     ("Mixamo", [MIXAMO + "Skirmisher"], "Skirmisher", OUT + "/Enemies/Skirmisher/Anims"),
     ("Mixamo", [MIXAMO + "Marksman"], "Marksman", OUT + "/Enemies/Marksman/Anims"),
     ("Mixamo", [MIXAMO + "Downed"], "Mannequin", OUT + "/Players/Downed"),
+    # The roles' own attacks on the Mannequin: Brute and Skirmisher play them on the enemy's (hidden) Mannequin rig.
+    ("Mixamo", [MIXAMO + "Brute", MIXAMO + "Skirmisher"], "Mannequin", OUT + "/Enemies/Mannequin"),
     ("Mannequin", [MANNY + "Rifle", MANNY + "Death"], "Grunt", OUT + "/Enemies/Grunt/Anims"),
     ("Mannequin", [MANNY + "Rifle", MANNY + "Death"], "Marksman", OUT + "/Enemies/Marksman/Anims"),
     ("Mannequin", [MANNY + "Unarmed", MANNY + "Death", MANNY + "Rifle/HitReact"], "Brute", OUT + "/Enemies/Brute/Anims"),
@@ -82,7 +85,11 @@ rigs = {key: make_rig(key) for key in MESHES}
 retargeters = {}
 registry = unreal.AssetRegistryHelpers.get_asset_registry()
 total = 0
+# FPSRL_RETARGET_ONLY=<output folder part>: run only the matching jobs (e.g. "Enemies/Mannequin").
+ONLY = os.environ.get("FPSRL_RETARGET_ONLY", "")
 for src, folders, tgt, out in JOBS:
+    if ONLY and ONLY not in out:
+        continue
     key = (src, tgt)
     if key not in retargeters:
         retargeters[key] = make_retargeter(src, tgt, rigs)

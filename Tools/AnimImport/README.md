@@ -24,6 +24,14 @@ These folders exist only on the dev PC and in packaged builds, and are listed in
    2. `import_mixamo.py` imports the animations onto it.
    3. `retarget_all.py` builds the IK Rigs / Retargeters and retargets: Mixamo -> each role's trooper and the player
       Mannequin (downed set); the project's Mannequin rifle / unarmed / death / hit-react sets -> the troopers.
+      Also Mixamo Brute / Skirmisher -> the Mannequin (Characters/Enemies/Mannequin: the Brute's slam and the
+      Skirmisher's stab play on the enemy's hidden Mannequin rig). FPSRL_RETARGET_ONLY=<folder part> runs only matching jobs.
 4. Check by eye: `FPSRL.AnimReview` in a rendered game (one screenshot per role in Saved/Screenshots).
 
 Role casting: Grunt = SciFITrooper-01, Brute = SciFITrooper-02, Skirmisher = Trooper Girl 01, Marksman = Trooper Girl 02.
+
+## Enemy roles
+
+After the animations: `Tools/EnemySetup/setup_grunt.py`, `setup_roles.py` (Brute / Skirmisher / Marksman Blueprints,
+behaviour profiles and definitions) and `make_aim_line_material.py`, each headless like above. Check with
+`FPSRL.RoleTest` in the Lobby (headless; rendered runs also take a screenshot of each role mid-attack).

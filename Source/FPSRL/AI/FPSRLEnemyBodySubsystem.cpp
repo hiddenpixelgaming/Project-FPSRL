@@ -1,6 +1,11 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "AI/FPSRLEnemyBodySubsystem.h"
+#include "AI/FPSRLEnemyRoleComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Components/CapsuleComponent.h"
+#include "Data/FPSRLEnemyBehaviorProfile.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Data/FPSRLEnemyScaling.h"
@@ -54,7 +59,42 @@ void UFPSRLEnemyBodySubsystem::ApplyBody(APawn* Pawn)
 		return;
 	}
 	const UFPSRLEnemyDefinition* Definition = UFPSRLEnemyScalingSettings::Get().FindDefinition(Character->GetClass());
-	if (!Definition || Definition->BodyMesh.IsNull())
+	if (!Definition)
+	{
+		return;
+	}
+
+	// Role setup that doesn't need the art: speed (every machine), size (server: the spawn replicates it), and the
+	// replicated component that shows the role's attack animations and telegraphs (server adds it).
+	if (Definition->WalkSpeed > 0.f)
+	{
+		Character->GetCharacterMovement()->MaxWalkSpeed = Definition->WalkSpeed;
+	}
+	if (Character->HasAuthority())
+	{
+		if (!FMath::IsNearlyEqual(Definition->Scale, 1.f))
+		{
+			const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			Character->SetActorScale3D(Character->GetActorScale3D() * Definition->Scale);
+			Character->AddActorWorldOffset(FVector(0.f, 0.f, Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - HalfHeight));
+		}
+		const UFPSRLEnemyBehaviorProfile* Profile = Definition->BehaviorProfile;
+		const bool bAimLine = Profile && Profile->Attacks.ContainsByPredicate([](const FFPSRLEnemyAttack& Attack) { return Attack.bShowAimLine; });
+		if ((!Definition->AttackAnims.IsEmpty() || bAimLine) && !Character->FindComponentByClass<UFPSRLEnemyRoleComponent>())
+		{
+			UFPSRLEnemyRoleComponent* Role = NewObject<UFPSRLEnemyRoleComponent>(Character, TEXT("EnemyRole"));
+			Role->RegisterComponent();
+			Character->AddInstanceComponent(Role);
+		}
+	}
+	if (!Definition->AnimClass.IsNull())
+	{
+		if (UClass* AnimClass = Definition->AnimClass.LoadSynchronous())
+		{
+			Skeleton->SetAnimInstanceClass(AnimClass);
+		}
+	}
+	if (Definition->BodyMesh.IsNull())
 	{
 		return;
 	}

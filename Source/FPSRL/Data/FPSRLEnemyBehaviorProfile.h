@@ -149,6 +149,10 @@ struct FPSRL_API FFPSRLEnemyAttack
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	bool bInterruptible = false;
 
+	/** Telegraph: a visible line from it to its target during the wind-up (Marksman's laser). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Timing")
+	bool bShowAimLine = false;
+
 	/** Melee: damage, sweep radius and targets per swing (reach = MaxRange). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Melee", meta = (ClampMin = "0"))
 	float MeleeDamage = 20.f;

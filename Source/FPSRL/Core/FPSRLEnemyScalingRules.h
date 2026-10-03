@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/SubclassOf.h"
 
 class APawn;
 class UWorld;
@@ -41,4 +42,9 @@ namespace FPSRLEnemyScaling
 
 	/** Server: give a freshly spawned enemy its final stats (base from its UFPSRLEnemyDefinition, else its health default). */
 	FPSRL_API void ApplyToEnemy(APawn* Enemy, const FEncounterScaling& Scaling);
+
+	/** Which role each of these spawn points spawns in a normal combat room (UFPSRLEnemyScalingSettings::RoleMix: weights,
+	 *  first Depth, per-encounter caps; high-ground roles take the highest points). Null entries = the room's own enemy.
+	 *  Test: fpsrl.Enemy.ForceRole <part of a definition name> makes every one that role. */
+	FPSRL_API TArray<TSubclassOf<APawn>> ChooseRoles(const UWorld* World, const TArray<FVector>& SpawnLocations);
 }

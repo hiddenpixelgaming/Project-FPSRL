@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "AI/FPSRLEnemyAIController.h"
+#include "AI/FPSRLEnemyRoleComponent.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Combat/FPSRLCombatRules.h"
@@ -1053,6 +1054,11 @@ void AFPSRLEnemyAIController::BeginAttack(int32 AttackIndex)
 		bMoving = false;
 	}
 	SetState(EFPSRLEnemyAIState::Attacking);
+	// Players see it coming: the role's attack animation and telegraph, on every machine.
+	if (UFPSRLEnemyRoleComponent* RoleView = GetPawn()->FindComponentByClass<UFPSRLEnemyRoleComponent>())
+	{
+		RoleView->StartAttack(Attack.Name, Attack.WindupSeconds, Target.Get(), Attack.bShowAimLine);
+	}
 	if (Attack.WindupSeconds > 0.f)
 	{
 		GetWorldTimerManager().SetTimer(AttackTimer, this, &ThisClass::ExecuteAttack, Attack.WindupSeconds, false);
@@ -1139,6 +1145,10 @@ void AFPSRLEnemyAIController::CancelAttack(float RecoverySeconds)
 	}
 	bExecuting = false;
 	GetWorldTimerManager().ClearTimer(AttackTimer);
+	if (UFPSRLEnemyRoleComponent* RoleView = GetPawn() ? GetPawn()->FindComponentByClass<UFPSRLEnemyRoleComponent>() : nullptr)
+	{
+		RoleView->CancelAttack();
+	}
 	if (RecoverySeconds > 0.f)
 	{
 		SetState(EFPSRLEnemyAIState::Recovering);
