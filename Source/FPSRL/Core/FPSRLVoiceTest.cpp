@@ -256,6 +256,10 @@ static FAutoConsoleCommandWithWorld GFPSRLVoiceSettingsTestCommand(TEXT("FPSRL.V
 				{
 					Mode->OnClicked.Broadcast();
 				}
+				if (UButton* Detect = Cast<UButton>(Menu->GetWidgetFromName(TEXT("AutoDetectButton"))))
+				{
+					Detect->OnClicked.Broadcast();	// listens for 4 s
+				}
 				return true;
 			}
 			case 3:
@@ -273,6 +277,9 @@ static FAutoConsoleCommandWithWorld GFPSRLVoiceSettingsTestCommand(TEXT("FPSRL.V
 				}
 				return true;
 			case 5:
+				Check(!Voice->IsDetectingMicrophone() && !Voice->GetDetectResult().IsEmpty() && !Voice->GetOpenMicrophoneName().IsEmpty(),
+					FString::Printf(TEXT("auto-detect finished: '%s'; microphone in use '%s'; devices [%s]"), *Voice->GetDetectResult().ToString(), *Voice->GetOpenMicrophoneName(),
+						*FString::Join(UFPSRLVoiceSubsystem::GetMicrophoneDevices(), TEXT(" | "))));
 				Check(KeysFor() == TEXT("B") && Menu->DescribeVoiceSettings().Contains(TEXT("key B")), FString::Printf(TEXT("rebound: action keys '%s', %s"), *KeysFor(), *Menu->DescribeVoiceSettings()));
 				Voice->SetPushToTalkHeld(true);
 				Check(Voice->IsTransmitting(), FString::Printf(TEXT("Push-to-Talk held: %s"), *Voice->Describe()));
@@ -283,6 +290,7 @@ static FAutoConsoleCommandWithWorld GFPSRLVoiceSettingsTestCommand(TEXT("FPSRL.V
 				UFPSRLUserSettings::SetVoiceInputMode(EFPSRLVoiceInputMode::OpenMic);
 				UFPSRLUserSettings::SetVoiceChatVolume(1.f);
 				UFPSRLUserSettings::SetMicrophoneVolume(1.f);
+				UFPSRLUserSettings::SetMicrophoneDevice(FString());
 				UFPSRLUserSettings::SetVoiceChatEnabled(true);
 				Menu->ShowVoiceTab();
 				return true;

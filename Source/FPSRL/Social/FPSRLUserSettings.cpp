@@ -72,3 +72,8 @@ void UFPSRLUserSettings::SetOpenMicSensitivity(float Sensitivity)
 {
 	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::OpenMicSensitivity, FMath::Clamp(Sensitivity, 0.f, 1.f), TEXT("Open mic sensitivity"));
 }
+
+void UFPSRLUserSettings::SetMicrophoneDevice(const FString& DeviceName)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::MicrophoneDevice, DeviceName, TEXT("Microphone"));
+}

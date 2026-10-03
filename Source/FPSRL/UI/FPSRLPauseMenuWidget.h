@@ -40,6 +40,7 @@ public:
 protected:
 	virtual void NativeOnInitialized() override;
 	virtual void NativeConstruct() override;
+	virtual void NativeDestruct() override;
 	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
@@ -90,6 +91,14 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> MicCheckText;
 	UPROPERTY(Transient)
+	TObjectPtr<class UComboBoxString> MicrophoneCombo;
+	UPROPERTY(Transient)
+	TObjectPtr<class UProgressBar> MicLevelBar;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> DetectText;
+	FTimerHandle MicMeterTimer;
+	FDelegateHandle DetectHandle;
+	UPROPERTY(Transient)
 	TObjectPtr<UButton> InputModeButton;
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> InputModeText;
@@ -135,6 +144,13 @@ private:
 	void HandleMicVolumeChanged(float Value);
 	UFUNCTION()
 	void HandleSensitivityChanged(float Value);
+	UFUNCTION()
+	void HandleMicrophoneChanged(FString SelectedItem, ESelectInfo::Type SelectionType);
+	UFUNCTION()
+	void HandleAutoDetectClicked();
+	/** The mic level meter (a 10 Hz UI refresh, only while the Voice tab is open). */
+	void UpdateMicMeter();
+	void StopMicMeter();
 	/** "Mic check": whether the game hears this player right now (the voice capture's own activity detection). */
 	void RefreshMicCheck();
 	FDelegateHandle LocalSpeakingHandle;

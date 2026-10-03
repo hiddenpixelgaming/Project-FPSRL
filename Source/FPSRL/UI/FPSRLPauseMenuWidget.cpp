@@ -9,6 +9,9 @@
 #include "Components/InputKeySelector.h"
 #include "Components/SizeBox.h"
 #include "Components/Slider.h"
+#include "Components/ProgressBar.h"
+#include "Social/FPSRLMicrophone.h"
+#include "TimerManager.h"
 #include "GameFramework/GameStateBase.h"
 #include "Social/FPSRLVoiceSubsystem.h"
 #include "Components/WidgetSwitcher.h"
@@ -304,8 +307,38 @@ UWidget* UFPSRLPauseMenuWidget::BuildVoiceSection()
 	}
 	AddRow(LOCTEXT("PushToTalkKey", "Push-to-Talk key"), PushToTalkKeySelector);
 
-	// The engine's voice capture always records from the system's default device: say so instead of a fake choice.
-	AddRow(LOCTEXT("Microphone", "Microphone"), MakeText(LOCTEXT("MicDefault", "System default (choose it in Windows Sound settings)"), 16, HintColour));
+	// Microphone: the Windows default or any recording device, an auto-detect, and a live level meter.
+	UHorizontalBox* MicRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("MicrophoneRow"));
+	MicrophoneCombo = WidgetTree->ConstructWidget<UComboBoxString>(UComboBoxString::StaticClass(), TEXT("MicrophoneCombo"));
+	MicrophoneCombo->OnSelectionChanged.AddDynamic(this, &ThisClass::HandleMicrophoneChanged);
+	USizeBox* MicComboBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	MicComboBox->SetWidthOverride(420.f);
+	MicComboBox->SetContent(MicrophoneCombo);
+	MicRow->AddChildToHorizontalBox(MicComboBox)->SetVerticalAlignment(VAlign_Center);
+	UButton* DetectButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("AutoDetectButton"));
+	DetectButton->SetBackgroundColor(FLinearColor(0.2f, 0.2f, 0.24f));
+	DetectButton->SetContent(MakeText(LOCTEXT("AutoDetect", " Auto-detect "), 16, FLinearColor::White));
+	DetectButton->OnClicked.AddDynamic(this, &ThisClass::HandleAutoDetectClicked);
+	if (UHorizontalBoxSlot* DetectSlot = MicRow->AddChildToHorizontalBox(DetectButton))
+	{
+		DetectSlot->SetPadding(FMargin(10.f, 0.f, 0.f, 0.f));
+		DetectSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	AddRow(LOCTEXT("Microphone", "Microphone"), MicRow);
+	USizeBox* MeterBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+	MeterBox->SetWidthOverride(420.f);
+	MeterBox->SetHeightOverride(12.f);
+	MicLevelBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("MicLevelBar"));
+	MicLevelBar->SetPercent(0.f);
+	{
+		FProgressBarStyle MeterStyle = MicLevelBar->GetWidgetStyle();
+		MeterStyle.BackgroundImage.TintColor = FSlateColor(FLinearColor(0.12f, 0.12f, 0.14f));	// an empty meter reads as empty
+		MicLevelBar->SetWidgetStyle(MeterStyle);
+	}
+	MeterBox->SetContent(MicLevelBar);
+	AddRow(LOCTEXT("MicLevel", "Mic level"), MeterBox);
+	DetectText = MakeText(FText::GetEmpty(), 15, HintColour);
+	Lines->AddChildToVerticalBox(DetectText);
 
 	OutputDeviceCombo = WidgetTree->ConstructWidget<UComboBoxString>(UComboBoxString::StaticClass(), TEXT("OutputDeviceCombo"));
 	OutputDeviceCombo->OnSelectionChanged.AddDynamic(this, &ThisClass::HandleOutputDeviceChanged);
@@ -351,6 +384,31 @@ void UFPSRLPauseMenuWidget::RefreshVoiceTab()
 	{
 		PushToTalkKeySelector->SetSelectedKey(FInputChord(Settings->PushToTalkKey));
 		PushToTalkKeySelector->SetIsEnabled(Settings->VoiceInputMode == EFPSRLVoiceInputMode::PushToTalk);
+	}
+	if (MicrophoneCombo)
+	{
+		// The Windows default first (named, so the player sees which microphone that is), then every recording device.
+		const FString DefaultName = FFPSRLMicrophone::GetDefaultDeviceName();
+		const FString DefaultOption = DefaultName.IsEmpty() ? FString(TEXT("Windows default")) : FString::Printf(TEXT("Windows default (%s)"), *DefaultName);
+		MicrophoneCombo->ClearOptions();
+		MicrophoneCombo->AddOption(DefaultOption);
+		for (const FString& Device : UFPSRLVoiceSubsystem::GetMicrophoneDevices())
+		{
+			MicrophoneCombo->AddOption(Device);
+		}
+		const bool bKnownMic = !Settings->MicrophoneDevice.IsEmpty() && MicrophoneCombo->FindOptionIndex(Settings->MicrophoneDevice) != INDEX_NONE;
+		MicrophoneCombo->SetSelectedOption(bKnownMic ? Settings->MicrophoneDevice : DefaultOption);
+	}
+	if (UFPSRLVoiceSubsystem* DetectVoice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer()); DetectVoice && !DetectHandle.IsValid())
+	{
+		DetectHandle = DetectVoice->OnMicDetectFinished.AddWeakLambda(this, [this]()
+		{
+			RefreshVoiceTab();
+			if (const UFPSRLVoiceSubsystem* Done = UFPSRLVoiceSubsystem::Get(GetOwningPlayer()); Done && DetectText)
+			{
+				DetectText->SetText(Done->GetDetectResult());
+			}
+		});
 	}
 	if (OutputDeviceCombo)
 	{
@@ -426,6 +484,7 @@ void UFPSRLPauseMenuWidget::RefreshVoiceTab()
 
 void UFPSRLPauseMenuWidget::HandleShowChatTab()
 {
+	StopMicMeter();
 	if (SettingsTabs)
 	{
 		SettingsTabs->SetActiveWidgetIndex(0);
@@ -442,6 +501,10 @@ void UFPSRLPauseMenuWidget::HandleShowVoiceTab()
 	if (SettingsTabs)
 	{
 		SettingsTabs->SetActiveWidgetIndex(1);
+	}
+	if (const UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(MicMeterTimer, this, &ThisClass::UpdateMicMeter, 0.1f, true);
 	}
 }
 
@@ -540,6 +603,7 @@ void UFPSRLPauseMenuWidget::HandleOpenSettings()
 
 void UFPSRLPauseMenuWidget::HandleCloseSettings()
 {
+	StopMicMeter();
 	if (Pages)
 	{
 		Pages->SetActiveWidgetIndex(0);
@@ -735,12 +799,65 @@ void UFPSRLPauseMenuWidget::RefreshMicCheck()
 	}
 	else
 	{
-		MicCheckText->SetText(Settings->VoiceInputMode == EFPSRLVoiceInputMode::PushToTalk
-			? LOCTEXT("MicCheckPTT", "Mic check: switch to Open Mic to test your microphone here")
-			: LOCTEXT("MicCheckOpen", "Mic check: talk now. If this never turns green, raise the sensitivity or microphone volume, or allow microphone access for desktop apps in Windows privacy settings"));
+		MicCheckText->SetText(LOCTEXT("MicCheckOpen", "Mic check: talk now. If this never turns green, pick your microphone (or Auto-detect), raise the sensitivity, or allow microphone access for desktop apps in Windows privacy settings"));
 		MicCheckText->SetColorAndOpacity(FSlateColor(FLinearColor(0.65f, 0.65f, 0.65f)));
 	}
 	MicCheckText->SetWrapTextAt(640.f);
+}
+
+
+void UFPSRLPauseMenuWidget::HandleMicrophoneChanged(FString SelectedItem, ESelectInfo::Type SelectionType)
+{
+	if (SelectionType == ESelectInfo::Direct || !MicrophoneCombo)
+	{
+		return;	// set from RefreshVoiceTab, not by the player
+	}
+	UFPSRLUserSettings::SetMicrophoneDevice(MicrophoneCombo->GetSelectedIndex() <= 0 ? FString() : SelectedItem);
+	if (DetectText)
+	{
+		DetectText->SetText(FText::GetEmpty());
+	}
+}
+
+void UFPSRLPauseMenuWidget::HandleAutoDetectClicked()
+{
+	if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer()))
+	{
+		Voice->StartMicDetect();
+		if (DetectText)
+		{
+			DetectText->SetText(Voice->GetDetectResult());
+		}
+	}
+}
+
+void UFPSRLPauseMenuWidget::UpdateMicMeter()
+{
+	const UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer());
+	if (!MicLevelBar || !Voice)
+	{
+		return;
+	}
+	// Decibels over a 60 dB range, so quiet and loud voices both move the bar.
+	const float Level = Voice->GetMicLevel();
+	const float Percent = Level > 0.f ? FMath::Clamp((20.f * FMath::LogX(10.f, Level) + 60.f) / 60.f, 0.f, 1.f) : 0.f;
+	MicLevelBar->SetPercent(Percent);
+	MicLevelBar->SetFillColorAndOpacity(Voice->IsLocalSpeaking() ? FLinearColor(0.3f, 1.f, 0.4f) : FLinearColor(0.5f, 0.5f, 0.55f));
+}
+
+void UFPSRLPauseMenuWidget::StopMicMeter()
+{
+	if (const UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(MicMeterTimer);
+	}
+}
+
+
+void UFPSRLPauseMenuWidget::NativeDestruct()
+{
+	StopMicMeter();	// the menu closed: no meter refresh while it is off screen
+	Super::NativeDestruct();
 }
 
 #undef LOCTEXT_NAMESPACE

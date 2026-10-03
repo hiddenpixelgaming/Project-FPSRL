@@ -5,6 +5,8 @@
 #include "CoreMinimal.h"
 #include "Engine/VoiceChannel.h"
 #include "Net/VoiceConfig.h"
+#include "Containers/Ticker.h"
+#include "Social/FPSRLMicrophone.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "FPSRLVoiceSubsystem.generated.h"
 
@@ -82,6 +84,18 @@ public:
 	void SetPushToTalkHeld(bool bHeld);
 	bool IsPushToTalkHeld() const { return bPushToTalkHeld; }
 
+	/** The microphone: its level after automatic gain (RMS 0-1, the Settings meter), the device in use (its name; the
+	 *  Windows default device's name when no device is chosen), and the recording devices to choose from. */
+	float GetMicLevel() const { return MicLevel; }
+	FString GetOpenMicrophoneName() const;
+	static TArray<FString> GetMicrophoneDevices() { return FFPSRLMicrophone::GetDevices(); }
+
+	/** Auto-detect: listen to every microphone for a few seconds and choose the one that hears the player. */
+	void StartMicDetect();
+	bool IsDetectingMicrophone() const;
+	const FText& GetDetectResult() const { return DetectResult; }
+	FSimpleMulticastDelegate OnMicDetectFinished;
+
 	/** Re-applies whether this player sends voice (settings, session, login and travel). */
 	void RefreshTransmit();
 
@@ -122,6 +136,19 @@ private:
 	void ApplyOutputDevice();
 	/** Open mic: the engine's activity threshold and noise gate from the sensitivity; Push-to-Talk: 0 (send all). */
 	void ApplyCaptureThreshold();
+
+	/** Our microphone (FFPSRLMicrophone): opened on the chosen device while in a session with voice on, read every
+	 *  20 ms by a ticker that runs only while it is open (or auto-detect runs); its packets go out on the voice channel. */
+	void EnsureMicrophone();
+	void CloseMicrophone();
+	void StartMicSteps();
+	bool StepMicrophone(float DeltaTime);
+	void SendMicPacket(TArray<uint8>&& Data, uint64 SampleCount, float Level);
+
+	TUniquePtr<FFPSRLMicrophone> Microphone;
+	FTSTicker::FDelegateHandle MicStepHandle;
+	float MicLevel = 0.f;
+	FText DetectResult;
 
 	FDelegateHandle TalkingHandle;
 	FDelegateHandle BeginHandle;

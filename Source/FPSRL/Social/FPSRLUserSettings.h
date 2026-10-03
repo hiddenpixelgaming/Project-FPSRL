@@ -64,6 +64,10 @@ public:
 	UPROPERTY(Config)
 	float OpenMicSensitivity = 0.7f;
 
+	/** Microphone for voice chat (its name as the device list shows it); empty = the Windows default recording device. */
+	UPROPERTY(Config)
+	FString MicrophoneDevice;
+
 	/** Output device for teammate voices (its name as the audio system lists it); empty = the game's own output. */
 	UPROPERTY(Config)
 	FString VoiceOutputDevice;
@@ -75,6 +79,7 @@ public:
 	static void SetPushToTalkKey(const FKey& Key);
 	static void SetVoiceOutputDevice(const FString& DeviceName);
 	static void SetOpenMicSensitivity(float Sensitivity);
+	static void SetMicrophoneDevice(const FString& DeviceName);
 
 	/** Fired after any setting changes. */
 	static FFPSRLUserSettingsChanged OnChanged;

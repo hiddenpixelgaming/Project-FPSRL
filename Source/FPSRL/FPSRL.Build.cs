@@ -38,7 +38,14 @@ public class FPSRL : ModuleRules
 			"OnlineSubsystemUtils",	// + voice chat (voice interface, voice packets)
 			"AudioMixer",			// voice output device list
 			"CoreOnline",			// online ids (voice talkers)
+			"Voice",				// voice capture on a chosen device + Opus encoder (our own microphone sender)
+			"AudioCaptureCore",		// the Windows default recording device's name
 			"AudioMixerCore"
 		});
+
+		if (Target.Platform == UnrealTargetPlatform.Win64)
+		{
+			PublicSystemLibraries.Add("dsound.lib");	// recording device list (DirectSoundCaptureEnumerate)
+		}
 	}
 }

@@ -21,6 +21,7 @@
 #include "OnlineSubsystemUtils.h"
 #include "Social/FPSRLUserSettings.h"
 #include "VoicePacketImpl.h"
+#include "Net/VoiceDataCommon.h"
 #include "FPSRL.h"
 
 #define LOCTEXT_NAMESPACE "FPSRLVoice"
@@ -83,6 +84,9 @@ void UFPSRLVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UFPSRLVoiceSubsystem::Deinitialize()
 {
+	FTSTicker::RemoveTicker(MicStepHandle);
+	MicStepHandle.Reset();
+	Microphone.Reset();
 	AFPSRLPlayerState::OnPlayerStateBegin.Remove(BeginHandle);
 	AFPSRLPlayerState::OnPlayerStateChanged.Remove(ChangedHandle);
 	AFPSRLPlayerState::OnPlayerStateEnd.Remove(EndHandle);
@@ -141,7 +145,7 @@ EFPSRLVoiceStatus UFPSRLVoiceSubsystem::GetStatus() const
 	{
 		return EFPSRLVoiceStatus::NotInSession;
 	}
-	return Voice->IsHeadsetPresent(FPSRLVoice::LocalUser) ? EFPSRLVoiceStatus::Ready : EFPSRLVoiceStatus::NoMicrophone;
+	return Microphone && Microphone->IsOpen() ? EFPSRLVoiceStatus::Ready : EFPSRLVoiceStatus::NoMicrophone;
 }
 
 FText UFPSRLVoiceSubsystem::GetStatusText() const
@@ -194,21 +198,19 @@ void UFPSRLVoiceSubsystem::RefreshTransmit()
 	const UFPSRLUserSettings* Settings = UFPSRLUserSettings::Get();
 	const EFPSRLVoiceStatus Status = GetStatus();
 	const bool bInSession = Status == EFPSRLVoiceStatus::Ready || Status == EFPSRLVoiceStatus::NoMicrophone;
+	// The engine's own capture (Windows default device only) stays off: our microphone sends (FFPSRLMicrophone).
+	Voice->StopNetworkedVoice(FPSRLVoice::LocalUser);
 	if (bInSession)
 	{
-		Voice->RegisterLocalTalker(FPSRLVoice::LocalUser);	// opens the microphone once (and starts sending: corrected below)
 		RegisterAllTeammates();
-	}
-	const bool bWant = bInSession && Voice->IsHeadsetPresent(FPSRLVoice::LocalUser)
-		&& (Settings->VoiceInputMode == EFPSRLVoiceInputMode::OpenMic || bPushToTalkHeld);
-	if (bWant)
-	{
-		Voice->StartNetworkedVoice(FPSRLVoice::LocalUser);
+		EnsureMicrophone();
 	}
 	else
 	{
-		Voice->StopNetworkedVoice(FPSRLVoice::LocalUser);
+		CloseMicrophone();
 	}
+	const bool bWant = bInSession && Microphone && Microphone->IsOpen()
+		&& (Settings->VoiceInputMode == EFPSRLVoiceInputMode::OpenMic || bPushToTalkHeld);
 	if (bWant != bTransmitting)
 	{
 		UE_LOG(LogFPSRL, Log, TEXT("[Voice] %s sending voice (%s)"), bWant ? TEXT("started") : TEXT("stopped"), *Describe());
@@ -485,7 +487,7 @@ void UFPSRLVoiceSubsystem::ApplyVolumes()
 	// Outgoing: the voice capture's own gain (read for every captured buffer).
 	if (IConsoleVariable* MicGain = IConsoleManager::Get().FindConsoleVariable(TEXT("voice.MicInputGain")))
 	{
-		MicGain->Set(Settings->MicrophoneVolume, ECVF_SetByGameSetting);
+		MicGain->Set(1.f, ECVF_SetByGameSetting);	// the microphone volume is applied by FFPSRLMicrophone, after its automatic gain
 	}
 	// Incoming: each teammate's voice audio playing now (new ones get it in NotifyVoiceAudio), and the gain of the
 	// external output device route.
@@ -628,6 +630,7 @@ void UFPSRLVoiceChannel::ReceivedBunch(FInBunch& Bunch)
 
 void UFPSRLVoiceSubsystem::ResetSession()
 {
+	CloseMicrophone();
 	TSharedPtr<IOnlineVoice, ESPMode::ThreadSafe> Voice = GetVoice();
 	if (Voice)
 	{
@@ -664,20 +667,20 @@ float UFPSRLVoiceSubsystem::GetOpenMicThreshold()
 	// The engine's default (0.08 of full scale) missed normal speech on both playtest microphones (v0.1.37): the
 	// sensitivity curve puts the default (0.7) at about 0.009 and lets the player go either way.
 	const float Sensitivity = FMath::Clamp(UFPSRLUserSettings::Get()->OpenMicSensitivity, 0.f, 1.f);
+#if !UE_BUILD_SHIPPING
+	if (FPSRLVoice::CVarForceThreshold.GetValueOnGameThread() >= 0.f)
+	{
+		return FPSRLVoice::CVarForceThreshold.GetValueOnGameThread();
+	}
+#endif
 	return FMath::Max(0.001f, 0.1f * FMath::Square(1.f - Sensitivity));
 }
 
 void UFPSRLVoiceSubsystem::ApplyCaptureThreshold()
 {
-	// Push-to-Talk: everything said while the key is held goes out (no activity filter); open mic: the threshold.
-	const bool bPushToTalk = UFPSRLUserSettings::Get()->VoiceInputMode == EFPSRLVoiceInputMode::PushToTalk;
-	float Threshold = bPushToTalk ? 0.f : GetOpenMicThreshold();
-#if !UE_BUILD_SHIPPING
-	if (FPSRLVoice::CVarForceThreshold.GetValueOnGameThread() >= 0.f)
-	{
-		Threshold = FPSRLVoice::CVarForceThreshold.GetValueOnGameThread();
-	}
-#endif
+	// Our microphone does its own activity detection and gain (FFPSRLMicrophone): the engine capture under it must pass
+	// everything through unchanged.
+	const float Threshold = 0.f;
 	for (const TCHAR* Name : { TEXT("voice.SilenceDetectionThreshold"), TEXT("voice.MicNoiseGateThreshold") })
 	{
 		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name); Variable && Variable->GetFloat() != Threshold)
@@ -685,4 +688,188 @@ void UFPSRLVoiceSubsystem::ApplyCaptureThreshold()
 			Variable->Set(Threshold, ECVF_SetByGameSetting);
 		}
 	}
+}
+
+// --- Our microphone (device choice, activity, automatic level) -----------------------------------------------------
+
+namespace FPSRLVoice
+{
+	/** A voice packet in the engine's wire format (FVoicePacketImpl), from our own microphone. */
+	class FMicPacket : public FVoicePacket
+	{
+	public:
+		FMicPacket(FUniqueNetIdPtr InSender, TArray<uint8>&& InData, uint64 InSampleCount, float InAmplitude)
+			: Sender(InSender), Data(MoveTemp(InData)), SampleCount(InSampleCount), Amplitude(FMath::Clamp(InAmplitude, 0.f, 1.f))
+		{
+		}
+		virtual uint16 GetTotalPacketSize() override { return static_cast<uint16>(Data.Num() + 64); }
+		virtual uint16 GetBufferSize() override { return static_cast<uint16>(Data.Num()); }
+		virtual FUniqueNetIdPtr GetSender() override { return Sender; }
+		virtual bool IsReliable() override { return false; }
+		virtual uint64 GetSampleCounter() const override { return SampleCount; }
+		virtual void Serialize(FArchive& Ar) override
+		{
+			FString SenderStr = Sender.IsValid() ? Sender->ToString() : FString();
+			int16 MicrophoneAmplitude = static_cast<int16>(Amplitude * 32767.f);
+			uint16 Length = static_cast<uint16>(Data.Num());
+			uint64 Samples = SampleCount;
+			Ar << SenderStr << MicrophoneAmplitude << Length << Samples;
+			Ar.Serialize(Data.GetData(), Length);
+		}
+	private:
+		FUniqueNetIdPtr Sender;
+		TArray<uint8> Data;
+		uint64 SampleCount = 0;
+		float Amplitude = 0.f;
+	};
+
+	/** Microphone steps: 20 ms (only while the microphone is open or auto-detect runs). */
+	constexpr float MicStepSeconds = 0.02f;
+}
+
+void UFPSRLVoiceSubsystem::EnsureMicrophone()
+{
+	if (!Microphone)
+	{
+		Microphone = MakeUnique<FFPSRLMicrophone>();
+		UE_LOG(LogFPSRL, Log, TEXT("[Voice] recording devices: %s (Windows default: %s)"), *FString::Join(FFPSRLMicrophone::GetDevices(), TEXT(" | ")), *FFPSRLMicrophone::GetDefaultDeviceName());
+	}
+	const FString& Wanted = UFPSRLUserSettings::Get()->MicrophoneDevice;
+	if (!Microphone->IsOpen() || Microphone->GetDeviceName() != Wanted)
+	{
+		// The chosen device is gone (unplugged)? Fall back to the Windows default rather than going silent.
+		if (!Microphone->Open(Wanted) && !Wanted.IsEmpty())
+		{
+			Microphone->Open(FString());
+		}
+	}
+	StartMicSteps();
+}
+
+void UFPSRLVoiceSubsystem::CloseMicrophone()
+{
+	if (Microphone && Microphone->IsOpen())
+	{
+		Microphone->Close();
+		UE_LOG(LogFPSRL, Log, TEXT("[Voice] microphone closed"));
+	}
+	MicLevel = 0.f;
+	if (bLocalSpeaking)
+	{
+		bLocalSpeaking = false;
+		OnLocalSpeakingChanged.Broadcast();
+	}
+}
+
+void UFPSRLVoiceSubsystem::StartMicSteps()
+{
+	if (!MicStepHandle.IsValid())
+	{
+		MicStepHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateUObject(this, &ThisClass::StepMicrophone), FPSRLVoice::MicStepSeconds);
+	}
+}
+
+bool UFPSRLVoiceSubsystem::StepMicrophone(float DeltaTime)
+{
+	if (!Microphone || (!Microphone->IsOpen() && !Microphone->IsDetecting()))
+	{
+		MicStepHandle.Reset();
+		return false;	// nothing to read: the ticker stops until the microphone opens again
+	}
+	if (Microphone->IsOpen())
+	{
+		const UFPSRLUserSettings* Settings = UFPSRLUserSettings::Get();
+		const bool bPushToTalk = Settings->VoiceInputMode == EFPSRLVoiceInputMode::PushToTalk;
+		bool bSendAll = bPushToTalk && bPushToTalkHeld;
+#if !UE_BUILD_SHIPPING
+		bSendAll |= FPSRLVoice::CVarForceThreshold.GetValueOnGameThread() == 0.f;	// tests in a quiet room: send everything
+#endif
+		FFPSRLMicStep Step;
+		Microphone->Step(GetOpenMicThreshold(), Settings->MicrophoneVolume, bTransmitting && !bPushToTalk, bTransmitting && bSendAll, Step);
+		MicLevel = Step.Level;
+		if (Step.bVoice != bLocalSpeaking)
+		{
+			bLocalSpeaking = Step.bVoice;
+			if (bLocalSpeaking && !bLoggedLocalSpeech)
+			{
+				bLoggedLocalSpeech = true;
+				UE_LOG(LogFPSRL, Log, TEXT("[Voice] your microphone picked up speech (%s, gain %.1fx, sending: %d)"),
+					Microphone->GetDeviceName().IsEmpty() ? TEXT("Windows default") : *Microphone->GetDeviceName(), Microphone->GetGain(), bTransmitting);
+			}
+			OnLocalSpeakingChanged.Broadcast();
+		}
+		if (!Step.Encoded.IsEmpty())
+		{
+			SendMicPacket(MoveTemp(Step.Encoded), Step.SampleCount, Step.Level);
+		}
+	}
+	if (Microphone->IsDetecting())
+	{
+		FString Found;
+		float Peak = 0.f;
+		if (Microphone->StepDetect(Found, Peak))
+		{
+			DetectResult = Found.IsEmpty() ? FText::FromString(TEXT("No voice heard on any microphone: check it is plugged in and not muted"))
+				: FText::FromString(FString::Printf(TEXT("Found your voice on: %s"), *Found));
+			UE_LOG(LogFPSRL, Log, TEXT("[Voice] auto-detect result: %s"), *DetectResult.ToString());
+			if (!Found.IsEmpty())
+			{
+				UFPSRLUserSettings::SetMicrophoneDevice(Found);	// reopens the microphone on it (settings changed)
+			}
+			OnMicDetectFinished.Broadcast();
+		}
+	}
+	return true;
+}
+
+void UFPSRLVoiceSubsystem::SendMicPacket(TArray<uint8>&& Data, uint64 SampleCount, float Level)
+{
+	const APlayerController* Local = GetLocalController();
+	const ULocalPlayer* LocalPlayer = Local ? Local->GetLocalPlayer() : nullptr;
+	const FUniqueNetIdRepl LocalId = LocalPlayer ? LocalPlayer->GetPreferredUniqueNetId() : FUniqueNetIdRepl();
+	UNetDriver* Driver = GetGameWorld() ? GetGameWorld()->GetNetDriver() : nullptr;
+	if (!LocalId.IsValid() || !Driver || Data.Num() > static_cast<int32>(UVOIPStatics::GetMaxVoiceDataSize()))
+	{
+		return;
+	}
+	TSharedPtr<FVoicePacket> Packet = MakeShared<FPSRLVoice::FMicPacket>(LocalId.GetUniqueNetId(), MoveTemp(Data), SampleCount, FMath::Min(1.f, Level * 4.f));
+	if (UNetConnection* Server = Driver->ServerConnection)
+	{
+		if (UVoiceChannel* Channel = Server->GetVoiceChannel())
+		{
+			Channel->AddVoicePacket(Packet);	// client: to the host, who forwards it (and checks the sender)
+		}
+	}
+	else
+	{
+		Driver->ReplicateVoicePacket(Packet, nullptr);	// host: to every client that has not muted us
+	}
+}
+
+void UFPSRLVoiceSubsystem::StartMicDetect()
+{
+	if (!Microphone)
+	{
+		Microphone = MakeUnique<FFPSRLMicrophone>();
+	}
+	if (!Microphone->IsDetecting())
+	{
+		DetectResult = FText::FromString(TEXT("Talk now: listening to every microphone..."));
+		Microphone->StartDetect(4.f);
+		StartMicSteps();
+	}
+}
+
+bool UFPSRLVoiceSubsystem::IsDetectingMicrophone() const
+{
+	return Microphone && Microphone->IsDetecting();
+}
+
+FString UFPSRLVoiceSubsystem::GetOpenMicrophoneName() const
+{
+	if (!Microphone || !Microphone->IsOpen())
+	{
+		return FString();
+	}
+	return Microphone->GetDeviceName().IsEmpty() ? FFPSRLMicrophone::GetDefaultDeviceName() : Microphone->GetDeviceName();
 }
