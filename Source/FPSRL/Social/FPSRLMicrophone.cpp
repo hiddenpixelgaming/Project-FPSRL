@@ -13,6 +13,9 @@
 #include <mmsystem.h>
 #include <dsound.h>
 #include "Windows/HideWindowsPlatformTypes.h"
+// mmsystem.h defines PlaySound (and friends) as macros; unity builds merge this file with others that call
+// FPSRLCombatFeedback::PlaySound.
+#undef PlaySound
 #endif
 
 namespace FPSRLMicrophone
