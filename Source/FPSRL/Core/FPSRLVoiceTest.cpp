@@ -368,3 +368,15 @@ static FAutoConsoleCommandWithWorld GFPSRLVoiceForgeTestCommand(TEXT("fpsrl.Voic
 		UE_LOG(LogFPSRL, Log, TEXT("[VoiceTest] forge test: sent 20 voice packets claiming to be %s"), *Victim);
 	}));
 #endif
+
+#if !UE_BUILD_SHIPPING
+static FAutoConsoleCommandWithWorld GFPSRLVoiceSelfTestCommand(TEXT("fpsrl.Voice.SelfTest"),
+	TEXT("Test: run the Settings voice test (record 3 s, play back through the receive path)."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* World)
+	{
+		if (UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(World))
+		{
+			Voice->StartVoiceTest();
+		}
+	}));
+#endif

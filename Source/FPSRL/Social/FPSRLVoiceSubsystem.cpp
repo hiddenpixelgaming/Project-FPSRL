@@ -910,7 +910,12 @@ FString UFPSRLVoiceSubsystem::GetOpenMicrophoneName() const
 	{
 		return FString();
 	}
-	return Microphone->GetDeviceName().IsEmpty() ? FFPSRLMicrophone::GetDefaultDeviceName() : Microphone->GetDeviceName();
+	if (!Microphone->GetDeviceName().IsEmpty())
+	{
+		return Microphone->GetDeviceName();
+	}
+	const FString DefaultName = FFPSRLMicrophone::GetDefaultDeviceName();	// unknown without an audio device (-nosound)
+	return DefaultName.IsEmpty() ? FString(TEXT("Windows default")) : DefaultName;
 }
 
 // --- Voice stats, voice test ---------------------------------------------------------------------------------------
