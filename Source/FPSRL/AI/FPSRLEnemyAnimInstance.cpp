@@ -6,6 +6,8 @@
 #include "Animation/AnimationPoseData.h"
 #include "AnimationRuntime.h"
 #include "Data/FPSRLEnemyScaling.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 
 void UFPSRLEnemyAnimInstance::NativeInitializeAnimation()
@@ -65,6 +67,8 @@ void FFPSRLEnemyAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 	RunAnimSpeed = Instance->RunAnimSpeed;
 	const APawn* Pawn = Instance->TryGetPawnOwner();
 	Speed = Pawn ? Pawn->GetVelocity().Size2D() : 0.f;
+	const ACharacter* Character = Cast<ACharacter>(Pawn);
+	bFalling = Character && Character->GetCharacterMovement() && Character->GetCharacterMovement()->IsFalling();
 	Action = Instance->Action;
 	ActionStart = Instance->ActionStart;
 	ActionEnd = Instance->ActionEnd;
@@ -151,13 +155,35 @@ bool FFPSRLEnemyAnimProxy::Evaluate(FPoseContext& Output)
 		FAnimationRuntime::BlendTwoPosesTogetherInPlace(OutputData, FAnimationPoseData(Moving), 1.f - WalkWeight);
 	}
 
-	// The action over the whole body.
+	// The action: over the whole body when standing (or in the air: leaps); on the move, only from the spine up, so the
+	// legs keep running (the Skirmisher stabs on the run).
 	if (Action && ActionWeight > 0.f)
 	{
 		FPoseContext Acting(this);
 		Sample(Action, ActionTime, false, Acting);
-		FAnimationPoseData OutputData(Output);
-		FAnimationRuntime::BlendTwoPosesTogetherInPlace(OutputData, FAnimationPoseData(Acting), 1.f - ActionWeight);
+		const float Moving = bFalling ? 0.f : FMath::Clamp((LocoSpeed - 100.f) / 150.f, 0.f, 1.f);
+		if (Moving <= 0.f)
+		{
+			FAnimationPoseData OutputData(Output);
+			FAnimationRuntime::BlendTwoPosesTogetherInPlace(OutputData, FAnimationPoseData(Acting), 1.f - ActionWeight);
+		}
+		else
+		{
+			const FBoneContainer& Bones = Output.Pose.GetBoneContainer();
+			const USkeleton* SkeletonAsset = Bones.GetSkeletonAsset();
+			const int32 SpineSkeletonIndex = SkeletonAsset ? SkeletonAsset->GetReferenceSkeleton().FindBoneIndex(TEXT("spine_01")) : INDEX_NONE;
+			const FCompactPoseBoneIndex Spine = SpineSkeletonIndex != INDEX_NONE ? Bones.GetCompactPoseIndexFromSkeletonIndex(SpineSkeletonIndex) : FCompactPoseBoneIndex(INDEX_NONE);
+			for (FCompactPoseBoneIndex Bone : Output.Pose.ForEachBoneIndex())
+			{
+				bool bUpper = false;
+				for (FCompactPoseBoneIndex Up = Bone; Up.IsValid() && !bUpper; Up = Output.Pose.GetParentBoneIndex(Up))
+				{
+					bUpper = Up == Spine;
+				}
+				const float Weight = bUpper ? ActionWeight : ActionWeight * (1.f - Moving);
+				Output.Pose[Bone].BlendWith(Acting.Pose[Bone], Weight);
+			}
+		}
 	}
 	return true;
 }

@@ -10,6 +10,7 @@ BODY = "/Game/Sci-FI_Troopers_Collection/SciFITrooper-01/SkeletalMesh/SK_SciFITr
 
 definition = unreal.load_asset(DEFINITION)
 definition.set_editor_property("display_name", "Grunt")
+definition.set_editor_property("base_health", 120.0)	# a little less after playtest v0.1.43 (was 150)
 definition.set_editor_property("body_mesh", unreal.load_asset(BODY))
 lib.save_loaded_asset(definition)
 

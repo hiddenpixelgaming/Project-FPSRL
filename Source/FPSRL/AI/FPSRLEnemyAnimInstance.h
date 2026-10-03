@@ -34,6 +34,7 @@ struct FFPSRLEnemyAnimProxy : public FAnimInstanceProxy
 	float ActionBlendOut = 0.2f;
 	int32 ActionSerial = 0;
 	bool bActionStopping = false;
+	bool bFalling = false;
 
 	// Proxy-side state.
 	float IdleTime = 0.f;

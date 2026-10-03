@@ -382,12 +382,15 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 			TMap<FString, int32> MovingSamples;
 			TMap<FString, int32> Samples;
 			bool bShots = false;
+			bool bStrafe = false;
+			float HostTopSpeed = 0.f;
 			int32 ShotsTaken = 0;
 			double NextShot = 0.0;
 		};
 		TSharedRef<FWatch> W = MakeShared<FWatch>();
 		W->Seconds = Args.IsEmpty() ? 30.f : FCString::Atof(*Args[0]);
-		W->bShots = Args.Num() > 1 && Args[1] == TEXT("shots");
+		W->bShots = Args.Contains(TEXT("shots"));
+		W->bStrafe = Args.Contains(TEXT("strafe"));	// the host keeps walking in circles (melee must still land)
 		TWeakObjectPtr<UGameInstance> GameInstance = StartWorld ? StartWorld->GetGameInstance() : nullptr;
 		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([GameInstance, W](float)
 		{
@@ -398,6 +401,14 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 				return true;
 			}
 			const double Now = FPlatformTime::Seconds();
+			if (W->bStrafe && W->Start > 0.0)
+			{
+				if (APawn* Host = GI->GetFirstLocalPlayerController(World) ? GI->GetFirstLocalPlayerController(World)->GetPawn() : nullptr)
+				{
+					Host->AddMovementInput(FRotator(0.f, static_cast<float>(FMath::Fmod((Now - W->Start) * 70.0, 360.0)), 0.f).Vector());
+					W->HostTopSpeed = FMath::Max(W->HostTopSpeed, static_cast<float>(Host->GetVelocity().Size2D()));
+				}
+			}
 			if (Now < W->NextSample)
 			{
 				return true;
@@ -458,6 +469,14 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 				UE_LOG(LogFPSRL, Log, TEXT("[Motion] %s: top speed %.0f cm/s, moving %.0f%% of the time"), *Entry.Key, Entry.Value,
 					100.f * W->MovingSamples.FindRef(Entry.Key) / FMath::Max(1, W->Samples.FindRef(Entry.Key)));
 			}
+			int32 MeleeHits = 0;
+			int32 Attacks = 0;
+			for (TActorIterator<AFPSRLEnemyAIController> It(World); It; ++It)
+			{
+				MeleeHits += It->GetMeleeHits();
+				Attacks += It->GetAttacksExecuted();
+			}
+			UE_LOG(LogFPSRL, Log, TEXT("[Motion] attacks %d, melee hits %d (enemies alive now); host top speed %.0f"), Attacks, MeleeHits, W->HostTopSpeed);
 			UE_LOG(LogFPSRL, Log, TEXT("[Motion] done: %d leap(s) landed, %d phase(s) (enemies alive now)"), Leaps, Phases);
 			return false;
 		}));

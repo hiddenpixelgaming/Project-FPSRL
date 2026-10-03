@@ -17,7 +17,8 @@ TROOPERS = "/Game/Sci-FI_Troopers_Collection/"
 ANIMS = "/Game/MainProject/Contents/Characters/Enemies/Mannequin/"
 
 shooter_definition = unreal.load_asset(DATA + "/DA_Enemy_NormalShooter")
-shooter_health = shooter_definition.get_editor_property("base_health")
+# Role health is a multiple of this (the Grunt's health when the roles were tuned; the Grunt itself is now 120).
+shooter_health = 150.0
 Move = unreal.FPSRLMovementStyle
 Close = unreal.FPSRLTooCloseResponse
 Lost = unreal.FPSRLLostSightResponse
@@ -73,15 +74,15 @@ ROLES = {
                      damage_response=Hurt.KEEP_ATTACKING, separation_radius=180.0, proximity_aggro_radius=800.0,
                      reaction_time=0.25, squad_movement=False, phase_on_projectile_hit=True, phase_seconds=4.0,
                      phase_cooldown=3.0, phase_leap_distance=450.0, phase_leap_seconds=0.3,
-                     attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=220.0,
+                     attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=250.0,
                                      max_angle=45.0, requires_line_of_sight=True, cooldown=0.9, windup_seconds=0.5,
-                                     execute_seconds=0.1, recovery_seconds=0.5, hold_position=True,
-                                     interruptible=True, melee_damage=12.0, melee_radius=70.0, melee_max_targets=1)]),
-        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs (0.5 s wind-up, 12 x2 damage). "
+                                     execute_seconds=0.1, recovery_seconds=0.5, hold_position=False,
+                                     interruptible=True, melee_damage=12.0, melee_radius=100.0, melee_max_targets=1)]),
+        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs on the run (keeps chasing through the 0.5 s wind-up, 12 x2 damage, 2.5 m reach) - it stood still to stab and moving players were never hit (playtest v0.1.43). "
              "Shot by a player: leaps back away from the shooter (0.3 s) and phases for 4 s - bullets pass through it and do "
              "nothing, melee still hurts - then can't phase again for 3 s."),
     "Marksman": dict(
-        weapon=RIFLE, hide_weapon=False, health=0.8, damage=9.0, scale=1.0, speed=450.0, anim_class=None,
+        weapon=RIFLE, hide_weapon=False, health=1.2, damage=4.5, scale=1.0, speed=450.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_02/SkeletalMesh/SK_SciFiTrooperGirlV2",
         anim_set=None,
         anims={},
@@ -94,7 +95,7 @@ ROLES = {
                                      windup_seconds=1.3, execute_seconds=0.05, recovery_seconds=0.7,
                                      hold_position=True, interruptible=False, show_aim_line=True)]),
         note="Marksman: holds a high-ground spot (the highest spawn points). A red laser to its target for 1.3 s "
-             "(thicker in the last 0.3 s), then one heavy, faster shot (9x damage after playtest v0.1.42). Break line of sight or climb to it."),
+             "(thicker in the last 0.3 s), then one heavy, faster shot (4.5x damage after playtest v0.1.43; 1.2x Grunt health). Break line of sight or climb to it."),
 }
 
 

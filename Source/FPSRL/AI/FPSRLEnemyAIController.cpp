@@ -1096,7 +1096,12 @@ void AFPSRLEnemyAIController::ExecuteAttack()
 		}
 		break;
 	case EFPSRLEnemyAttackAction::Melee:
-		FPSRLCombat::MeleeSweep(MyPawn, this, Attack.MaxRange, Attack.MeleeRadius, Attack.MeleeDamage, Attack.MeleeMaxTargets);
+	{
+		const int32 Struck = FPSRLCombat::MeleeSweep(MyPawn, this, Attack.MaxRange, Attack.MeleeRadius, Attack.MeleeDamage, Attack.MeleeMaxTargets).Num();
+		MeleeHits += Struck;
+		UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s %s hits %d (target %.0f cm away)"), *MyPawn->GetName(), *Attack.Name.ToString(), Struck,
+			Target.IsValid() ? FVector::Dist2D(Target->GetActorLocation(), MyPawn->GetActorLocation()) : -1.f);
+	}
 		break;
 	case EFPSRLEnemyAttackAction::GameplayAbility:
 		if (UAbilitySystemComponent* ASC = AbilitySystem.Get())

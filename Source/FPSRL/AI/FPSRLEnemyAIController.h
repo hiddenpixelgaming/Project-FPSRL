@@ -90,6 +90,7 @@ public:
 	int32 GetMoveFailures() const { return MoveFailures; }
 	int32 GetLeapsLanded() const { return LeapsLanded; }
 	int32 GetPhases() const { return Phases; }
+	int32 GetMeleeHits() const { return MeleeHits; }
 
 	/** Server: groups the squad-moving enemies among these (profile bSquadMovement) into squads of nearby members (called
 	 *  when an encounter starts). The first member of each squad leads; when it dies the next one does. */
@@ -215,5 +216,6 @@ private:
 	double NextPhaseTime = 0.0;
 	int32 LeapsLanded = 0;
 	int32 Phases = 0;
+	int32 MeleeHits = 0;
 	FDelegateHandle StunHandle;
 };
