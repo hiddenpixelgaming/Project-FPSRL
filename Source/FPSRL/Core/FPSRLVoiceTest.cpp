@@ -297,6 +297,13 @@ static FAutoConsoleCommandWithWorld GFPSRLVoiceSettingsTestCommand(TEXT("FPSRL.V
 			case 6:	// key remaps apply on the next frame
 				Check(KeysFor() == TEXT("V") && Voice->IsTransmitting(), FString::Printf(TEXT("restored: keys '%s', %s"), *KeysFor(), *Voice->Describe()));
 				PC->ClosePauseMenu();
+				return true;
+			case 7:	// reopen: Settings comes back on the Voice tab, its meter must run again (v0.1.40: it froze)
+				PC->OpenPauseMenu();
+				PC->GetPauseMenu()->ShowSettingsPage(true);
+				Check(PC->GetPauseMenu()->IsMicMeterRunning(), FString::Printf(TEXT("reopened Settings on the Voice tab: mic meter running %d"), PC->GetPauseMenu()->IsMicMeterRunning()));
+				PC->ClosePauseMenu();
+				Check(!PC->GetPauseMenu() || !PC->GetPauseMenu()->IsMicMeterRunning(), TEXT("menu closed: mic meter stopped"));
 				UE_LOG(LogFPSRL, Log, TEXT("[VoiceSettingsTest] done: %d problem(s)"), S->Problems);
 				return false;
 			default:

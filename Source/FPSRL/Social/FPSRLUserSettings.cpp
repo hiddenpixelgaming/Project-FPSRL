@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Social/FPSRLUserSettings.h"
+#include "Containers/Ticker.h"
 #include "FPSRL.h"
 
 FFPSRLUserSettingsChanged UFPSRLUserSettings::OnChanged;
@@ -20,6 +21,27 @@ void UFPSRLUserSettings::SetFilterProfanity(bool bEnabled)
 
 namespace FPSRLUserSettingsPrivate
 {
+	static FTSTicker::FDelegateHandle PendingSave;
+	static FString PendingWhat;
+
+	/** Writes the settings file once changes settle (a slider sends dozens of changes a second while dragged). */
+	static void ScheduleSave(const TCHAR* What)
+	{
+		if (!PendingWhat.Contains(What))
+		{
+			PendingWhat += PendingWhat.IsEmpty() ? FString(What) : FString::Printf(TEXT(", %s"), What);
+		}
+		FTSTicker::RemoveTicker(PendingSave);
+		PendingSave = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([](float)
+		{
+			GetMutableDefault<UFPSRLUserSettings>()->SaveConfig();
+			UE_LOG(LogFPSRL, Log, TEXT("[Settings] saved (%s changed)"), *PendingWhat);
+			PendingWhat.Reset();
+			PendingSave.Reset();
+			return false;
+		}), 0.5f);
+	}
+
 	template <typename T>
 	static void Set(T UFPSRLUserSettings::* Member, const T& Value, const TCHAR* What)
 	{
@@ -29,8 +51,8 @@ namespace FPSRLUserSettingsPrivate
 			return;
 		}
 		Settings->*Member = Value;
-		Settings->SaveConfig();
-		UE_LOG(LogFPSRL, Log, TEXT("[Settings] %s changed"), What);
+		ScheduleSave(What);
+		UE_LOG(LogFPSRL, Verbose, TEXT("[Settings] %s changed"), What);
 		UFPSRLUserSettings::OnChanged.Broadcast();
 	}
 }
@@ -76,4 +98,16 @@ void UFPSRLUserSettings::SetOpenMicSensitivity(float Sensitivity)
 void UFPSRLUserSettings::SetMicrophoneDevice(const FString& DeviceName)
 {
 	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::MicrophoneDevice, DeviceName, TEXT("Microphone"));
+}
+
+void UFPSRLUserSettings::FlushPendingSave()
+{
+	if (FPSRLUserSettingsPrivate::PendingSave.IsValid())
+	{
+		FTSTicker::RemoveTicker(FPSRLUserSettingsPrivate::PendingSave);
+		FPSRLUserSettingsPrivate::PendingSave.Reset();
+		GetMutableDefault<UFPSRLUserSettings>()->SaveConfig();
+		UE_LOG(LogFPSRL, Log, TEXT("[Settings] saved (%s changed)"), *FPSRLUserSettingsPrivate::PendingWhat);
+		FPSRLUserSettingsPrivate::PendingWhat.Reset();
+	}
 }

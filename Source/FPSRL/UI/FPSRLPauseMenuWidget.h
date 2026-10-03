@@ -36,6 +36,7 @@ public:
 	/** Tests: the Voice tab of the Settings page and what it shows ("voice on 1, volume 100%, ..."). */
 	void ShowVoiceTab() { HandleShowVoiceTab(); }
 	FString DescribeVoiceSettings() const;
+	bool IsMicMeterRunning() const;
 
 protected:
 	virtual void NativeOnInitialized() override;
@@ -156,6 +157,8 @@ private:
 	/** The mic level meter (a 10 Hz UI refresh, only while the Voice tab is open). */
 	void UpdateMicMeter();
 	void StopMicMeter();
+	void StartMicMeterIfVisible();
+	bool IsVoiceTabVisible() const;
 	/** "Mic check": whether the game hears this player right now (the voice capture's own activity detection). */
 	void RefreshMicCheck();
 	FDelegateHandle LocalSpeakingHandle;

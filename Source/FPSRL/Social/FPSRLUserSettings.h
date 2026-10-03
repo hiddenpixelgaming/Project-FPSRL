@@ -81,6 +81,9 @@ public:
 	static void SetOpenMicSensitivity(float Sensitivity);
 	static void SetMicrophoneDevice(const FString& DeviceName);
 
+	/** Writes pending changes now (they are saved half a second after the last change; closing Settings flushes). */
+	static void FlushPendingSave();
+
 	/** Fired after any setting changes. */
 	static FFPSRLUserSettingsChanged OnChanged;
 };

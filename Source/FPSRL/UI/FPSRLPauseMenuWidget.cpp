@@ -517,10 +517,7 @@ void UFPSRLPauseMenuWidget::HandleShowVoiceTab()
 	{
 		SettingsTabs->SetActiveWidgetIndex(1);
 	}
-	if (const UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(MicMeterTimer, this, &ThisClass::UpdateMicMeter, 0.1f, true);
-	}
+	StartMicMeterIfVisible();
 }
 
 void UFPSRLPauseMenuWidget::HandleVoiceEnabledChanged(bool bIsChecked)
@@ -614,11 +611,13 @@ void UFPSRLPauseMenuWidget::HandleOpenSettings()
 	{
 		Pages->SetActiveWidgetIndex(1);
 	}
+	StartMicMeterIfVisible();	// the Voice tab may still be the open one from last time
 }
 
 void UFPSRLPauseMenuWidget::HandleCloseSettings()
 {
 	StopMicMeter();
+	UFPSRLUserSettings::FlushPendingSave();
 	if (Pages)
 	{
 		Pages->SetActiveWidgetIndex(0);
@@ -848,6 +847,11 @@ void UFPSRLPauseMenuWidget::HandleAutoDetectClicked()
 
 void UFPSRLPauseMenuWidget::UpdateMicMeter()
 {
+	if (!IsVoiceTabVisible())
+	{
+		StopMicMeter();	// off screen: no refresh until the Voice tab shows again
+		return;
+	}
 	const UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer());
 	if (!MicLevelBar || !Voice)
 	{
@@ -872,6 +876,7 @@ void UFPSRLPauseMenuWidget::StopMicMeter()
 void UFPSRLPauseMenuWidget::NativeDestruct()
 {
 	StopMicMeter();	// the menu closed: no meter refresh while it is off screen
+	UFPSRLUserSettings::FlushPendingSave();
 	Super::NativeDestruct();
 }
 
@@ -894,6 +899,27 @@ void UFPSRLPauseMenuWidget::HandleVoiceTestClicked()
 		});
 	}
 	Voice->StartVoiceTest();
+}
+
+
+bool UFPSRLPauseMenuWidget::IsVoiceTabVisible() const
+{
+	return IsInViewport() && Pages && Pages->GetActiveWidgetIndex() == 1 && SettingsTabs && SettingsTabs->GetActiveWidgetIndex() == 1;
+}
+
+void UFPSRLPauseMenuWidget::StartMicMeterIfVisible()
+{
+	const UWorld* World = GetWorld();
+	if (World && IsVoiceTabVisible() && !World->GetTimerManager().IsTimerActive(MicMeterTimer))
+	{
+		World->GetTimerManager().SetTimer(MicMeterTimer, this, &ThisClass::UpdateMicMeter, 0.1f, true);
+	}
+}
+
+
+bool UFPSRLPauseMenuWidget::IsMicMeterRunning() const
+{
+	return GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(MicMeterTimer);
 }
 
 #undef LOCTEXT_NAMESPACE
