@@ -27,8 +27,16 @@ public:
 	/** Server: an attack starts its wind-up. */
 	void StartAttack(FName AttackName, float WindupSeconds, AActor* Target, bool bAimLine);
 
+	/** Server: plays the definition's animation for ActionName on every machine ("<Attack>_Execute", "Phase"), timed so its
+	 *  StartTime..ImpactTime part takes Seconds (0 = normal speed). */
+	void PlayAction(FName ActionName, float Seconds);
+
 	/** Server: the attack in progress was cancelled (interrupted, stunned, died). */
 	void CancelAttack();
+
+	/** Server: phased (Skirmisher) - replicated; projectiles pass through and do nothing, it glows see-through. */
+	void SetPhased(bool bInPhased);
+	bool IsPhased() const { return bPhased; }
 
 	/** Seconds of the last StartAttack's animation, or 0 (tests). */
 	float GetLastAnimLength() const { return LastAnimLength; }
@@ -38,6 +46,7 @@ public:
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 private:
 	UFUNCTION(NetMulticast, Reliable)
@@ -45,6 +54,18 @@ private:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastCancelAttack();
+
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastPlayAction(FName ActionName, float Seconds);
+
+	UFUNCTION()
+	void OnRep_Phased();
+
+	/** This machine: the action's animation (C++ enemy animation, else a slot montage). */
+	bool PlayNamed(FName ActionName, float Seconds);
+
+	UPROPERTY(ReplicatedUsing = OnRep_Phased)
+	bool bPhased = false;
 
 	void ShowAimLine(AActor* Target, float Seconds);
 	void HideAimLine();

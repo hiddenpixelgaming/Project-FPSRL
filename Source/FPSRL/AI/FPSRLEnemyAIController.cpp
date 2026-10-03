@@ -2,6 +2,10 @@
 
 #include "AI/FPSRLEnemyAIController.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
+#include "Combat/FPSRLShockwave.h"
+#include "Components/CapsuleComponent.h"
+#include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Combat/FPSRLCombatRules.h"
@@ -146,6 +150,7 @@ void AFPSRLEnemyAIController::OnPossess(APawn* InPawn)
 	if (UFPSRLHealthComponent* HealthComponent = Health.Get())
 	{
 		DamagedHandle = HealthComponent->OnDamagedBy.AddUObject(this, &ThisClass::HandleDamaged);
+		ProjectileHitHandle = HealthComponent->OnProjectileHit.AddUObject(this, &ThisClass::HandleProjectileHit);
 		HealthComponent->OnDeath.AddDynamic(this, &ThisClass::HandleDeath);
 	}
 	AbilitySystem = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(InPawn);
@@ -161,6 +166,7 @@ void AFPSRLEnemyAIController::OnUnPossess()
 	if (UFPSRLHealthComponent* HealthComponent = Health.Get())
 	{
 		HealthComponent->OnDamagedBy.Remove(DamagedHandle);
+		HealthComponent->OnProjectileHit.Remove(ProjectileHitHandle);
 		HealthComponent->OnDeath.RemoveDynamic(this, &ThisClass::HandleDeath);
 	}
 	if (UAbilitySystemComponent* ASC = AbilitySystem.Get())
@@ -168,6 +174,8 @@ void AFPSRLEnemyAIController::OnUnPossess()
 		ASC->RegisterGameplayTagEvent(FPSRLGameplayTags::Status_Stunned).Remove(StunHandle);
 	}
 	GetWorldTimerManager().ClearTimer(ThinkTimer);
+	GetWorldTimerManager().ClearTimer(LeapSafetyTimer);
+	GetWorldTimerManager().ClearTimer(PhaseTimer);
 	GetWorldTimerManager().ClearTimer(AttackTimer);
 	Super::OnUnPossess();
 }
@@ -1096,6 +1104,10 @@ void AFPSRLEnemyAIController::ExecuteAttack()
 			ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(Attack.AbilityTag));
 		}
 		break;
+	case EFPSRLEnemyAttackAction::LeapSlam:
+		UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s leaps at %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()));
+		StartLeap(Attack);
+		return;	// its landing ends the execution
 	}
 	UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s attacks %s with %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()), *Attack.Name.ToString());
 	GetWorldTimerManager().SetTimer(AttackTimer, this, &ThisClass::EndAttackExecution, FMath::Max(0.01f, Attack.ExecuteSeconds), false);
@@ -1123,7 +1135,12 @@ void AFPSRLEnemyAIController::EndAttackExecution()
 
 void AFPSRLEnemyAIController::FinishRecovery()
 {
+	const bool bNearest = Profile && Profile->Attacks.IsValidIndex(CurrentAttack) && Profile->Attacks[CurrentAttack].bTargetNearestAfter;
 	CurrentAttack = INDEX_NONE;
+	if (AActor* Nearest = bNearest ? FindNearestPlayer() : nullptr)
+	{
+		AcquireTarget(Nearest, false);	// the Brute rushes whoever is closest after its leap
+	}
 	if (State == EFPSRLEnemyAIState::Recovering)
 	{
 		SetState(Target.IsValid() ? EFPSRLEnemyAIState::Positioning : EFPSRLEnemyAIState::Idle);
@@ -1274,4 +1291,158 @@ void AFPSRLEnemyAIController::HandleDeath(AController* KillerInstigator, AActor*
 	bMoving = false;
 	ClearTarget();
 	SetState(EFPSRLEnemyAIState::Dead);
+}
+
+void AFPSRLEnemyAIController::StartLeap(const FFPSRLEnemyAttack& Attack)
+{
+	ACharacter* EnemyCharacter = Cast<ACharacter>(GetPawn());
+	const AActor* Current = Target.Get();
+	if (!EnemyCharacter || !Current)
+	{
+		EndAttackExecution();
+		return;
+	}
+	StopMovement();
+	bMoving = false;
+
+	// Lands where the target stands now (the navmesh under it), no farther than the attack reaches.
+	const FVector Start = EnemyCharacter->GetActorLocation();
+	const float HalfHeight = EnemyCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	FVector Goal = Current->GetActorLocation();
+	if (FVector::Dist2D(Start, Goal) > Attack.MaxRange)
+	{
+		Goal = Start + (Goal - Start).GetSafeNormal2D() * Attack.MaxRange + FVector(0.f, 0.f, Goal.Z - Start.Z);
+	}
+	FVector OnNav;
+	if (ProjectToNav(Goal, OnNav))
+	{
+		Goal = OnNav + FVector(0.f, 0.f, HalfHeight);
+	}
+	// A ballistic arc that gets there in LeapSeconds.
+	const float Seconds = Attack.LeapSeconds;
+	const float Gravity = EnemyCharacter->GetCharacterMovement()->GetGravityZ();
+	const FVector Delta = Goal - Start;
+	BeginAirborne(EnemyCharacter);
+	EnemyCharacter->LaunchCharacter(FVector(Delta.X / Seconds, Delta.Y / Seconds, Delta.Z / Seconds - 0.5f * Gravity * Seconds), true, true);
+	bLeaping = true;
+	EnemyCharacter->LandedDelegate.AddUniqueDynamic(this, &ThisClass::HandleLeapLanded);
+	GetWorldTimerManager().SetTimer(LeapSafetyTimer, this, &ThisClass::FinishLeap, Seconds + 1.5f, false);
+	if (UFPSRLEnemyRoleComponent* RoleView = EnemyCharacter->FindComponentByClass<UFPSRLEnemyRoleComponent>())
+	{
+		RoleView->PlayAction(FName(*(Attack.Name.ToString() + TEXT("_Execute"))), Seconds);
+	}
+}
+
+void AFPSRLEnemyAIController::HandleLeapLanded(const FHitResult& Hit)
+{
+	EndAirborne();
+	FinishLeap();
+}
+
+void AFPSRLEnemyAIController::BeginAirborne(ACharacter* EnemyCharacter)
+{
+	UCharacterMovementComponent* Movement = EnemyCharacter->GetCharacterMovement();
+	if (SavedBrakingFalling < 0.f)
+	{
+		SavedBrakingFalling = Movement->BrakingDecelerationFalling;
+		SavedFallingFriction = Movement->FallingLateralFriction;
+	}
+	Movement->BrakingDecelerationFalling = 0.f;
+	Movement->FallingLateralFriction = 0.f;
+	EnemyCharacter->LandedDelegate.AddUniqueDynamic(this, &ThisClass::HandleLeapLanded);
+}
+
+void AFPSRLEnemyAIController::EndAirborne()
+{
+	const ACharacter* EnemyCharacter = Cast<ACharacter>(GetPawn());
+	if (EnemyCharacter && SavedBrakingFalling >= 0.f)
+	{
+		EnemyCharacter->GetCharacterMovement()->BrakingDecelerationFalling = SavedBrakingFalling;
+		EnemyCharacter->GetCharacterMovement()->FallingLateralFriction = SavedFallingFriction;
+	}
+	SavedBrakingFalling = -1.f;
+}
+
+void AFPSRLEnemyAIController::FinishLeap()
+{
+	GetWorldTimerManager().ClearTimer(LeapSafetyTimer);
+	ACharacter* EnemyCharacter = Cast<ACharacter>(GetPawn());
+	EndAirborne();
+	if (EnemyCharacter)
+	{
+		EnemyCharacter->LandedDelegate.RemoveDynamic(this, &ThisClass::HandleLeapLanded);
+	}
+	if (!bLeaping)
+	{
+		return;
+	}
+	bLeaping = false;
+	if (!EnemyCharacter || !Profile || !Profile->Attacks.IsValidIndex(CurrentAttack) || Profile->Attacks[CurrentAttack].Action != EFPSRLEnemyAttackAction::LeapSlam)
+	{
+		return;	// cancelled in the air (stunned, died): no shockwave
+	}
+	// The shockwave from the floor under it, then the pause (the attack's recovery).
+	const FFPSRLEnemyAttack& Attack = Profile->Attacks[CurrentAttack];
+	const FVector Ground = EnemyCharacter->GetActorLocation() - FVector(0.f, 0.f, EnemyCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	AFPSRLShockwave::Spawn(EnemyCharacter, Ground, Attack.ShockwaveDamage, Attack.ShockwaveRadius, Attack.ShockwaveSpeed, Attack.ShockwaveHeight);
+	++LeapsLanded;
+	EndAttackExecution();
+}
+
+AActor* AFPSRLEnemyAIController::FindNearestPlayer() const
+{
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	const APawn* MyPawn = GetPawn();
+	AActor* Nearest = nullptr;
+	float NearestDistance = TNumericLimits<float>::Max();
+	for (const APlayerState* Entry : GameState && MyPawn ? GameState->PlayerArray : TArray<TObjectPtr<APlayerState>>())
+	{
+		APawn* Player = Entry ? Entry->GetPawn() : nullptr;
+		const float Distance = Player ? FVector::DistSquared(Player->GetActorLocation(), MyPawn->GetActorLocation()) : 0.f;
+		if (Player && IsValidTarget(Player) && Distance < NearestDistance)
+		{
+			Nearest = Player;
+			NearestDistance = Distance;
+		}
+	}
+	return Nearest;
+}
+
+void AFPSRLEnemyAIController::HandleProjectileHit(float Damage, APawn* Attacker)
+{
+	ACharacter* EnemyCharacter = Cast<ACharacter>(GetPawn());
+	const double Now = GetWorld()->GetTimeSeconds();
+	if (!Profile || !Profile->bPhaseOnProjectileHit || !EnemyCharacter || !bEncounterActive || Now < NextPhaseTime
+		|| State == EFPSRLEnemyAIState::Dead || State == EFPSRLEnemyAIState::Disabled || (Health.IsValid() && Health->IsDead()))
+	{
+		return;
+	}
+	NextPhaseTime = Now + Profile->PhaseSeconds + Profile->PhaseCooldown;
+	++Phases;
+
+	// Off its attack and its path; a leap back away from the shooter (still facing them: the animation jumps backwards).
+	CancelAttack(0.f);
+	StopMovement();
+	bMoving = false;
+	const FVector Away = Attacker ? (EnemyCharacter->GetActorLocation() - Attacker->GetActorLocation()).GetSafeNormal2D() : -EnemyCharacter->GetActorForwardVector();
+	const float Seconds = Profile->PhaseLeapSeconds;
+	const float Gravity = EnemyCharacter->GetCharacterMovement()->GetGravityZ();
+	BeginAirborne(EnemyCharacter);
+	EnemyCharacter->LaunchCharacter(Away * (Profile->PhaseLeapDistance / Seconds) + FVector(0.f, 0.f, -0.5f * Gravity * Seconds), true, true);
+	TWeakObjectPtr<UFPSRLEnemyRoleComponent> RoleView = EnemyCharacter->FindComponentByClass<UFPSRLEnemyRoleComponent>();
+	if (RoleView.IsValid())
+	{
+		RoleView->SetPhased(true);
+		RoleView->PlayAction(TEXT("Phase"), Seconds);
+	}
+	SetState(EFPSRLEnemyAIState::Recovering);
+	GetWorldTimerManager().SetTimer(AttackTimer, this, &ThisClass::FinishRecovery, Seconds, false);
+	GetWorldTimerManager().SetTimer(PhaseTimer, FTimerDelegate::CreateWeakLambda(this, [RoleView]()
+	{
+		if (RoleView.IsValid())
+		{
+			RoleView->SetPhased(false);
+		}
+	}), FMath::Max(0.05f, Profile->PhaseSeconds), false);
+	UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s phases away from %s"), *EnemyCharacter->GetName(), *GetNameSafe(Attacker));
 }

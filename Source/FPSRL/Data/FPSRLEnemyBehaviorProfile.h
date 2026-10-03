@@ -92,7 +92,8 @@ enum class EFPSRLEnemyAttackAction : uint8
 {
 	FireWeapon,			// holds its weapon's trigger for ExecuteSeconds (the weapon's own fire rate, projectiles, damage)
 	Melee,				// one server sweep in front of it (the players' melee rules)
-	GameplayAbility		// activates the abilities with AbilityTag on its ability system
+	GameplayAbility,	// activates the abilities with AbilityTag on its ability system
+	LeapSlam			// the wind-up (a roar) faces the target, then it leaps to where the target is and lands with a shockwave ring
 };
 
 /** One attack an archetype can choose (evaluated in Priority order; the first valid one is used). */
@@ -152,6 +153,28 @@ struct FPSRL_API FFPSRLEnemyAttack
 	/** Telegraph: a visible line from it to its target during the wind-up (Marksman's laser). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Timing")
 	bool bShowAimLine = false;
+
+	/** After this attack (its recovery) it goes for the nearest player (the Brute rushes whoever is closest). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
+	bool bTargetNearestAfter = false;
+
+	/** LeapSlam: seconds in the air, and the shockwave ring its landing sends out along the ground: damage to a player it
+	 *  passes (once), how far it goes, how fast, and how high it reaches (a player whose feet are above it - jumping over
+	 *  it - takes nothing). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Leap", meta = (ClampMin = "0.2"))
+	float LeapSeconds = 0.9f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Leap", meta = (ClampMin = "0"))
+	float ShockwaveDamage = 80.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Leap", meta = (ClampMin = "100"))
+	float ShockwaveRadius = 900.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Leap", meta = (ClampMin = "100"))
+	float ShockwaveSpeed = 1000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Leap", meta = (ClampMin = "10"))
+	float ShockwaveHeight = 45.f;
 
 	/** Melee: damage, sweep radius and targets per swing (reach = MaxRange). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Melee", meta = (ClampMin = "0"))
@@ -306,6 +329,25 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attacks")
 	TArray<FFPSRLEnemyAttack> Attacks;
+
+	// --- Phase (Skirmisher: shot -> leaps back and can't be shot for a moment) ----------------------------------------
+
+	/** Hit by a player's projectile: it leaps back away from the shooter and phases - projectiles pass through it and
+	 *  do nothing for PhaseSeconds; melee still hurts. Then it can't phase again for PhaseCooldown seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase")
+	bool bPhaseOnProjectileHit = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase", meta = (ClampMin = "0", EditCondition = "bPhaseOnProjectileHit"))
+	float PhaseSeconds = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase", meta = (ClampMin = "0", EditCondition = "bPhaseOnProjectileHit"))
+	float PhaseCooldown = 3.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase", meta = (ClampMin = "0", EditCondition = "bPhaseOnProjectileHit"))
+	float PhaseLeapDistance = 450.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Phase", meta = (ClampMin = "0.1", EditCondition = "bPhaseOnProjectileHit"))
+	float PhaseLeapSeconds = 0.5f;
 
 	// --- Squad (Grunts: huddle and move together) -------------------------------------------------------------------
 

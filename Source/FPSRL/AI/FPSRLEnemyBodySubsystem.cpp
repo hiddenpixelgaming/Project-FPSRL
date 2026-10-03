@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "AI/FPSRLEnemyBodySubsystem.h"
+#include "AI/FPSRLEnemyAnimInstance.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Components/CapsuleComponent.h"
@@ -80,14 +81,19 @@ void UFPSRLEnemyBodySubsystem::ApplyBody(APawn* Pawn)
 		}
 		const UFPSRLEnemyBehaviorProfile* Profile = Definition->BehaviorProfile;
 		const bool bAimLine = Profile && Profile->Attacks.ContainsByPredicate([](const FFPSRLEnemyAttack& Attack) { return Attack.bShowAimLine; });
-		if ((!Definition->AttackAnims.IsEmpty() || bAimLine) && !Character->FindComponentByClass<UFPSRLEnemyRoleComponent>())
+		const bool bPhase = Profile && Profile->bPhaseOnProjectileHit;
+		if ((!Definition->AttackAnims.IsEmpty() || bAimLine || bPhase) && !Character->FindComponentByClass<UFPSRLEnemyRoleComponent>())
 		{
 			UFPSRLEnemyRoleComponent* Role = NewObject<UFPSRLEnemyRoleComponent>(Character, TEXT("EnemyRole"));
 			Role->RegisterComponent();
 			Character->AddInstanceComponent(Role);
 		}
 	}
-	if (!Definition->AnimClass.IsNull())
+	if (Definition->AnimSet.IsSet())
+	{
+		Skeleton->SetAnimInstanceClass(UFPSRLEnemyAnimInstance::StaticClass());	// idle / walk / run + actions from C++
+	}
+	else if (!Definition->AnimClass.IsNull())
 	{
 		if (UClass* AnimClass = Definition->AnimClass.LoadSynchronous())
 		{

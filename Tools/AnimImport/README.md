@@ -33,5 +33,6 @@ Role casting: Grunt = SciFITrooper-01, Brute = SciFITrooper-02, Skirmisher = Tro
 ## Enemy roles
 
 After the animations: `Tools/EnemySetup/setup_grunt.py`, `setup_roles.py` (Brute / Skirmisher / Marksman Blueprints,
-behaviour profiles and definitions) and `make_aim_line_material.py`, each headless like above. Check with
-`FPSRL.RoleTest` in the Lobby (headless; rendered runs also take a screenshot of each role mid-attack).
+behaviour profiles and definitions) and `make_role_materials.py`, each headless like above. Check with
+`FPSRL.RoleTest` and `FPSRL.RoleBehaviourTest` in the Lobby (headless; rendered runs also take screenshots), and
+`FPSRL.EnemyMotionWatch` during a real run (movement needs a navmesh, which the Lobby has none of).

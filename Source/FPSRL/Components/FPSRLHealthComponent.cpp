@@ -199,6 +199,11 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 	{
 		return;
 	}
+	const bool bProjectile = Cast<AFPSRLProjectile>(DamageCauser) != nullptr;
+	if (bPhased && bProjectile)
+	{
+		return;	// phased: shots do nothing (melee still lands)
+	}
 
 	// An enemy's attack: scaled by its encounter scaling (player count, Depth, difficulty...).
 	const APawn* Attacker = InstigatedBy ? InstigatedBy->GetPawn() : nullptr;
@@ -217,6 +222,10 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 
 	ApplyHealthEffect(UFPSRLDamageEffect::StaticClass(), FPSRLGameplayTags::SetByCaller_Damage, Damage, InstigatedBy, DamageCauser);
 	OnDamagedBy.Broadcast(Damage, const_cast<APawn*>(Attacker));
+	if (bProjectile)
+	{
+		OnProjectileHit.Broadcast(Damage, const_cast<APawn*>(Attacker));
+	}
 
 	if (PlayerHit.AttackerASC)
 	{
@@ -355,7 +364,7 @@ void UFPSRLHealthComponent::UpdateProjectileBlocking()
 	// Dead and DOWNED bodies let bullets through (every machine: health and the downed tag replicate, and clients fly
 	// their own projectile copies). Downed (held at 1 health) used to soak up the shots aimed at whoever revived them,
 	// so enemies could never interrupt a revive (playtest v0.1.34). A revived player blocks again.
-	const bool bIgnore = (GetHealthSet() && GetCurrentHealth() <= 0.f) || IsDowned() || bDied;
+	const bool bIgnore = (GetHealthSet() && GetCurrentHealth() <= 0.f) || IsDowned() || bDied || bPhased;
 	if (bIgnore == bBodyIgnoresProjectiles)
 	{
 		return;
@@ -896,4 +905,10 @@ void UFPSRLHealthComponent::StepHitFlash()
 	{
 		RestoreBodyColor();
 	}
+}
+
+void UFPSRLHealthComponent::SetPhased(bool bInPhased)
+{
+	bPhased = bInPhased;
+	UpdateProjectileBlocking();	// phased bodies let projectiles through
 }

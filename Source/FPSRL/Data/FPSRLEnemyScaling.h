@@ -8,11 +8,13 @@
 #include "FPSRLEnemyScaling.generated.h"
 
 class UAnimInstance;
+class UAnimSequence;
 class UAnimSequenceBase;
 class UFPSRLEnemyDefinition;
 
-/** An attack's animation: played on the enemy class's own skeleton (its anim blueprint's DefaultSlot) when the attack
- *  starts, timed so ImpactTime (seconds into the animation) lands when the attack executes. */
+/** An action's animation (an attack's wind-up, "<Attack>_Execute" for its execution, "Phase"...). StartTime..ImpactTime
+ *  is the part timed to the action: played so ImpactTime lands when the wind-up (or the leap) ends; the rest plays on at
+ *  that rate. Without a timing (actions that aren't timed) it plays at normal speed from StartTime. */
 USTRUCT(BlueprintType)
 struct FPSRL_API FFPSRLEnemyAttackAnim
 {
@@ -21,12 +23,46 @@ struct FPSRL_API FFPSRLEnemyAttackAnim
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
 	TSoftObjectPtr<UAnimSequenceBase> Animation;
 
+	/** Seconds into the animation where the action starts (skips a run-up, for example). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0"))
+	float StartTime = 0.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0"))
 	float ImpactTime = 0.5f;
+
+	/** Where it stops (blending out); 0 = the animation's end. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "0"))
+	float EndTime = 0.f;
+};
+
+/** Locomotion for the C++ enemy animation (UFPSRLEnemyAnimInstance): idle, walk and run on the enemy's Mannequin rig,
+ *  with the speed (cm/s) each was authored for so the steps match how fast it moves. */
+USTRUCT(BlueprintType)
+struct FPSRL_API FFPSRLEnemyAnimSet
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	TSoftObjectPtr<UAnimSequence> Idle;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	TSoftObjectPtr<UAnimSequence> Walk;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "10"))
+	float WalkAnimSpeed = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation")
+	TSoftObjectPtr<UAnimSequence> Run;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Animation", meta = (ClampMin = "10"))
+	float RunAnimSpeed = 500.f;
+
+	bool IsSet() const { return !Idle.IsNull(); }
 };
 
 /**
- * An enemy archetype's own base stats (every archetype has its own; there is no universal enemy health).
+ * An enemy archetype's own base stats
+ (every archetype has its own; there is no universal enemy health).
  * The final numbers come from the scaling stack (UFPSRLEnemyScalingSettings), applied on the server when an
  * encounter starts.
  */
@@ -65,7 +101,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
 	TSoftClassPtr<UAnimInstance> AnimClass;
 
-	/** By attack name (its behavior profile's attacks): the animation the attack plays. */
+	/** Idle / walk / run played from C++ (UFPSRLEnemyAnimInstance replaces AnimClass), with actions over the whole body. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
+	FFPSRLEnemyAnimSet AnimSet;
+
+	/** By action name (an attack's name for its wind-up, "<Attack>_Execute", "Phase"): the animation it plays. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
 	TMap<FName, FFPSRLEnemyAttackAnim> AttackAnims;
 

@@ -1,4 +1,4 @@
-"""Brute, Skirmisher, Marksman (user 2026-10-03; Combat Room Atlas section 4). For each role: a Blueprint child of the
+"""Brute, Skirmisher, Marksman (user 2026-10-03; Combat Room Atlas section 4; behaviours reworked after playtest v0.1.41). For each role: a Blueprint child of the
 shooter enemy (BP_Enemy_<Role>), a behaviour profile (from the shooter's, then the role's changes) and an enemy
 definition (body, animations, size, speed, health). Safe to run again: existing assets are updated.
 Run with the editor closed: UnrealEditor-Cmd FPSRL.uproject -run=pythonscript -script=<this file>
@@ -31,43 +31,63 @@ def attack(**values):
     return a
 
 
+MANNY = "/Game/Characters/Mannequins/Anims/Unarmed/"
+IDLE = MANNY + "MM_Idle"
+
 ROLES = {
     "Brute": dict(
-        weapon=None, health=3.5, damage=1.0, scale=1.2, speed=380.0, anim_class=UNARMED,
+        weapon=None, health=3.5, damage=1.0, scale=1.2, speed=520.0, anim_class=None,
         body=TROOPERS + "SciFITrooper-02/SkeletalMesh/SK_SciFiTrooperV2",
-        anims={"Slam": ("Standing_Melee_Attack_Downward_Mannequin", 0.45)},
+        # Locomotion: (animation, the speed it was authored for). Mixamo / Mannequin travel measured from the root.
+        anim_set=dict(idle=IDLE, walk=(ANIMS + "Mutant_Walking_Mannequin", 127.0), run=(MANNY + "Jog/MF_Unarmed_Jog_Fwd", 600.0)),
+        # Actions: (animation, start, impact, end) in seconds; StartTime..ImpactTime is timed to the wind-up / leap.
+        anims={"Slam": (ANIMS + "Standing_Melee_Attack_Downward_Mannequin", 0.0, 1.02, 1.75),
+               "LeapSlam": (ANIMS + "Standing_Taunt_Battlecry_Mannequin", 0.0, 1.9, 2.4),			# the roar
+               "LeapSlam_Execute": (ANIMS + "Standing_Melee_Run_Jump_Attack_Mannequin", 0.75, 1.72, 2.6)},	# take-off .. landing
         profile=dict(preferred_min_distance=0.0, preferred_max_distance=180.0, movement_style=Move.CHASE,
                      too_close_response=Close.HOLD_AND_ATTACK, lost_sight_response=Lost.SEEK_LAST_SEEN,
                      damage_response=Hurt.KEEP_ATTACKING, separation_radius=150.0, acceptance_radius=80.0,
-                     proximity_aggro_radius=800.0, reaction_time=0.4, squad_movement=False,
-                     attacks=[attack(name="Slam", action=Action.MELEE, priority=10, min_range=0.0, max_range=260.0,
+                     proximity_aggro_radius=800.0, reaction_time=0.4, squad_movement=False, phase_on_projectile_hit=False,
+                     attacks=[attack(name="LeapSlam", action=Action.LEAP_SLAM, priority=20, min_range=500.0, max_range=2500.0,
+                                     max_angle=30.0, requires_line_of_sight=True, cooldown=9.0, windup_seconds=1.6,
+                                     execute_seconds=0.0, recovery_seconds=1.0, hold_position=True, interruptible=False,
+                                     target_nearest_after=True, leap_seconds=0.9, shockwave_damage=80.0,
+                                     shockwave_radius=900.0, shockwave_speed=1000.0, shockwave_height=45.0),
+                              attack(name="Slam", action=Action.MELEE, priority=10, min_range=0.0, max_range=260.0,
                                      max_angle=35.0, requires_line_of_sight=True, cooldown=1.5, windup_seconds=0.9,
                                      execute_seconds=0.15, recovery_seconds=0.9, hold_position=True,
                                      interruptible=False, melee_damage=30.0, melee_radius=120.0, melee_max_targets=4)]),
-        note="Brute: slow, tough melee. Chases its target and slams (0.9 s wind-up with the overhead swing, 30 damage "
-             "in a wide arc, hits up to 4 players). Pushes players out of safe spots; loops are how you kite it."),
+        note="Brute: roars at its target (1.6 s), leaps to where the target stands (0.9 s in the air) and lands with a red "
+             "shockwave ring along the ground (80 damage, 9 m, jump over it to take nothing). Pauses 1 s, then rushes the "
+             "nearest player with heavy overhead swings (0.9 s wind-up, 30 damage, wide arc). Leaps again every 9 s when "
+             "its target is 5-25 m away."),
     "Skirmisher": dict(
-        weapon=None, health=0.6, damage=1.0, scale=1.0, speed=680.0, anim_class=UNARMED,
+        weapon=None, health=0.6, damage=1.0, scale=1.0, speed=750.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_01/SkeletalMesh/SK_SciFiTrooperGirlV1",
-        anims={"Stab": ("Stabbing_Mannequin", 0.4)},
-        profile=dict(preferred_min_distance=120.0, preferred_max_distance=260.0, movement_style=Move.STRAFE,
-                     reposition_interval=1.0, strafe_distance=350.0, too_close_response=Close.HOLD_AND_ATTACK,
-                     lost_sight_response=Lost.SEEK_LAST_SEEN, damage_response=Hurt.REPOSITION,
-                     separation_radius=180.0, proximity_aggro_radius=800.0, reaction_time=0.25, squad_movement=False,
-                     attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=240.0,
-                                     max_angle=45.0, requires_line_of_sight=True, cooldown=0.9, windup_seconds=0.4,
+        anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(ANIMS + "Sprint_Mannequin", 596.0)),
+        anims={"Stab": (ANIMS + "Stabbing_Mannequin", 0.0, 0.85, 1.6),
+               "Phase": (ANIMS + "Jump_Mannequin", 0.04, 0.62, 0.85)},	# jumps backwards
+        profile=dict(preferred_min_distance=0.0, preferred_max_distance=150.0, movement_style=Move.CHASE,
+                     too_close_response=Close.HOLD_AND_ATTACK, lost_sight_response=Lost.SEEK_LAST_SEEN,
+                     damage_response=Hurt.KEEP_ATTACKING, separation_radius=180.0, proximity_aggro_radius=800.0,
+                     reaction_time=0.25, squad_movement=False, phase_on_projectile_hit=True, phase_seconds=1.5,
+                     phase_cooldown=3.0, phase_leap_distance=450.0, phase_leap_seconds=0.5,
+                     attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=220.0,
+                                     max_angle=45.0, requires_line_of_sight=True, cooldown=0.9, windup_seconds=0.5,
                                      execute_seconds=0.1, recovery_seconds=0.5, hold_position=True,
                                      interruptible=True, melee_damage=12.0, melee_radius=70.0, melee_max_targets=1)]),
-        note="Skirmisher: fast, fragile flanker. Runs in faster than a player walks, side-steps around its target and "
-             "stabs (0.4 s wind-up, 12 damage); dodges away when hit. Comes from the side or behind."),
+        note="Skirmisher: sprints straight at its target (7.5 m/s) and stabs (0.5 s wind-up, 12 damage). Shot by a "
+             "player: leaps back away from the shooter and phases for 1.5 s - bullets pass through it and do nothing, "
+             "melee still hurts - then can't phase again for 3 s."),
     "Marksman": dict(
         weapon=RIFLE, health=0.8, damage=3.0, scale=1.0, speed=450.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_02/SkeletalMesh/SK_SciFiTrooperGirlV2",
+        anim_set=None,
         anims={},
         profile=dict(preferred_min_distance=1200.0, preferred_max_distance=4000.0,
                      movement_style=Move.GUARD_POSITION, guard_radius=300.0, too_close_response=Close.REPOSITION,
                      lost_sight_response=Lost.REPOSITION, detection_range=5000.0, aim_spread_degrees=0.5,
-                     aim_lag_seconds=0.1, projectile_speed_multiplier=0.55, squad_movement=False,
+                     aim_lag_seconds=0.1, projectile_speed_multiplier=0.55, squad_movement=False, phase_on_projectile_hit=False,
                      attacks=[attack(name="Snipe", action=Action.FIRE_WEAPON, priority=10, min_range=0.0,
                                      max_range=4500.0, max_angle=10.0, requires_line_of_sight=True, cooldown=3.5,
                                      windup_seconds=1.3, execute_seconds=0.05, recovery_seconds=0.7,
@@ -118,14 +138,24 @@ for role, r in ROLES.items():
     definition.set_editor_property("body_mesh", unreal.load_asset(r["body"]))
     definition.set_editor_property("anim_class", unreal.load_class(None, r["anim_class"]) if r["anim_class"] else None)
     anims = {}
-    for attack_name, (anim, share) in r["anims"].items():
-        sequence = unreal.load_asset(ANIMS + anim)
+    for action, (anim, start, impact, end) in r["anims"].items():
+        sequence = unreal.load_asset(anim)
         entry = unreal.FPSRLEnemyAttackAnim()
         entry.set_editor_property("animation", sequence)
-        entry.set_editor_property("impact_time", sequence.get_play_length() * share)
-        anims[attack_name] = entry
-        unreal.log("[EnemySetup] {} {}: {} ({:.2f} s, impact {:.2f} s)".format(role, attack_name, anim, sequence.get_play_length(), entry.get_editor_property("impact_time")))
+        entry.set_editor_property("start_time", start)
+        entry.set_editor_property("impact_time", impact)
+        entry.set_editor_property("end_time", end)
+        anims[action] = entry
+        unreal.log("[EnemySetup] {} {}: {} ({:.2f} s long, {:.2f}..{:.2f}..{:.2f})".format(role, action, anim.split("/")[-1], sequence.get_play_length(), start, impact, end))
     definition.set_editor_property("attack_anims", anims)
+    anim_set = unreal.FPSRLEnemyAnimSet()
+    if r["anim_set"]:
+        anim_set.set_editor_property("idle", unreal.load_asset(r["anim_set"]["idle"]))
+        anim_set.set_editor_property("walk", unreal.load_asset(r["anim_set"]["walk"][0]))
+        anim_set.set_editor_property("walk_anim_speed", r["anim_set"]["walk"][1])
+        anim_set.set_editor_property("run", unreal.load_asset(r["anim_set"]["run"][0]))
+        anim_set.set_editor_property("run_anim_speed", r["anim_set"]["run"][1])
+    definition.set_editor_property("anim_set", anim_set)
     definition.set_editor_property("scale", r["scale"])
     definition.set_editor_property("walk_speed", r["speed"])
     lib.save_loaded_asset(definition)

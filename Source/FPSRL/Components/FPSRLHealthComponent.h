@@ -43,6 +43,11 @@ public:
 	/** An enemy wearing a role body (UFPSRLEnemyBodySubsystem): never the testing tint, it keeps its own colours. */
 	void SetKeepsOwnColours();
 
+	/** Phased (Skirmisher): projectiles pass through it and do nothing; melee still hurts. Every machine (clients fly
+	 *  their own projectile copies); set by UFPSRLEnemyRoleComponent. */
+	void SetPhased(bool bInPhased);
+	bool IsPhased() const { return bPhased; }
+
 	UFPSRLHealthComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	/** Health and MaxHealth are set to this on the server when initialized (each spawn/respawn). */
@@ -59,6 +64,9 @@ public:
 
 	/** Server: after each hit lands (AI reactions, threat). */
 	FFPSRLDamagedByEvent OnDamagedBy;
+
+	/** Server: a projectile hit landed (after OnDamagedBy), and the pawn that fired it. */
+	FFPSRLDamagedByEvent OnProjectileHit;
 
 	/** Player side (a human player's controller or pawn) vs enemy side. */
 	static bool IsPlayerSide(const AController* Controller, const AActor* Actor);
@@ -151,6 +159,7 @@ private:
 	TEnumAsByte<ECollisionChannel> ProjectileChannel = ECC_GameTraceChannel1;
 
 	bool bBodyIgnoresProjectiles = false;
+	bool bPhased = false;
 
 	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies' materials are tinted this colour on every machine. */
 	void ApplyEnemyTestTint();

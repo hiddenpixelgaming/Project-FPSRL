@@ -1,6 +1,10 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "AI/FPSRLEnemyRoleComponent.h"
+#include "AI/FPSRLEnemyAnimInstance.h"
+#include "Animation/AnimSequence.h"
+#include "Components/FPSRLHealthComponent.h"
+#include "Net/UnrealNetwork.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Combat/FPSRLWeapon.h"
@@ -22,6 +26,7 @@ namespace FPSRLEnemyRole
 	static constexpr float Thin = 0.025f;		// cylinder scale: 2.5 cm
 	static constexpr float Thick = 0.07f;		// the last moments before the shot
 	static constexpr float LockSeconds = 0.3f;
+	static const TCHAR* PhaseMaterial = TEXT("/Game/MainProject/Contents/Materials/Enemies/M_EnemyPhased.M_EnemyPhased");
 }
 
 UFPSRLEnemyRoleComponent::UFPSRLEnemyRoleComponent()
@@ -31,11 +36,25 @@ UFPSRLEnemyRoleComponent::UFPSRLEnemyRoleComponent()
 	SetIsReplicatedByDefault(true);
 }
 
+void UFPSRLEnemyRoleComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UFPSRLEnemyRoleComponent, bPhased);
+}
+
 void UFPSRLEnemyRoleComponent::StartAttack(FName AttackName, float WindupSeconds, AActor* Target, bool bAimLine)
 {
 	if (GetOwner() && GetOwner()->HasAuthority())
 	{
 		MulticastStartAttack(AttackName, WindupSeconds, Target, bAimLine);
+	}
+}
+
+void UFPSRLEnemyRoleComponent::PlayAction(FName ActionName, float Seconds)
+{
+	if (GetOwner() && GetOwner()->HasAuthority())
+	{
+		MulticastPlayAction(ActionName, Seconds);
 	}
 }
 
@@ -47,36 +66,90 @@ void UFPSRLEnemyRoleComponent::CancelAttack()
 	}
 }
 
-void UFPSRLEnemyRoleComponent::MulticastStartAttack_Implementation(FName AttackName, float WindupSeconds, AActor* Target, bool bAimLine)
+void UFPSRLEnemyRoleComponent::SetPhased(bool bInPhased)
 {
-	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (GetOwner() && GetOwner()->HasAuthority() && bPhased != bInPhased)
+	{
+		bPhased = bInPhased;
+		OnRep_Phased();
+		GetOwner()->ForceNetUpdate();
+	}
+}
+
+void UFPSRLEnemyRoleComponent::OnRep_Phased()
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	if (!Character)
 	{
 		return;
 	}
-	const UFPSRLEnemyDefinition* Definition = UFPSRLEnemyScalingSettings::Get().FindDefinition(Character->GetClass());
-	const FFPSRLEnemyAttackAnim* AttackAnim = Definition ? Definition->AttackAnims.Find(AttackName) : nullptr;
-	UAnimSequenceBase* Animation = AttackAnim ? AttackAnim->Animation.LoadSynchronous() : nullptr;
-	UAnimInstance* AnimInstance = Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
-	if (Animation && AnimInstance)
+	if (UFPSRLHealthComponent* Health = Character->FindComponentByClass<UFPSRLHealthComponent>())
 	{
-		// Played so its impact frame lands when the attack executes (after the wind-up).
-		const float PlayRate = WindupSeconds > 0.05f ? FMath::Clamp(AttackAnim->ImpactTime / WindupSeconds, 0.4f, 2.5f) : 1.f;
-		AnimInstance->PlaySlotAnimationAsDynamicMontage(Animation, FPSRLEnemyRole::Slot, 0.12f, 0.25f, PlayRate);
-		LastAnimLength = Animation->GetPlayLength() / PlayRate;
+		Health->SetPhased(bPhased);
 	}
+	// The look: a see-through glow over the body (the role body when it has one, else its own mesh).
+	USkeletalMeshComponent* Body = Character->FindComponentByTag<USkeletalMeshComponent>(TEXT("RoleBody"));
+	Body = Body ? Body : Character->GetMesh();
+	if (Body && GetNetMode() != NM_DedicatedServer)
+	{
+		Body->SetOverlayMaterial(bPhased ? LoadObject<UMaterialInterface>(nullptr, FPSRLEnemyRole::PhaseMaterial) : nullptr);
+	}
+	UE_LOG(LogFPSRL, Verbose, TEXT("[Enemy] %s %s (%s)"), *Character->GetName(), bPhased ? TEXT("phases out") : TEXT("phases back in"),
+		Character->HasAuthority() ? TEXT("server") : TEXT("client"));
+}
+
+bool UFPSRLEnemyRoleComponent::PlayNamed(FName ActionName, float Seconds)
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	const UFPSRLEnemyDefinition* Definition = Character ? UFPSRLEnemyScalingSettings::Get().FindDefinition(Character->GetClass()) : nullptr;
+	const FFPSRLEnemyAttackAnim* Anim = Definition ? Definition->AttackAnims.Find(ActionName) : nullptr;
+	UAnimSequenceBase* Animation = Anim ? Anim->Animation.LoadSynchronous() : nullptr;
+	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
+	if (!Animation || !AnimInstance)
+	{
+		return false;
+	}
+	// Timed: StartTime..ImpactTime takes Seconds (the wind-up, the leap); otherwise normal speed.
+	const float Timed = Anim->ImpactTime - Anim->StartTime;
+	const float PlayRate = Seconds > 0.05f && Timed > 0.05f ? FMath::Clamp(Timed / Seconds, 0.4f, 2.5f) : 1.f;
+	const float End = Anim->EndTime > Anim->StartTime ? Anim->EndTime : Animation->GetPlayLength();
+	if (UFPSRLEnemyAnimInstance* EnemyAnim = Cast<UFPSRLEnemyAnimInstance>(AnimInstance))
+	{
+		EnemyAnim->PlayAction(Cast<UAnimSequence>(Animation), Anim->StartTime, End, PlayRate);
+	}
+	else
+	{
+		AnimInstance->PlaySlotAnimationAsDynamicMontage(Animation, FPSRLEnemyRole::Slot, 0.12f, 0.25f, PlayRate, 1, -1.f, Anim->StartTime);
+	}
+	LastAnimLength = (End - Anim->StartTime) / PlayRate;
+	UE_LOG(LogFPSRL, Verbose, TEXT("[Enemy] %s %s: animation %s at x%.2f (%s)"), *Character->GetName(), *ActionName.ToString(), *Animation->GetName(),
+		PlayRate, Character->HasAuthority() ? TEXT("server") : TEXT("client"));
+	return true;
+}
+
+void UFPSRLEnemyRoleComponent::MulticastStartAttack_Implementation(FName AttackName, float WindupSeconds, AActor* Target, bool bAimLine)
+{
+	PlayNamed(AttackName, WindupSeconds);
 	if (bAimLine && Target && GetNetMode() != NM_DedicatedServer)
 	{
 		ShowAimLine(Target, WindupSeconds);
 	}
-	UE_LOG(LogFPSRL, Verbose, TEXT("[Enemy] %s %s: animation %s, aim line %s (%s)"), *Character->GetName(), *AttackName.ToString(),
-		Animation ? *Animation->GetName() : TEXT("none"), bAimLine ? TEXT("on") : TEXT("off"), Character->HasAuthority() ? TEXT("server") : TEXT("client"));
+}
+
+void UFPSRLEnemyRoleComponent::MulticastPlayAction_Implementation(FName ActionName, float Seconds)
+{
+	PlayNamed(ActionName, Seconds);
 }
 
 void UFPSRLEnemyRoleComponent::MulticastCancelAttack_Implementation()
 {
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
-	if (UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr)
+	UAnimInstance* AnimInstance = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
+	if (UFPSRLEnemyAnimInstance* EnemyAnim = Cast<UFPSRLEnemyAnimInstance>(AnimInstance))
+	{
+		EnemyAnim->StopAction();
+	}
+	else if (AnimInstance)
 	{
 		AnimInstance->StopSlotAnimation(0.15f, FPSRLEnemyRole::Slot);
 	}

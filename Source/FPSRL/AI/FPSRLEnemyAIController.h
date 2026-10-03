@@ -88,6 +88,8 @@ public:
 	/** Attacks it has executed (tests / debug). */
 	int32 GetAttacksExecuted() const { return AttacksExecuted; }
 	int32 GetMoveFailures() const { return MoveFailures; }
+	int32 GetLeapsLanded() const { return LeapsLanded; }
+	int32 GetPhases() const { return Phases; }
 
 	/** Server: groups the squad-moving enemies among these (profile bSquadMovement) into squads of nearby members (called
 	 *  when an encounter starts). The first member of each squad leads; when it dies the next one does. */
@@ -134,6 +136,25 @@ private:
 
 	// Reactions
 	void HandleDamaged(float Damage, APawn* Attacker);
+
+	/** Profile bPhaseOnProjectileHit (Skirmisher): shot -> leaps back away from the shooter, phased for PhaseSeconds. */
+	void HandleProjectileHit(float Damage, APawn* Attacker);
+
+	/** LeapSlam: launched on an arc to where its target stands; landing (or a safety timer) sends the shockwave and ends
+	 *  the execution (its recovery is the pause after the leap). */
+	void StartLeap(const FFPSRLEnemyAttack& Attack);
+	UFUNCTION()
+	void HandleLeapLanded(const FHitResult& Hit);
+	void FinishLeap();
+
+	/** Leaps (LeapSlam, the phase leap) fly the arc they were launched on: no air braking or friction until it lands. */
+	void BeginAirborne(ACharacter* EnemyCharacter);
+	void EndAirborne();
+	float SavedBrakingFalling = -1.f;
+	float SavedFallingFriction = 0.f;
+
+	/** The nearest valid player (bTargetNearestAfter). */
+	AActor* FindNearestPlayer() const;
 	void HandleStunTagChanged(const FGameplayTag Tag, int32 NewCount);
 	UFUNCTION()
 	void HandleDeath(AController* KillerInstigator, AActor* Causer);
@@ -187,5 +208,12 @@ private:
 	TWeakObjectPtr<UFPSRLHealthComponent> Health;
 	TWeakObjectPtr<UAbilitySystemComponent> AbilitySystem;
 	FDelegateHandle DamagedHandle;
+	FDelegateHandle ProjectileHitHandle;
+	FTimerHandle LeapSafetyTimer;
+	FTimerHandle PhaseTimer;
+	bool bLeaping = false;
+	double NextPhaseTime = 0.0;
+	int32 LeapsLanded = 0;
+	int32 Phases = 0;
 	FDelegateHandle StunHandle;
 };

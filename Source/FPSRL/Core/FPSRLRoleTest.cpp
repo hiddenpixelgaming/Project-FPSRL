@@ -6,6 +6,7 @@
 // its aim line (Marksman) and actually hurts the player. Logs [RoleTest]; the player is healed between roles.
 
 #include "AI/FPSRLEnemyAIController.h"
+#include "AI/FPSRLEnemyAnimInstance.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Components/FPSRLHealthComponent.h"
@@ -127,7 +128,7 @@ static FAutoConsoleCommandWithWorld GFPSRLRoleTestCommand(TEXT("FPSRL.RoleTest")
 				const bool bArt = !Def->BodyMesh.IsNull() && Def->BodyMesh.LoadSynchronous();
 				S->Check(!bArt || Enemy->FindComponentByTag<USkeletalMeshComponent>(TEXT("RoleBody")) != nullptr,
 					FString::Printf(TEXT("%s: body %s"), Role.Name, bArt ? *Def->BodyMesh.GetAssetName() : TEXT("(art not on this machine)")));
-				UClass* WantedAnim = Def->AnimClass.LoadSynchronous();
+				UClass* WantedAnim = Def->AnimSet.IsSet() ? UFPSRLEnemyAnimInstance::StaticClass() : Def->AnimClass.LoadSynchronous();
 				UAnimInstance* Anim = Enemy->GetMesh()->GetAnimInstance();
 				S->Check(!WantedAnim || (Anim && Anim->GetClass() == WantedAnim),
 					FString::Printf(TEXT("%s: anim blueprint %s"), Role.Name, Anim ? *Anim->GetClass()->GetName() : TEXT("none")));
@@ -147,10 +148,10 @@ static FAutoConsoleCommandWithWorld GFPSRLRoleTestCommand(TEXT("FPSRL.RoleTest")
 			const AFPSRLEnemyAIController* AI = Cast<AFPSRLEnemyAIController>(Enemy->GetController());
 			const UFPSRLEnemyRoleComponent* RoleView = Enemy->FindComponentByClass<UFPSRLEnemyRoleComponent>();
 			const UAnimInstance* Anim = Enemy->GetMesh()->GetAnimInstance();
-			S->bSawMontage |= Anim && Anim->IsAnyMontagePlaying();
+			S->bSawMontage |= Anim && (Anim->IsAnyMontagePlaying() || (Cast<UFPSRLEnemyAnimInstance>(Anim) && Cast<UFPSRLEnemyAnimInstance>(Anim)->IsPlayingAction()));
 			S->bSawAimLine |= RoleView && RoleView->IsAimLineShowing();
 			// Rendered runs: a screenshot mid-attack (wind-up animation or aim line).
-			const bool bAttackShowing = (Role.bMeleeAnim && Anim && Anim->IsAnyMontagePlaying()) || (Role.bAimLine && RoleView && RoleView->IsAimLineShowing());
+			const bool bAttackShowing = (Role.bMeleeAnim && S->bSawMontage) || (Role.bAimLine && RoleView && RoleView->IsAimLineShowing());
 			S->AttackSeenTime = S->AttackSeenTime > 0.0 || !bAttackShowing ? S->AttackSeenTime : Now;
 			if (!S->bShot && S->AttackSeenTime > 0.0 && Now - S->AttackSeenTime > 0.3)	// into the swing / late in the aim
 			{
