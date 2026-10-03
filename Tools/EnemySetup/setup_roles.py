@@ -11,6 +11,7 @@ DATA = "/Game/MainProject/Contents/Data/Enemies"
 BLUEPRINTS = "/Game/MainProject/Contents/Blueprint/Enemies"
 NPC = "/Game/Variant_Shooter/Blueprints/AI/BP_ShooterNPC.BP_ShooterNPC_C"
 RIFLE = "/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Rifle.BP_ShooterWeapon_Rifle_C"
+PISTOL = "/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol.BP_ShooterWeapon_Pistol_C"
 UNARMED = "/Game/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed.ABP_Unarmed_C"
 TROOPERS = "/Game/Sci-FI_Troopers_Collection/"
 ANIMS = "/Game/MainProject/Contents/Characters/Enemies/Mannequin/"
@@ -36,10 +37,10 @@ IDLE = MANNY + "MM_Idle"
 
 ROLES = {
     "Brute": dict(
-        weapon=None, health=3.5, damage=1.0, scale=1.2, speed=520.0, anim_class=None,
+        weapon=PISTOL, hide_weapon=True, health=7.0, damage=2.0, scale=1.2, speed=520.0, anim_class=None,
         body=TROOPERS + "SciFITrooper-02/SkeletalMesh/SK_SciFiTrooperV2",
         # Locomotion: (animation, the speed it was authored for). Mixamo / Mannequin travel measured from the root.
-        anim_set=dict(idle=IDLE, walk=(ANIMS + "Mutant_Walking_Mannequin", 127.0), run=(MANNY + "Jog/MF_Unarmed_Jog_Fwd", 600.0)),
+        anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(MANNY + "Jog/MF_Unarmed_Jog_Fwd", 600.0)),
         # Actions: (animation, start, impact, end) in seconds; StartTime..ImpactTime is timed to the wind-up / leap.
         anims={"Slam": (ANIMS + "Standing_Melee_Attack_Downward_Mannequin", 0.0, 1.02, 1.75),
                "LeapSlam": (ANIMS + "Standing_Taunt_Battlecry_Mannequin", 0.0, 1.9, 2.4),			# the roar
@@ -52,17 +53,17 @@ ROLES = {
                                      max_angle=30.0, requires_line_of_sight=True, cooldown=9.0, windup_seconds=1.6,
                                      execute_seconds=0.0, recovery_seconds=1.0, hold_position=True, interruptible=False,
                                      target_nearest_after=True, leap_seconds=0.9, shockwave_damage=80.0,
-                                     shockwave_radius=900.0, shockwave_speed=1000.0, shockwave_height=45.0),
-                              attack(name="Slam", action=Action.MELEE, priority=10, min_range=0.0, max_range=260.0,
+                                     shockwave_radius=1800.0, shockwave_speed=1400.0, shockwave_height=45.0),
+                              attack(name="Slam", action=Action.MELEE, priority=10, min_range=0.0, max_range=320.0,
                                      max_angle=35.0, requires_line_of_sight=True, cooldown=1.5, windup_seconds=0.9,
                                      execute_seconds=0.15, recovery_seconds=0.9, hold_position=True,
-                                     interruptible=False, melee_damage=30.0, melee_radius=120.0, melee_max_targets=4)]),
-        note="Brute: roars at its target (1.6 s), leaps to where the target stands (0.9 s in the air) and lands with a red "
-             "shockwave ring along the ground (80 damage, 9 m, jump over it to take nothing). Pauses 1 s, then rushes the "
-             "nearest player with heavy overhead swings (0.9 s wind-up, 30 damage, wide arc). Leaps again every 9 s when "
-             "its target is 5-25 m away."),
+                                     interruptible=False, melee_damage=30.0, melee_radius=200.0, melee_max_targets=4)]),
+        note="Brute (after playtest v0.1.42): roars at its target (1.6 s), leaps to where the target stands (0.9 s in the air) and lands "
+             "with a red shockwave ring along the ground (80 x2 damage, 18 m at 14 m/s; jump over it to take nothing). Pauses "
+             "1 s, then rushes the nearest player with heavy overhead swings (0.9 s wind-up, 30 x2 damage, 2 m wide sweep, "
+             "3.2 m reach). Leaps again every 9 s when its target is 5-25 m away. Health 7x a Grunt's."),
     "Skirmisher": dict(
-        weapon=None, health=0.6, damage=1.0, scale=1.0, speed=750.0, anim_class=None,
+        weapon=PISTOL, hide_weapon=True, health=0.6, damage=2.0, scale=1.0, speed=900.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_01/SkeletalMesh/SK_SciFiTrooperGirlV1",
         anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(ANIMS + "Sprint_Mannequin", 596.0)),
         anims={"Stab": (ANIMS + "Stabbing_Mannequin", 0.0, 0.85, 1.6),
@@ -70,17 +71,17 @@ ROLES = {
         profile=dict(preferred_min_distance=0.0, preferred_max_distance=150.0, movement_style=Move.CHASE,
                      too_close_response=Close.HOLD_AND_ATTACK, lost_sight_response=Lost.SEEK_LAST_SEEN,
                      damage_response=Hurt.KEEP_ATTACKING, separation_radius=180.0, proximity_aggro_radius=800.0,
-                     reaction_time=0.25, squad_movement=False, phase_on_projectile_hit=True, phase_seconds=1.5,
-                     phase_cooldown=3.0, phase_leap_distance=450.0, phase_leap_seconds=0.5,
+                     reaction_time=0.25, squad_movement=False, phase_on_projectile_hit=True, phase_seconds=4.0,
+                     phase_cooldown=3.0, phase_leap_distance=450.0, phase_leap_seconds=0.3,
                      attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=220.0,
                                      max_angle=45.0, requires_line_of_sight=True, cooldown=0.9, windup_seconds=0.5,
                                      execute_seconds=0.1, recovery_seconds=0.5, hold_position=True,
                                      interruptible=True, melee_damage=12.0, melee_radius=70.0, melee_max_targets=1)]),
-        note="Skirmisher: sprints straight at its target (7.5 m/s) and stabs (0.5 s wind-up, 12 damage). Shot by a "
-             "player: leaps back away from the shooter and phases for 1.5 s - bullets pass through it and do nothing, "
-             "melee still hurts - then can't phase again for 3 s."),
+        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs (0.5 s wind-up, 12 x2 damage). "
+             "Shot by a player: leaps back away from the shooter (0.3 s) and phases for 4 s - bullets pass through it and do "
+             "nothing, melee still hurts - then can't phase again for 3 s."),
     "Marksman": dict(
-        weapon=RIFLE, health=0.8, damage=3.0, scale=1.0, speed=450.0, anim_class=None,
+        weapon=RIFLE, hide_weapon=False, health=0.8, damage=9.0, scale=1.0, speed=450.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_02/SkeletalMesh/SK_SciFiTrooperGirlV2",
         anim_set=None,
         anims={},
@@ -93,7 +94,7 @@ ROLES = {
                                      windup_seconds=1.3, execute_seconds=0.05, recovery_seconds=0.7,
                                      hold_position=True, interruptible=False, show_aim_line=True)]),
         note="Marksman: holds a high-ground spot (the highest spawn points). A red laser to its target for 1.3 s "
-             "(thicker in the last 0.3 s), then one heavy, faster shot (3x damage). Break line of sight or climb to it."),
+             "(thicker in the last 0.3 s), then one heavy, faster shot (9x damage after playtest v0.1.42). Break line of sight or climb to it."),
 }
 
 
@@ -158,6 +159,7 @@ for role, r in ROLES.items():
     definition.set_editor_property("anim_set", anim_set)
     definition.set_editor_property("scale", r["scale"])
     definition.set_editor_property("walk_speed", r["speed"])
+    definition.set_editor_property("hide_weapon", r["hide_weapon"])
     lib.save_loaded_asset(definition)
     unreal.log("[EnemySetup] {}: {} health {:.0f}, speed {:.0f}, scale {:.2f}, {} attack(s)".format(
         role, cls.get_name(), definition.get_editor_property("base_health"), r["speed"], r["scale"], len(r["profile"]["attacks"])))

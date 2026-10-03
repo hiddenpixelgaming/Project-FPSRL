@@ -76,10 +76,11 @@ void FFPSRLEnemyAnimProxy::PreUpdate(UAnimInstance* InAnimInstance, float DeltaS
 void FFPSRLEnemyAnimProxy::Update(float DeltaSeconds)
 {
 	IdleTime += DeltaSeconds;
+	LocoSpeed = FMath::FInterpTo(LocoSpeed, Speed, DeltaSeconds, 6.f);
 	// Steps match the speed: the move cycle advances by distance (walk and run share it), clamped to look sane.
-	const float CycleLength = Run && Speed > WalkAnimSpeed ? Run->GetPlayLength() : (Walk ? Walk->GetPlayLength() : 1.f);
-	const float AuthoredSpeed = Run && Speed > WalkAnimSpeed ? RunAnimSpeed : WalkAnimSpeed;
-	const float Rate = FMath::Clamp(Speed / FMath::Max(1.f, AuthoredSpeed), 0.5f, 1.6f);
+	const float CycleLength = Run && LocoSpeed > WalkAnimSpeed ? Run->GetPlayLength() : (Walk ? Walk->GetPlayLength() : 1.f);
+	const float AuthoredSpeed = Run && LocoSpeed > WalkAnimSpeed ? RunAnimSpeed : WalkAnimSpeed;
+	const float Rate = FMath::Clamp(LocoSpeed / FMath::Max(1.f, AuthoredSpeed), 0.5f, 1.6f);
 	MovePhase = FMath::Fmod(MovePhase + DeltaSeconds * Rate / FMath::Max(0.1f, CycleLength), 1.f);
 
 	if (!Action)
@@ -133,16 +134,16 @@ bool FFPSRLEnemyAnimProxy::Evaluate(FPoseContext& Output)
 
 	// Locomotion: idle -> walk (up to its authored speed) -> run.
 	Sample(Idle, FMath::Fmod(IdleTime, Idle->GetPlayLength()), true, Output);
-	if (Walk && Speed > 10.f)
+	if (Walk && LocoSpeed > 10.f)
 	{
 		FPoseContext Moving(this);
-		const float WalkWeight = FMath::Clamp(Speed / WalkAnimSpeed, 0.f, 1.f);
+		const float WalkWeight = FMath::Clamp(LocoSpeed / WalkAnimSpeed, 0.f, 1.f);
 		Sample(Walk, MovePhase * Walk->GetPlayLength(), true, Moving);
-		if (Run && Speed > WalkAnimSpeed)
+		if (Run && LocoSpeed > WalkAnimSpeed)
 		{
 			FPoseContext Running(this);
 			Sample(Run, MovePhase * Run->GetPlayLength(), true, Running);
-			const float RunWeight = FMath::Clamp((Speed - WalkAnimSpeed) / (RunAnimSpeed - WalkAnimSpeed), 0.f, 1.f);
+			const float RunWeight = FMath::Clamp((LocoSpeed - WalkAnimSpeed) / (RunAnimSpeed - WalkAnimSpeed), 0.f, 1.f);
 			FAnimationPoseData MovingData(Moving);
 			FAnimationRuntime::BlendTwoPosesTogetherInPlace(MovingData, FAnimationPoseData(Running), 1.f - RunWeight);
 		}

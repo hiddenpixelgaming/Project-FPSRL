@@ -113,6 +113,11 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance", meta = (ClampMin = "0.5", ClampMax = "2"))
 	float Scale = 1.f;
 
+	/** Melee roles: the class's weapon is hidden (every machine) and never used. Their Blueprint still gives them one -
+	 *  with no weapon class it logged a spawn-from-null warning per enemy. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy")
+	bool bHideWeapon = false;
+
 	/** Movement speed (cm/s); 0 = the class's own. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy", meta = (ClampMin = "0"))
 	float WalkSpeed = 0.f;

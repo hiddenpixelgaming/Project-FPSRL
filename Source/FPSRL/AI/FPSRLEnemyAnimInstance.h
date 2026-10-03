@@ -37,6 +37,7 @@ struct FFPSRLEnemyAnimProxy : public FAnimInstanceProxy
 
 	// Proxy-side state.
 	float IdleTime = 0.f;
+	float LocoSpeed = 0.f;	// Speed smoothed: crowd avoidance makes it flicker, and the gait blend must not
 	float MovePhase = 0.f;	// 0..1, shared by walk and run so their steps line up
 	int32 PlayingSerial = 0;
 	float ActionTime = 0.f;

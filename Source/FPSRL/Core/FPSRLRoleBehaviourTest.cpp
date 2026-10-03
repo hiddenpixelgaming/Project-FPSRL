@@ -5,7 +5,7 @@
 //     pauses ~1 s, then rushes (runs at) the nearest player.
 //  2. Shockwave: a player who jumps as it arrives takes nothing; one who stays on the ground takes its damage.
 //  3. Skirmisher 9 m away: sprints in; a player's bullet hurts it and makes it leap back and phase; a second bullet while
-//     phased passes and does nothing; melee while phased still hurts; it phases back in after ~1.5 s.
+//     phased passes and does nothing; melee while phased still hurts; it phases back in after its PhaseSeconds.
 
 #include "AI/FPSRLEnemyAIController.h"
 #include "AI/FPSRLEnemyAnimInstance.h"
@@ -43,6 +43,7 @@ namespace FPSRLRoleBehaviourTest
 		float RushSpeed = 0.f;			// 1.3-3 s after: running
 		bool bSawAction = false;
 		bool bNav = false;
+		double PhaseStart = 0.0;
 		TSet<FString> Shots;
 		/** Rendered runs: one screenshot per moment (Saved/Screenshots). */
 		void Shot(APlayerController* PC, const TCHAR* Moment)
@@ -301,6 +302,7 @@ static FAutoConsoleCommandWithWorld GFPSRLRoleBehaviourTestCommand(TEXT("FPSRL.R
 				{
 					S->Check(Health->GetCurrentHealth() < S->Health, FString::Printf(TEXT("Skirmisher: the first bullet hurt it (%.0f -> %.0f)"), S->Health, Health->GetCurrentHealth()));
 					S->Check(RoleView && RoleView->IsPhased() && Health->IsPhased(), TEXT("Skirmisher: phased after the bullet"));
+					S->PhaseStart = Now;
 					S->Health = Health->GetCurrentHealth();
 					Next(13);
 				}
@@ -335,12 +337,17 @@ static FAutoConsoleCommandWithWorld GFPSRLRoleBehaviourTestCommand(TEXT("FPSRL.R
 				}
 				break;
 			case 14:
-				if (InStep > 1.0)
+			{
+				const UFPSRLEnemyRoleComponent* RoleView = Enemy->FindComponentByClass<UFPSRLEnemyRoleComponent>();
+				const float PhaseSeconds = AI && AI->GetProfile() ? AI->GetProfile()->PhaseSeconds : 0.f;
+				const double Phased = Now - S->PhaseStart;
+				if ((RoleView && !RoleView->IsPhased()) || Phased > PhaseSeconds + 1.5)
 				{
-					const UFPSRLEnemyRoleComponent* RoleView = Enemy->FindComponentByClass<UFPSRLEnemyRoleComponent>();
-					S->Check(RoleView && !RoleView->IsPhased(), TEXT("Skirmisher: phased back in after about 1.5 s"));
+					S->Check(RoleView && !RoleView->IsPhased() && FMath::Abs(Phased - PhaseSeconds) < 0.5,
+						FString::Printf(TEXT("Skirmisher: phased back in after %.1f s (profile %.1f s)"), Phased, PhaseSeconds));
 					Next(15);
 				}
+			}
 				break;
 			case 15:
 				if (Enemy)

@@ -3,6 +3,7 @@
 #include "AI/FPSRLEnemyBodySubsystem.h"
 #include "AI/FPSRLEnemyAnimInstance.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
+#include "Combat/FPSRLWeapon.h"
 #include "Animation/AnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "Data/FPSRLEnemyBehaviorProfile.h"
@@ -73,6 +74,16 @@ void UFPSRLEnemyBodySubsystem::ApplyBody(APawn* Pawn)
 	}
 	if (Character->HasAuthority())
 	{
+		if (Definition->bHideWeapon)
+		{
+			for (TActorIterator<AFPSRLWeapon> It(Character->GetWorld()); It; ++It)
+			{
+				if (It->GetOwner() == Character)
+				{
+					It->SetActorHiddenInGame(true);	// replicated; the AI never uses a hidden weapon
+				}
+			}
+		}
 		if (!FMath::IsNearlyEqual(Definition->Scale, 1.f))
 		{
 			const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
