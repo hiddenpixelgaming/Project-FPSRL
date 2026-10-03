@@ -67,3 +67,8 @@ void UFPSRLUserSettings::SetVoiceOutputDevice(const FString& DeviceName)
 {
 	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::VoiceOutputDevice, DeviceName, TEXT("Voice output device"));
 }
+
+void UFPSRLUserSettings::SetOpenMicSensitivity(float Sensitivity)
+{
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::OpenMicSensitivity, FMath::Clamp(Sensitivity, 0.f, 1.f), TEXT("Open mic sensitivity"));
+}

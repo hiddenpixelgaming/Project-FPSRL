@@ -84,6 +84,12 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> MicVolumeText;
 	UPROPERTY(Transient)
+	TObjectPtr<class USlider> SensitivitySlider;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> SensitivityText;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> MicCheckText;
+	UPROPERTY(Transient)
 	TObjectPtr<UButton> InputModeButton;
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> InputModeText;
@@ -127,6 +133,11 @@ private:
 	void HandleVoiceVolumeChanged(float Value);
 	UFUNCTION()
 	void HandleMicVolumeChanged(float Value);
+	UFUNCTION()
+	void HandleSensitivityChanged(float Value);
+	/** "Mic check": whether the game hears this player right now (the voice capture's own activity detection). */
+	void RefreshMicCheck();
+	FDelegateHandle LocalSpeakingHandle;
 	UFUNCTION()
 	void HandleInputModeClicked();
 	UFUNCTION()

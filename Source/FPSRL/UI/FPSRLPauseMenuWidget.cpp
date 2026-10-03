@@ -276,6 +276,12 @@ UWidget* UFPSRLPauseMenuWidget::BuildVoiceSection()
 	MicVolumeText = MakeText(FText::GetEmpty(), 18, LabelColour);
 	AddRow(LOCTEXT("MicVolume", "Microphone volume"), MicVolume.Key, MicVolumeText);
 
+	const TPair<USizeBox*, USlider*> Sensitivity = MakeSlider(TEXT("SensitivitySlider"), 1.f);
+	SensitivitySlider = Sensitivity.Value;
+	SensitivitySlider->OnValueChanged.AddDynamic(this, &ThisClass::HandleSensitivityChanged);
+	SensitivityText = MakeText(FText::GetEmpty(), 18, LabelColour);
+	AddRow(LOCTEXT("Sensitivity", "Open mic sensitivity"), Sensitivity.Key, SensitivityText);
+
 	InputModeButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("InputModeButton"));
 	InputModeButton->SetBackgroundColor(FLinearColor(0.2f, 0.2f, 0.24f));
 	InputModeText = MakeText(FText::GetEmpty(), 18, FLinearColor::White);
@@ -310,6 +316,8 @@ UWidget* UFPSRLPauseMenuWidget::BuildVoiceSection()
 
 	VoiceStatusText = MakeText(FText::GetEmpty(), 15, FLinearColor(1.f, 0.85f, 0.45f));
 	Lines->AddChildToVerticalBox(VoiceStatusText)->SetPadding(FMargin(0.f, 10.f, 0.f, 4.f));
+	MicCheckText = MakeText(FText::GetEmpty(), 15, HintColour);
+	Lines->AddChildToVerticalBox(MicCheckText)->SetPadding(FMargin(0.f, 0.f, 0.f, 4.f));
 
 	Lines->AddChildToVerticalBox(MakeText(LOCTEXT("TeammatesHeading", "MUTE TEAMMATES (only you stop hearing them)"), 15, HintColour))->SetPadding(FMargin(0.f, 10.f, 0.f, 4.f));
 	MuteList = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("MuteList"));
@@ -357,10 +365,21 @@ void UFPSRLPauseMenuWidget::RefreshVoiceTab()
 		const bool bKnown = !Settings->VoiceOutputDevice.IsEmpty() && OutputDeviceCombo->FindOptionIndex(Settings->VoiceOutputDevice) != INDEX_NONE;
 		OutputDeviceCombo->SetSelectedOption(bKnown ? Settings->VoiceOutputDevice : GameOutput);
 	}
+	if (SensitivitySlider)
+	{
+		SensitivitySlider->SetValue(Settings->OpenMicSensitivity);
+		SensitivityText->SetText(FText::AsPercent(Settings->OpenMicSensitivity));
+		SensitivitySlider->SetIsEnabled(Settings->VoiceInputMode == EFPSRLVoiceInputMode::OpenMic);
+	}
 	if (VoiceStatusText)
 	{
 		VoiceStatusText->SetText(Voice ? Voice->GetStatusText() : LOCTEXT("NoVoice", "Voice chat is unavailable"));
 	}
+	if (UFPSRLVoiceSubsystem* MutableVoice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer()); MutableVoice && !LocalSpeakingHandle.IsValid())
+	{
+		LocalSpeakingHandle = MutableVoice->OnLocalSpeakingChanged.AddWeakLambda(this, [this]() { RefreshMicCheck(); });
+	}
+	RefreshMicCheck();
 	// Teammates (never this player), each with a local mute box.
 	if (MuteList)
 	{
@@ -684,6 +703,44 @@ void UFPSRLPauseMenuWidget::RefreshBuildSummary()
 		}
 	}
 	BuildSummary->SetText(FText::FromString(Text));
+}
+
+
+void UFPSRLPauseMenuWidget::HandleSensitivityChanged(float Value)
+{
+	UFPSRLUserSettings::SetOpenMicSensitivity(Value);
+	if (SensitivityText)
+	{
+		SensitivityText->SetText(FText::AsPercent(UFPSRLUserSettings::Get()->OpenMicSensitivity));
+	}
+}
+
+void UFPSRLPauseMenuWidget::RefreshMicCheck()
+{
+	if (!MicCheckText)
+	{
+		return;
+	}
+	const UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer());
+	const UFPSRLUserSettings* Settings = UFPSRLUserSettings::Get();
+	if (!Voice || Voice->GetStatus() != EFPSRLVoiceStatus::Ready)
+	{
+		MicCheckText->SetText(FText::GetEmpty());
+		return;
+	}
+	if (Voice->IsLocalSpeaking())
+	{
+		MicCheckText->SetText(LOCTEXT("MicHeard", "Mic check: we hear you"));
+		MicCheckText->SetColorAndOpacity(FSlateColor(FLinearColor(0.3f, 1.f, 0.4f)));
+	}
+	else
+	{
+		MicCheckText->SetText(Settings->VoiceInputMode == EFPSRLVoiceInputMode::PushToTalk
+			? LOCTEXT("MicCheckPTT", "Mic check: switch to Open Mic to test your microphone here")
+			: LOCTEXT("MicCheckOpen", "Mic check: talk now. If this never turns green, raise the sensitivity or microphone volume, or allow microphone access for desktop apps in Windows privacy settings"));
+		MicCheckText->SetColorAndOpacity(FSlateColor(FLinearColor(0.65f, 0.65f, 0.65f)));
+	}
+	MicCheckText->SetWrapTextAt(640.f);
 }
 
 #undef LOCTEXT_NAMESPACE

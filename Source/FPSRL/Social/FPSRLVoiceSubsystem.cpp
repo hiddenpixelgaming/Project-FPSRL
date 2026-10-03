@@ -31,6 +31,11 @@ namespace FPSRLVoice
 
 	/** A destroy this soon after a travel started is the travel replacing a PlayerState, not the player leaving. */
 	constexpr double TravelGraceSeconds = 60.0;
+
+#if !UE_BUILD_SHIPPING
+	static TAutoConsoleVariable<float> CVarForceThreshold(TEXT("fpsrl.Voice.ForceThreshold"), -1.f,
+		TEXT("Test: voice activity threshold to use instead of the setting (headless tests in a quiet room use 0); -1 = off."));
+#endif
 }
 
 // --- Subsystem -----------------------------------------------------------------------------------------------------
@@ -208,6 +213,7 @@ void UFPSRLVoiceSubsystem::RefreshTransmit()
 	{
 		UE_LOG(LogFPSRL, Log, TEXT("[Voice] %s sending voice (%s)"), bWant ? TEXT("started") : TEXT("stopped"), *Describe());
 	}
+	ApplyCaptureThreshold();
 	bTransmitting = bWant;
 	ApplyIncoming();
 }
@@ -348,6 +354,24 @@ void UFPSRLVoiceSubsystem::HandleSeamlessTravelStart(UWorld* World, const FStrin
 
 void UFPSRLVoiceSubsystem::HandleTalkingStateChanged(TSharedRef<const FUniqueNetId> TalkerId, bool bIsTalking)
 {
+	// This player's own microphone: the capture's activity detection says it hears speech (the Settings mic check).
+	const APlayerController* Local = GetLocalController();
+	const ULocalPlayer* LocalPlayer = Local ? Local->GetLocalPlayer() : nullptr;
+	const FUniqueNetIdRepl LocalId = LocalPlayer ? LocalPlayer->GetPreferredUniqueNetId() : FUniqueNetIdRepl();
+	if (LocalId.IsValid() && *LocalId == *TalkerId)
+	{
+		if (bLocalSpeaking != bIsTalking)
+		{
+			bLocalSpeaking = bIsTalking;
+			if (bIsTalking && !bLoggedLocalSpeech)
+			{
+				bLoggedLocalSpeech = true;
+				UE_LOG(LogFPSRL, Log, TEXT("[Voice] your microphone picked up speech (sending: %d)"), bTransmitting);
+			}
+			OnLocalSpeakingChanged.Broadcast();
+		}
+		return;
+	}
 	// The voice interface reports every talker it knows, this player included: only registered teammates matter here,
 	// found by the server-replicated online id they were registered with (the GameState's player list may not have
 	// arrived yet, and the interface reports a state only once per change).
@@ -387,6 +411,11 @@ void UFPSRLVoiceSubsystem::SetSpeaking(int32 PlayerId, bool bSpeaking)
 		SpeakingPlayers.Remove(PlayerId);
 	}
 	UE_LOG(LogFPSRL, Verbose, TEXT("[Voice] player %d %s speaking"), PlayerId, bSpeaking ? TEXT("started") : TEXT("stopped"));
+	if (bSpeaking && !HeardPlayers.Contains(PlayerId))
+	{
+		HeardPlayers.Add(PlayerId);
+		UE_LOG(LogFPSRL, Log, TEXT("[Voice] hearing teammate %d (first time this session)"), PlayerId);
+	}
 	OnSpeakingChanged.Broadcast(PlayerId, bSpeaking);
 }
 
@@ -445,6 +474,7 @@ void UFPSRLVoiceSubsystem::ApplyIncoming()
 void UFPSRLVoiceSubsystem::HandleSettingsChanged()
 {
 	ApplyVolumes();
+	ApplyCaptureThreshold();
 	ApplyOutputDevice();
 	RefreshTransmit();
 }
@@ -617,6 +647,9 @@ void UFPSRLVoiceSubsystem::ResetSession()
 	}
 	Talkers.Reset();
 	MutedPlayers.Reset();
+	HeardPlayers.Reset();
+	bLocalSpeaking = false;
+	bLoggedLocalSpeech = false;
 	VoiceAudio.Reset();
 	bPushToTalkHeld = false;
 	if (bTransmitting)
@@ -624,4 +657,32 @@ void UFPSRLVoiceSubsystem::ResetSession()
 		UE_LOG(LogFPSRL, Log, TEXT("[Voice] session over: stopped sending voice"));
 	}
 	bTransmitting = false;
+}
+
+float UFPSRLVoiceSubsystem::GetOpenMicThreshold()
+{
+	// The engine's default (0.08 of full scale) missed normal speech on both playtest microphones (v0.1.37): the
+	// sensitivity curve puts the default (0.7) at about 0.009 and lets the player go either way.
+	const float Sensitivity = FMath::Clamp(UFPSRLUserSettings::Get()->OpenMicSensitivity, 0.f, 1.f);
+	return FMath::Max(0.001f, 0.1f * FMath::Square(1.f - Sensitivity));
+}
+
+void UFPSRLVoiceSubsystem::ApplyCaptureThreshold()
+{
+	// Push-to-Talk: everything said while the key is held goes out (no activity filter); open mic: the threshold.
+	const bool bPushToTalk = UFPSRLUserSettings::Get()->VoiceInputMode == EFPSRLVoiceInputMode::PushToTalk;
+	float Threshold = bPushToTalk ? 0.f : GetOpenMicThreshold();
+#if !UE_BUILD_SHIPPING
+	if (FPSRLVoice::CVarForceThreshold.GetValueOnGameThread() >= 0.f)
+	{
+		Threshold = FPSRLVoice::CVarForceThreshold.GetValueOnGameThread();
+	}
+#endif
+	for (const TCHAR* Name : { TEXT("voice.SilenceDetectionThreshold"), TEXT("voice.MicNoiseGateThreshold") })
+	{
+		if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name); Variable && Variable->GetFloat() != Threshold)
+		{
+			Variable->Set(Threshold, ECVF_SetByGameSetting);
+		}
+	}
 }

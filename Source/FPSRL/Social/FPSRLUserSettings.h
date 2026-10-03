@@ -59,6 +59,11 @@ public:
 	UPROPERTY(Config)
 	FKey PushToTalkKey = EKeys::V;
 
+	/** Open mic: how quiet a voice still counts as talking (0-1; higher picks up quieter voices and more noise). The
+	 *  engine's voice activity threshold is derived from it (UFPSRLVoiceSubsystem). Push-to-Talk sends everything. */
+	UPROPERTY(Config)
+	float OpenMicSensitivity = 0.7f;
+
 	/** Output device for teammate voices (its name as the audio system lists it); empty = the game's own output. */
 	UPROPERTY(Config)
 	FString VoiceOutputDevice;
@@ -69,6 +74,7 @@ public:
 	static void SetVoiceInputMode(EFPSRLVoiceInputMode Mode);
 	static void SetPushToTalkKey(const FKey& Key);
 	static void SetVoiceOutputDevice(const FString& DeviceName);
+	static void SetOpenMicSensitivity(float Sensitivity);
 
 	/** Fired after any setting changes. */
 	static FFPSRLUserSettingsChanged OnChanged;

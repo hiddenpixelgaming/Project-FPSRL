@@ -66,6 +66,13 @@ public:
 	bool IsSpeaking(int32 PlayerId) const { return SpeakingPlayers.Contains(PlayerId); }
 	FFPSRLVoicePlayerEvent OnSpeakingChanged;
 
+	/** This player's own microphone is picking up speech (the voice capture's activity detection; Settings shows it). */
+	bool IsLocalSpeaking() const { return bLocalSpeaking; }
+	FSimpleMulticastDelegate OnLocalSpeakingChanged;
+
+	/** The voice activity threshold for open mic from the sensitivity setting (0.1 x (1 - sensitivity)^2, at least 0.001). */
+	static float GetOpenMicThreshold();
+
 	/** Local mute (this machine only; lasts for the session). */
 	void SetMuted(int32 PlayerId, bool bMuted);
 	bool IsMuted(int32 PlayerId) const { return MutedPlayers.Contains(PlayerId); }
@@ -113,6 +120,8 @@ private:
 	void ApplyIncoming();
 	void ApplyVolumes();
 	void ApplyOutputDevice();
+	/** Open mic: the engine's activity threshold and noise gate from the sensitivity; Push-to-Talk: 0 (send all). */
+	void ApplyCaptureThreshold();
 
 	FDelegateHandle TalkingHandle;
 	FDelegateHandle BeginHandle;
@@ -131,6 +140,10 @@ private:
 	TArray<TWeakObjectPtr<UAudioComponent>> VoiceAudio;
 	bool bTransmitting = false;
 	bool bPushToTalkHeld = false;
+	bool bLocalSpeaking = false;
+	bool bLoggedLocalSpeech = false;
+	/** Teammates heard at least once this session (logged the first time). */
+	TSet<int32> HeardPlayers;
 	FString AppliedOutputDevice;
 	double LastTravelStart = -1.0e9;
 };
