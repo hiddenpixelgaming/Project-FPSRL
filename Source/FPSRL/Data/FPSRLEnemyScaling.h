@@ -37,6 +37,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy")
 	TObjectPtr<class UFPSRLEnemyBehaviorProfile> BehaviorProfile;
 
+	/** The character players see (e.g. a Sci-Fi Trooper). It follows the enemy class's own animated skeleton (leader pose:
+	 *  same bone names), which stays hidden, so the enemy keeps its animations, weapon and hit boxes. Empty = the class's
+	 *  own mesh. Soft: the licensed art isn't in Git, and a missing body falls back to the class's mesh. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
+	TSoftObjectPtr<USkeletalMesh> BodyMesh;
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override { return FPrimaryAssetId(TEXT("Enemy"), GetFName()); }
 };
 

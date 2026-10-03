@@ -483,6 +483,10 @@ void AFPSRLEnemyAIController::Think()
 				return;
 			}
 		}
+		if (FollowSquad())
+		{
+			return;	// a squad member without a target stays with its leader
+		}
 		if (State != EFPSRLEnemyAIState::Idle)
 		{
 			SetState(EFPSRLEnemyAIState::Idle);
@@ -531,7 +535,11 @@ void AFPSRLEnemyAIController::Think()
 	}
 	else
 	{
-		HandleLostSight(Distance);
+		// Squad members never go looking on their own: they stay with the leader, who does.
+		if (!FollowSquad())
+		{
+			HandleLostSight(Distance);
+		}
 		return;
 	}
 
@@ -541,7 +549,140 @@ void AFPSRLEnemyAIController::Think()
 		BeginAttack(Attack);
 		return;
 	}
-	UpdateMovement(Distance);
+	if (!FollowSquad())
+	{
+		UpdateMovement(Distance);
+	}
+}
+
+// --- Squad -----------------------------------------------------------------------------------------------------------
+
+void AFPSRLEnemyAIController::FormSquads(const TArray<AFPSRLEnemyAIController*>& Controllers)
+{
+	TArray<AFPSRLEnemyAIController*> Pool;
+	for (AFPSRLEnemyAIController* Controller : Controllers)
+	{
+		if (Controller && Controller->GetPawn() && Controller->Profile && Controller->Profile->bSquadMovement)
+		{
+			Pool.Add(Controller);
+		}
+	}
+	// Greedy: the first free member leads; the free members nearest to it (within SquadFormRadius) join, up to the size.
+	while (!Pool.IsEmpty())
+	{
+		AFPSRLEnemyAIController* Leader = Pool[0];
+		Pool.RemoveAt(0);
+		const FVector Origin = Leader->GetPawn()->GetActorLocation();
+		Pool.Sort([&Origin](const AFPSRLEnemyAIController& A, const AFPSRLEnemyAIController& B)
+		{
+			return FVector::DistSquared(A.GetPawn()->GetActorLocation(), Origin) < FVector::DistSquared(B.GetPawn()->GetActorLocation(), Origin);
+		});
+		TSharedPtr<FSquad> Squad = MakeShared<FSquad>();
+		Squad->Members.Add(Leader);
+		while (!Pool.IsEmpty() && Squad->Members.Num() < Leader->Profile->MaxSquadSize
+			&& FVector::Dist(Pool[0]->GetPawn()->GetActorLocation(), Origin) <= Leader->Profile->SquadFormRadius)
+		{
+			Squad->Members.Add(Pool[0]);
+			Pool.RemoveAt(0);
+		}
+		for (const TWeakObjectPtr<AFPSRLEnemyAIController>& Member : Squad->Members)
+		{
+			Member->Squad = Squad->Members.Num() > 1 ? Squad : nullptr;
+		}
+		if (Squad->Members.Num() > 1)
+		{
+			UE_LOG(LogFPSRL, Log, TEXT("[AI] squad of %d led by %s"), Squad->Members.Num(), *GetNameSafe(Leader->GetPawn()));
+		}
+	}
+}
+
+bool AFPSRLEnemyAIController::IsAliveForSquad() const
+{
+	return GetPawn() && State != EFPSRLEnemyAIState::Dead && !(Health.IsValid() && Health->IsDead());
+}
+
+AFPSRLEnemyAIController* AFPSRLEnemyAIController::GetSquadLeader() const
+{
+	if (Squad)
+	{
+		for (const TWeakObjectPtr<AFPSRLEnemyAIController>& Member : Squad->Members)
+		{
+			if (Member.IsValid() && Member->IsAliveForSquad())
+			{
+				return Member.Get();
+			}
+		}
+	}
+	return const_cast<AFPSRLEnemyAIController*>(this);
+}
+
+int32 AFPSRLEnemyAIController::GetSquadSize() const
+{
+	int32 Alive = 0;
+	if (Squad)
+	{
+		for (const TWeakObjectPtr<AFPSRLEnemyAIController>& Member : Squad->Members)
+		{
+			Alive += Member.IsValid() && Member->IsAliveForSquad() ? 1 : 0;
+		}
+	}
+	return FMath::Max(1, Alive);
+}
+
+bool AFPSRLEnemyAIController::FollowSquad()
+{
+	AFPSRLEnemyAIController* Leader = GetSquadLeader();
+	const APawn* MyPawn = GetPawn();
+	const APawn* LeaderPawn = Leader ? Leader->GetPawn() : nullptr;
+	if (!Squad || Leader == this || !MyPawn || !LeaderPawn)
+	{
+		return false;	// leads (or alone): its own movement
+	}
+	// Its spot: the members after the leader, in order, take places behind and beside it (a loose huddle that turns
+	// with the leader), so the group moves as one and still leaves gaps to shoot through.
+	int32 Slot = 0;
+	for (const TWeakObjectPtr<AFPSRLEnemyAIController>& Member : Squad->Members)
+	{
+		if (Member.IsValid() && Member->IsAliveForSquad() && Member.Get() != Leader)
+		{
+			++Slot;
+			if (Member.Get() == this)
+			{
+				break;
+			}
+		}
+	}
+	static const float SlotAngles[] = { 135.f, -135.f, 180.f, 90.f, -90.f, 155.f, -155.f };
+	const float Angle = SlotAngles[(Slot - 1) % UE_ARRAY_COUNT(SlotAngles)];
+	const float Radius = Profile->SquadSpacing * (1.f + (Slot - 1) / UE_ARRAY_COUNT(SlotAngles));
+	const FRotator Facing(0.f, LeaderPawn->GetActorRotation().Yaw + Angle, 0.f);
+	// Around where the leader will be in a moment, not where it is: members moving at the same speed otherwise trail.
+	const FVector Ahead = LeaderPawn->GetVelocity().GetSafeNormal2D() * FMath::Min(LeaderPawn->GetVelocity().Size2D(), 600.f);
+	FVector Spot = LeaderPawn->GetActorLocation() + Ahead + Facing.Vector() * Radius;
+	ProjectToNav(Spot, Spot);
+
+	const float FromSpot = FVector::Dist2D(MyPawn->GetActorLocation(), Spot);
+	// While the leader walks the members walk with it; a standing leader lets them settle (regroup only when far off).
+	const bool bLeaderMoving = LeaderPawn->GetVelocity().Size2D() > 50.f;
+	if (FromSpot > (bLeaderMoving ? Profile->SquadSpacing * 0.5f : Profile->SquadRegroupDistance))
+	{
+		// Re-issue only when the spot moved on (the leader walked) or it isn't moving yet.
+		if (!bMoving || FVector::Dist2D(Spot, LastSquadGoal) > Profile->SquadSpacing * 0.5f)
+		{
+			LastSquadGoal = Spot;
+			MoveToSpot(Spot, Target.IsValid() ? EFPSRLEnemyAIState::Positioning : EFPSRLEnemyAIState::Idle);
+		}
+	}
+	else if (bMoving && FromSpot < Profile->SquadSpacing * 0.5f)
+	{
+		StopMovement();
+		bMoving = false;
+	}
+	if (!bMoving)
+	{
+		SetState(Target.IsValid() ? EFPSRLEnemyAIState::Positioning : EFPSRLEnemyAIState::Idle);
+	}
+	return true;
 }
 
 void AFPSRLEnemyAIController::HandleLostSight(float Distance)

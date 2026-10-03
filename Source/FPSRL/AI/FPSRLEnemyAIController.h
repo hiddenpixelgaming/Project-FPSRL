@@ -88,6 +88,14 @@ public:
 	/** Attacks it has executed (tests / debug). */
 	int32 GetAttacksExecuted() const { return AttacksExecuted; }
 	int32 GetMoveFailures() const { return MoveFailures; }
+
+	/** Server: groups the squad-moving enemies among these (profile bSquadMovement) into squads of nearby members (called
+	 *  when an encounter starts). The first member of each squad leads; when it dies the next one does. */
+	static void FormSquads(const TArray<AFPSRLEnemyAIController*>& Controllers);
+
+	/** Its squad's leader (itself when it leads or has no squad). */
+	AFPSRLEnemyAIController* GetSquadLeader() const;
+	int32 GetSquadSize() const;
 	FString Describe() const;
 
 protected:
@@ -163,6 +171,18 @@ private:
 
 	FTimerHandle ThinkTimer;
 	FTimerHandle AttackTimer;
+
+	/** Squad (Grunts): members share one list; each holds a spot around the first living member. */
+	struct FSquad
+	{
+		TArray<TWeakObjectPtr<AFPSRLEnemyAIController>> Members;
+	};
+	TSharedPtr<FSquad> Squad;
+	FVector LastSquadGoal = FVector::ZeroVector;
+	bool IsAliveForSquad() const;
+	/** A follower's movement: walk back to its spot by the leader when too far, else stay. False when it leads / has
+	 *  no squad (its own movement applies). */
+	bool FollowSquad();
 
 	TWeakObjectPtr<UFPSRLHealthComponent> Health;
 	TWeakObjectPtr<UAbilitySystemComponent> AbilitySystem;

@@ -80,9 +80,19 @@ namespace FPSRLHealthDebug
 		TEXT("Testing: paint enemies solid yellow so they stand out from players (applies to enemies spawned afterwards)."));
 }
 
+void UFPSRLHealthComponent::SetKeepsOwnColours()
+{
+	bKeepsOwnColours = true;
+	if (bRestingTintIsEnemyTint)
+	{
+		bRestingTintIsEnemyTint = false;
+		RestoreBodyColor();	// the tint was already on: back to the original colours
+	}
+}
+
 void UFPSRLHealthComponent::ApplyEnemyTestTint()
 {
-	if (!FPSRLHealthDebug::CVarTintEnemies.GetValueOnGameThread() || GetNetMode() == NM_DedicatedServer)
+	if (!FPSRLHealthDebug::CVarTintEnemies.GetValueOnGameThread() || GetNetMode() == NM_DedicatedServer || bKeepsOwnColours)
 	{
 		return;
 	}

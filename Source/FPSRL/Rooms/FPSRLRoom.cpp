@@ -181,6 +181,7 @@ void AFPSRLRoom::StartCombat()
 			ToTrack.Add(Spawned);
 		}
 	}
+	TArray<AFPSRLEnemyAIController*> SquadCandidates;
 	for (AActor* Enemy : ToTrack)
 	{
 		FPSRLEnemyScaling::ApplyToEnemy(Cast<APawn>(Enemy), Scaling);
@@ -195,8 +196,11 @@ void AFPSRLRoom::StartCombat()
 		if (AFPSRLEnemyAIController* AI = Cast<APawn>(Enemy) ? Cast<AFPSRLEnemyAIController>(Cast<APawn>(Enemy)->GetController()) : nullptr)
 		{
 			AI->SetEncounterActive(true);
+			SquadCandidates.Add(AI);
 		}
 	}
+	// Grunts spawned together move as squads (their profile decides).
+	AFPSRLEnemyAIController::FormSquads(SquadCandidates);
 	UE_LOG(LogFPSRL, Log, TEXT("[Scaling] Room %s: %s"), *GetActorNameOrLabel(), *Scaling.Describe());
 
 	// Each health component's OnDeath fires once.

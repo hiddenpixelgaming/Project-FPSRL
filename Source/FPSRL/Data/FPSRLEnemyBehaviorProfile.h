@@ -303,6 +303,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attacks")
 	TArray<FFPSRLEnemyAttack> Attacks;
 
+	// --- Squad (Grunts: huddle and move together) -------------------------------------------------------------------
+
+	/** Enemies of this archetype spawned together form squads: the leader moves with the rest of this profile; the
+	 *  others hold loose spots around the leader instead of moving on their own, and stop only to shoot. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Squad")
+	bool bSquadMovement = false;
+
+	/** Members per squad (leader included); bigger groups are split. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Squad", meta = (ClampMin = "2", EditCondition = "bSquadMovement"))
+	int32 MaxSquadSize = 4;
+
+	/** Only enemies this close together when the encounter starts join one squad (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Squad", meta = (ClampMin = "0", EditCondition = "bSquadMovement"))
+	float SquadFormRadius = 1500.f;
+
+	/** How far a member's spot is from the leader (cm): the size of the huddle. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Squad", meta = (ClampMin = "50", EditCondition = "bSquadMovement"))
+	float SquadSpacing = 220.f;
+
+	/** A member further than this from its spot walks back to it (cm); closer, it stays put. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Squad", meta = (ClampMin = "50", EditCondition = "bSquadMovement"))
+	float SquadRegroupDistance = 300.f;
+
 	/** Seconds between the controller's decisions (a timer, not Tick). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "AI", meta = (ClampMin = "0.05"))
 	float ThinkInterval = 0.2f;

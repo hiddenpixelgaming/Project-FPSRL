@@ -40,6 +40,9 @@ class FPSRL_API UFPSRLHealthComponent : public UActorComponent
 	GENERATED_BODY()
 
 public:
+	/** An enemy wearing a role body (UFPSRLEnemyBodySubsystem): never the testing tint, it keeps its own colours. */
+	void SetKeepsOwnColours();
+
 	UFPSRLHealthComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	/** Health and MaxHealth are set to this on the server when initialized (each spawn/respawn). */
@@ -151,6 +154,7 @@ private:
 
 	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies' materials are tinted this colour on every machine. */
 	void ApplyEnemyTestTint();
+	bool bKeepsOwnColours = false;
 
 	/** Every body-colour parameter ('Tint' / 'Color') on this character's skeletal mesh materials set to Color; the
 	 *  first time a material is touched its own values are remembered so RestoreBodyColor can put them back. */
