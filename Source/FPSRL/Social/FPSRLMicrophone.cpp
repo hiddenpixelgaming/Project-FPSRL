@@ -89,6 +89,11 @@ bool FFPSRLMicrophone::Open(const FString& InDeviceName)
 		Close();
 		return false;
 	}
+	// Better than the engine's own sender (complexity 1, Opus default bitrate): full complexity, 32 kbit/s variable.
+	Encoder->SetComplexity(10);
+	Encoder->SetBitrate(32000);
+	Encoder->SetVBR(true);
+	LastDataTime = FPlatformTime::Seconds();
 	DeviceName = InDeviceName;
 	Gain = 2.f;
 	NoiseFloor = 0.003f;
@@ -138,6 +143,7 @@ void FFPSRLMicrophone::Step(float OpenThreshold, float Trim, bool bSendWhenVoice
 		return;
 	}
 	Pcm.SetNum(Written - Written % sizeof(int16), EAllowShrinking::No);
+	LastDataTime = Now;
 
 	// 10 ms frames: activity over an adaptive noise floor, then automatic gain toward the target speech level (fast
 	// down, slow up, only while voiced so silence is never pumped up), the player's trim, and a soft limiter.
@@ -185,11 +191,15 @@ void FFPSRLMicrophone::Step(float OpenThreshold, float Trim, bool bSendWhenVoice
 	Compressed.SetNumUninitialized(UVOIPStatics::GetMaxCompressedVoiceDataSize(), EAllowShrinking::No);
 	uint32 CompressedSize = Compressed.Num();
 	const int32 Remaining = FMath::Clamp(Encoder->Encode(Unencoded.GetData(), Unencoded.Num(), Compressed.GetData(), CompressedSize), 0, Unencoded.Num());
-	Unencoded.RemoveAt(0, Unencoded.Num() - Remaining, EAllowShrinking::No);
+	const int32 Consumed = Unencoded.Num() - Remaining;
+	Unencoded.RemoveAt(0, Consumed, EAllowShrinking::No);
 	if (CompressedSize > 0)
 	{
 		Out.Encoded.Append(Compressed.GetData(), CompressedSize);
-		Out.SampleCount = SampleCount;
+		Out.SampleCount = SentSamples;	// continuous: only audio actually sent moves the stream on
+		SentSamples += Consumed / sizeof(int16) / FMath::Max(1, UVOIPStatics::GetVoiceNumChannels());
+		++PacketsSent;
+		BytesSent += CompressedSize;
 	}
 }
 
@@ -251,4 +261,9 @@ bool FFPSRLMicrophone::StepDetect(FString& OutDevice, float& OutPeak)
 		OutDevice.Reset();
 	}
 	return true;
+}
+
+bool FFPSRLMicrophone::IsStalled() const
+{
+	return Capture.IsValid() && FPlatformTime::Seconds() - LastDataTime > 3.0;
 }

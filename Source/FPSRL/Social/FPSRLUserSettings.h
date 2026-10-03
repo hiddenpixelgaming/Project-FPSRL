@@ -43,7 +43,7 @@ public:
 	UPROPERTY(Config)
 	bool bVoiceChatEnabled = true;
 
-	/** Incoming teammate voices, 0-1 (separate from every other sound). */
+	/** Incoming teammate voices, 0-2 (separate from every other sound; above 1 boosts quiet voices). */
 	UPROPERTY(Config)
 	float VoiceChatVolume = 1.f;
 

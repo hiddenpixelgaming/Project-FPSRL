@@ -267,7 +267,7 @@ UWidget* UFPSRLPauseMenuWidget::BuildVoiceSection()
 	VoiceEnabledCheck->OnCheckStateChanged.AddDynamic(this, &ThisClass::HandleVoiceEnabledChanged);
 	AddRow(LOCTEXT("VoiceEnabled", "Voice chat"), VoiceEnabledCheck);
 
-	const TPair<USizeBox*, USlider*> VoiceVolume = MakeSlider(TEXT("VoiceVolumeSlider"), 1.f);
+	const TPair<USizeBox*, USlider*> VoiceVolume = MakeSlider(TEXT("VoiceVolumeSlider"), 2.f);
 	VoiceVolumeSlider = VoiceVolume.Value;
 	VoiceVolumeSlider->OnValueChanged.AddDynamic(this, &ThisClass::HandleVoiceVolumeChanged);
 	VoiceVolumeText = MakeText(FText::GetEmpty(), 18, LabelColour);
@@ -347,6 +347,20 @@ UWidget* UFPSRLPauseMenuWidget::BuildVoiceSection()
 	ComboBox->SetContent(OutputDeviceCombo);
 	AddRow(LOCTEXT("OutputDevice", "Voice output device"), ComboBox);
 
+	// Voice test: record 3 s, then hear it back through the receive path (what teammates hear, on this output).
+	UHorizontalBox* TestRow = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("VoiceTestRow"));
+	UButton* TestButton = WidgetTree->ConstructWidget<UButton>(UButton::StaticClass(), TEXT("VoiceTestButton"));
+	TestButton->SetBackgroundColor(FLinearColor(0.2f, 0.2f, 0.24f));
+	TestButton->SetContent(MakeText(LOCTEXT("VoiceTest", " Test voice "), 16, FLinearColor::White));
+	TestButton->OnClicked.AddDynamic(this, &ThisClass::HandleVoiceTestClicked);
+	TestRow->AddChildToHorizontalBox(TestButton)->SetVerticalAlignment(VAlign_Center);
+	VoiceTestText = MakeText(LOCTEXT("VoiceTestHint", "Records 3 seconds, then plays back what your teammates hear"), 15, HintColour);
+	if (UHorizontalBoxSlot* TestTextSlot = TestRow->AddChildToHorizontalBox(VoiceTestText))
+	{
+		TestTextSlot->SetPadding(FMargin(12.f, 0.f, 0.f, 0.f));
+		TestTextSlot->SetVerticalAlignment(VAlign_Center);
+	}
+	AddRow(LOCTEXT("VoiceTestLabel", "Voice test"), TestRow);
 	VoiceStatusText = MakeText(FText::GetEmpty(), 15, FLinearColor(1.f, 0.85f, 0.45f));
 	Lines->AddChildToVerticalBox(VoiceStatusText)->SetPadding(FMargin(0.f, 10.f, 0.f, 4.f));
 	MicCheckText = MakeText(FText::GetEmpty(), 15, HintColour);
@@ -413,7 +427,8 @@ void UFPSRLPauseMenuWidget::RefreshVoiceTab()
 	if (OutputDeviceCombo)
 	{
 		// The game's own output first; devices only when the audio system can list them (otherwise no fake choice).
-		const FString GameOutput = LOCTEXT("GameOutput", "Game audio output (default)").ToString();
+		const FString DefaultOutput = Voice ? Voice->GetDefaultOutputDeviceName() : FString();
+		const FString GameOutput = DefaultOutput.IsEmpty() ? LOCTEXT("GameOutput", "Game audio output (default)").ToString() : FString::Printf(TEXT("Game audio output (%s)"), *DefaultOutput);
 		OutputDeviceCombo->ClearOptions();
 		OutputDeviceCombo->AddOption(GameOutput);
 		for (const FString& Device : Voice ? Voice->GetOutputDevices() : TArray<FString>())
@@ -858,6 +873,27 @@ void UFPSRLPauseMenuWidget::NativeDestruct()
 {
 	StopMicMeter();	// the menu closed: no meter refresh while it is off screen
 	Super::NativeDestruct();
+}
+
+
+void UFPSRLPauseMenuWidget::HandleVoiceTestClicked()
+{
+	UFPSRLVoiceSubsystem* Voice = UFPSRLVoiceSubsystem::Get(GetOwningPlayer());
+	if (!Voice)
+	{
+		return;
+	}
+	if (!VoiceTestHandle.IsValid())
+	{
+		VoiceTestHandle = Voice->OnVoiceTestChanged.AddWeakLambda(this, [this]()
+		{
+			if (const UFPSRLVoiceSubsystem* Changed = UFPSRLVoiceSubsystem::Get(GetOwningPlayer()); Changed && VoiceTestText)
+			{
+				VoiceTestText->SetText(Changed->GetVoiceTestStatus());
+			}
+		});
+	}
+	Voice->StartVoiceTest();
 }
 
 #undef LOCTEXT_NAMESPACE

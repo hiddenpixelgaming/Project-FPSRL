@@ -21,6 +21,8 @@
 #include "OnlineSubsystemUtils.h"
 #include "Social/FPSRLUserSettings.h"
 #include "VoicePacketImpl.h"
+#include "Serialization/MemoryReader.h"
+#include "Serialization/MemoryWriter.h"
 #include "Net/VoiceDataCommon.h"
 #include "FPSRL.h"
 
@@ -308,6 +310,14 @@ void UFPSRLVoiceSubsystem::RegisterAllTeammates()
 			RegisterTeammate(Cast<AFPSRLPlayerState>(PlayerState));
 		}
 	}
+	// This player's own PlayerState gets the voice audio hook too: the voice test plays through it (volume).
+	APlayerController* Local = GetLocalController();
+	if (APlayerState* Own = Local ? Local->PlayerState.Get() : nullptr; Own && !Own->FindComponentByClass<UFPSRLVoiceTalker>())
+	{
+		UFPSRLVoiceTalker* Talker = NewObject<UFPSRLVoiceTalker>(Own);
+		Talker->RegisterComponent();
+		Talker->RegisterWithPlayerState(Own);
+	}
 }
 
 void UFPSRLVoiceSubsystem::HandlePlayerStateBegin(AFPSRLPlayerState* PlayerState)
@@ -592,8 +602,11 @@ void UFPSRLVoiceTalker::OnTalkingEnd()
 
 // --- Voice channel -------------------------------------------------------------------------------------------------
 
+int64 UFPSRLVoiceChannel::ReceivedVoiceBytes = 0;
+
 void UFPSRLVoiceChannel::ReceivedBunch(FInBunch& Bunch)
 {
+	ReceivedVoiceBytes += Bunch.GetNumBytes();
 	// Server: read the packets from a copy first; every one must come from this connection's own player.
 	if (Connection && Connection->Driver && Connection->Driver->ServerConnection == nullptr)
 	{
@@ -771,10 +784,20 @@ void UFPSRLVoiceSubsystem::StartMicSteps()
 
 bool UFPSRLVoiceSubsystem::StepMicrophone(float DeltaTime)
 {
-	if (!Microphone || (!Microphone->IsOpen() && !Microphone->IsDetecting()))
+	if (!Microphone || (!Microphone->IsOpen() && !Microphone->IsDetecting() && VoiceTestState == EVoiceTest::Idle))
 	{
 		MicStepHandle.Reset();
 		return false;	// nothing to read: the ticker stops until the microphone opens again
+	}
+	if (Microphone->IsStalled())
+	{
+		// The device stopped delivering audio (unplugged, taken by another program, driver hiccup): reopen it.
+		UE_LOG(LogFPSRL, Warning, TEXT("[Voice] the microphone stopped delivering audio: reopening it"));
+		const FString Device = Microphone->GetDeviceName();
+		if (!Microphone->Open(Device) && !Device.IsEmpty())
+		{
+			Microphone->Open(FString());
+		}
 	}
 	if (Microphone->IsOpen())
 	{
@@ -785,8 +808,12 @@ bool UFPSRLVoiceSubsystem::StepMicrophone(float DeltaTime)
 		bSendAll |= FPSRLVoice::CVarForceThreshold.GetValueOnGameThread() == 0.f;	// tests in a quiet room: send everything
 #endif
 		FFPSRLMicStep Step;
-		Microphone->Step(GetOpenMicThreshold(), Settings->MicrophoneVolume, bTransmitting && !bPushToTalk, bTransmitting && bSendAll, Step);
+		const bool bTestRecording = VoiceTestState == EVoiceTest::Recording;	// the test records everything, sends nothing
+		Microphone->Step(GetOpenMicThreshold(), Settings->MicrophoneVolume, bTransmitting && !bPushToTalk && !bTestRecording, (bTransmitting && bSendAll) || bTestRecording, Step);
 		MicLevel = Step.Level;
+		StatsPeakLevel = FMath::Max(StatsPeakLevel, Step.Level);
+		++StatsSteps;
+		StatsVoicedSteps += Step.bVoice ? 1 : 0;
 		if (Step.bVoice != bLocalSpeaking)
 		{
 			bLocalSpeaking = Step.bVoice;
@@ -800,9 +827,21 @@ bool UFPSRLVoiceSubsystem::StepMicrophone(float DeltaTime)
 		}
 		if (!Step.Encoded.IsEmpty())
 		{
-			SendMicPacket(MoveTemp(Step.Encoded), Step.SampleCount, Step.Level);
+			if (bTestRecording)
+			{
+				TestPackets.Add({ MoveTemp(Step.Encoded), Step.SampleCount });
+			}
+			else
+			{
+				SendMicPacket(MoveTemp(Step.Encoded), Step.SampleCount, Step.Level);
+			}
 		}
 	}
+	if (FPlatformTime::Seconds() >= NextStatsTime)
+	{
+		LogStats();
+	}
+	StepVoiceTest();
 	if (Microphone->IsDetecting())
 	{
 		FString Found;
@@ -872,4 +911,110 @@ FString UFPSRLVoiceSubsystem::GetOpenMicrophoneName() const
 		return FString();
 	}
 	return Microphone->GetDeviceName().IsEmpty() ? FFPSRLMicrophone::GetDefaultDeviceName() : Microphone->GetDeviceName();
+}
+
+// --- Voice stats, voice test ---------------------------------------------------------------------------------------
+
+void UFPSRLVoiceSubsystem::LogStats()
+{
+	NextStatsTime = FPlatformTime::Seconds() + 10.0;
+	if (!Microphone || !Microphone->IsOpen())
+	{
+		return;
+	}
+	TArray<FString> Heard;
+	for (int32 PlayerId : HeardPlayers)
+	{
+		Heard.Add(FString::FromInt(PlayerId));
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Voice] stats (10 s): mic '%s' peak level %.3f, gain %.1fx, voice %d%% of the time, sent %d packets / %lld bytes, received %lld voice bytes, sending %d, speaking now [%s], heard so far [%s]"),
+		*GetOpenMicrophoneName(), StatsPeakLevel, Microphone->GetGain(), StatsSteps > 0 ? 100 * StatsVoicedSteps / StatsSteps : 0,
+		Microphone->GetPacketsSent() - StatsPacketsMark, Microphone->GetBytesSent() - StatsBytesMark, UFPSRLVoiceChannel::ReceivedVoiceBytes - StatsReceivedMark,
+		bTransmitting, *FString::JoinBy(SpeakingPlayers, TEXT(","), [](int32 Id) { return FString::FromInt(Id); }), *FString::Join(Heard, TEXT(",")));
+	StatsPeakLevel = 0.f;
+	StatsSteps = 0;
+	StatsVoicedSteps = 0;
+	StatsPacketsMark = Microphone->GetPacketsSent();
+	StatsBytesMark = Microphone->GetBytesSent();
+	StatsReceivedMark = UFPSRLVoiceChannel::ReceivedVoiceBytes;
+}
+
+void UFPSRLVoiceSubsystem::StartVoiceTest()
+{
+	if (!Microphone || !Microphone->IsOpen() || GetStatus() != EFPSRLVoiceStatus::Ready)
+	{
+		VoiceTestStatus = FText::FromString(TEXT("Voice test needs voice chat on, a microphone, and a multiplayer session"));
+		OnVoiceTestChanged.Broadcast();
+		return;
+	}
+	TestPackets.Reset();
+	TestPlayIndex = 0;
+	VoiceTestState = EVoiceTest::Recording;
+	VoiceTestEndTime = FPlatformTime::Seconds() + 3.0;
+	VoiceTestStatus = FText::FromString(TEXT("Voice test: recording 3 seconds, talk now..."));
+	UE_LOG(LogFPSRL, Log, TEXT("[Voice] voice test: recording"));
+	OnVoiceTestChanged.Broadcast();
+	StartMicSteps();
+}
+
+void UFPSRLVoiceSubsystem::StepVoiceTest()
+{
+	if (VoiceTestState == EVoiceTest::Recording && FPlatformTime::Seconds() >= VoiceTestEndTime)
+	{
+		VoiceTestState = EVoiceTest::Playing;
+		TestPlayIndex = 0;
+		const FString& Output = UFPSRLUserSettings::Get()->VoiceOutputDevice;
+		VoiceTestStatus = FText::FromString(FString::Printf(TEXT("Voice test: playing back what teammates hear, on %s"),
+			Output.IsEmpty() ? *FString::Printf(TEXT("the game's output (%s)"), *GetDefaultOutputDeviceName()) : *Output));
+		UE_LOG(LogFPSRL, Log, TEXT("[Voice] voice test: %d packets recorded, playing back"), TestPackets.Num());
+		OnVoiceTestChanged.Broadcast();
+		return;
+	}
+	if (VoiceTestState != EVoiceTest::Playing)
+	{
+		return;
+	}
+	// The recording goes through the voice interface exactly as a teammate's packets do (decode, volume, output).
+	TSharedPtr<IOnlineVoice, ESPMode::ThreadSafe> Voice = GetVoice();
+	const APlayerController* Local = GetLocalController();
+	const ULocalPlayer* LocalPlayer = Local ? Local->GetLocalPlayer() : nullptr;
+	const FUniqueNetIdRepl LocalId = LocalPlayer ? LocalPlayer->GetPreferredUniqueNetId() : FUniqueNetIdRepl();
+	if (Voice && LocalId.IsValid() && TestPackets.IsValidIndex(TestPlayIndex))
+	{
+		FTestPacket& Test = TestPackets[TestPlayIndex++];
+		FPSRLVoice::FMicPacket Packet(LocalId.GetUniqueNetId(), MoveTemp(Test.Data), Test.SampleCount, 0.5f);
+		TArray<uint8> Bytes;
+		FMemoryWriter Writer(Bytes);
+		Packet.Serialize(Writer);
+		FMemoryReader Reader(Bytes);
+		Voice->SerializeRemotePacket(Reader);
+		return;
+	}
+	VoiceTestState = EVoiceTest::Idle;
+	VoiceTestStatus = FText::FromString(TestPackets.IsEmpty()
+		? TEXT("Voice test: nothing was recorded - check the microphone and its level")
+		: TEXT("Voice test done. Did not hear yourself? Check the voice output device and voice chat volume"));
+	TestPackets.Reset();
+	UE_LOG(LogFPSRL, Log, TEXT("[Voice] voice test: done"));
+	OnVoiceTestChanged.Broadcast();
+}
+
+FString UFPSRLVoiceSubsystem::GetDefaultOutputDeviceName() const
+{
+	FAudioDeviceHandle AudioDevice = GEngine ? GEngine->GetMainAudioDevice() : FAudioDeviceHandle();
+	const Audio::FMixerDevice* Mixer = AudioDevice ? static_cast<const Audio::FMixerDevice*>(AudioDevice.GetAudioDevice()) : nullptr;
+	Audio::IAudioMixerPlatformInterface* Platform = Mixer ? Mixer->GetAudioMixerPlatform() : nullptr;
+	uint32 Count = 0;
+	if (Platform && Platform->GetNumOutputDevices(Count))
+	{
+		for (uint32 Index = 0; Index < Count; ++Index)
+		{
+			Audio::FAudioPlatformDeviceInfo Info;
+			if (Platform->GetOutputDeviceInfo(Index, Info) && Info.bIsSystemDefault)
+			{
+				return Info.Name;
+			}
+		}
+	}
+	return FString();
 }

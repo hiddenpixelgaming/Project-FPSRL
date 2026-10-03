@@ -96,6 +96,8 @@ protected:
 	TObjectPtr<class UProgressBar> MicLevelBar;
 	UPROPERTY(Transient)
 	TObjectPtr<UTextBlock> DetectText;
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> VoiceTestText;
 	FTimerHandle MicMeterTimer;
 	FDelegateHandle DetectHandle;
 	UPROPERTY(Transient)
@@ -148,6 +150,9 @@ private:
 	void HandleMicrophoneChanged(FString SelectedItem, ESelectInfo::Type SelectionType);
 	UFUNCTION()
 	void HandleAutoDetectClicked();
+	UFUNCTION()
+	void HandleVoiceTestClicked();
+	FDelegateHandle VoiceTestHandle;
 	/** The mic level meter (a 10 Hz UI refresh, only while the Voice tab is open). */
 	void UpdateMicMeter();
 	void StopMicMeter();

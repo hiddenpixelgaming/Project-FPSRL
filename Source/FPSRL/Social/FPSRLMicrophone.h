@@ -12,7 +12,7 @@ struct FFPSRLMicStep
 {
 	/** Opus data ready to send (empty: nothing to send this step). */
 	TArray<uint8> Encoded;
-	/** The capture's sample counter for that data (receivers use it to line packets up). */
+	/** Stream position of that data (receivers line packets up by it; continuous over what we send). */
 	uint64 SampleCount = 0;
 	/** Level after gain, RMS 0-1 (the Settings meter). */
 	float Level = 0.f;
@@ -48,6 +48,11 @@ public:
 	const FString& GetDeviceName() const { return DeviceName; }
 	/** The automatic gain right now (1 = unchanged). */
 	float GetGain() const { return Gain; }
+	/** No audio from the device for a while (it stalled or was taken away): the owner reopens it. */
+	bool IsStalled() const;
+	/** Packets sent and bytes, for the voice stats log. */
+	int32 GetPacketsSent() const { return PacketsSent; }
+	int64 GetBytesSent() const { return BytesSent; }
 
 	/**
 	 * Reads what was captured since the last step and processes it (activity, automatic gain, level). Encodes it when
@@ -63,8 +68,8 @@ public:
 
 private:
 	/** Voice level a speaking player is brought to (RMS, about -22 dBFS). */
-	static constexpr float TargetLevel = 0.08f;
-	static constexpr float MaxGain = 12.f;
+	static constexpr float TargetLevel = 0.14f;	// about -17 dBFS (v0.1.39 playtest: 0.08 was too soft)
+	static constexpr float MaxGain = 16.f;
 	static constexpr double VoiceHoldSeconds = 0.4;
 
 	TSharedPtr<IVoiceCapture> Capture;
@@ -77,6 +82,13 @@ private:
 	float NoiseFloor = 0.003f;
 	float SmoothedLevel = 0.f;
 	double LastVoiceTime = -100.0;
+	/** When the device last delivered audio. */
+	double LastDataTime = 0.0;
+	/** Sample position of the next audio we send: advances only with audio actually sent, so receivers never queue
+	 *  silence for our pauses and a reopened device continues the same stream. */
+	uint64 SentSamples = 0;
+	int32 PacketsSent = 0;
+	int64 BytesSent = 0;
 
 	struct FProbe
 	{

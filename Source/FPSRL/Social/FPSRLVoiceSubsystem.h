@@ -96,6 +96,16 @@ public:
 	const FText& GetDetectResult() const { return DetectResult; }
 	FSimpleMulticastDelegate OnMicDetectFinished;
 
+	/** Voice test: record 3 s of the microphone (as it is sent), then play it back through the same receive path as a
+	 *  teammate's voice (decoder, voice volume, voice output device), so the player hears what teammates hear. */
+	void StartVoiceTest();
+	bool IsVoiceTestRunning() const { return VoiceTestState != EVoiceTest::Idle; }
+	const FText& GetVoiceTestStatus() const { return VoiceTestStatus; }
+	FSimpleMulticastDelegate OnVoiceTestChanged;
+
+	/** The output device teammates are heard on when no voice output device is chosen ("" when unknown). */
+	FString GetDefaultOutputDeviceName() const;
+
 	/** Re-applies whether this player sends voice (settings, session, login and travel). */
 	void RefreshTransmit();
 
@@ -145,7 +155,26 @@ private:
 	bool StepMicrophone(float DeltaTime);
 	void SendMicPacket(TArray<uint8>&& Data, uint64 SampleCount, float Level);
 
+	/** Every 10 s while the microphone is open: what was sent and received ([Voice] stats). */
+	void LogStats();
+	void StepVoiceTest();
+
 	TUniquePtr<FFPSRLMicrophone> Microphone;
+	double NextStatsTime = 0.0;
+	float StatsPeakLevel = 0.f;
+	int32 StatsSteps = 0;
+	int32 StatsVoicedSteps = 0;
+	int32 StatsPacketsMark = 0;
+	int64 StatsBytesMark = 0;
+	int64 StatsReceivedMark = 0;
+
+	enum class EVoiceTest : uint8 { Idle, Recording, Playing };
+	EVoiceTest VoiceTestState = EVoiceTest::Idle;
+	double VoiceTestEndTime = 0.0;
+	struct FTestPacket { TArray<uint8> Data; uint64 SampleCount = 0; };
+	TArray<FTestPacket> TestPackets;
+	int32 TestPlayIndex = 0;
+	FText VoiceTestStatus;
 	FTSTicker::FDelegateHandle MicStepHandle;
 	float MicLevel = 0.f;
 	FText DetectResult;
@@ -210,4 +239,8 @@ public:
 
 protected:
 	virtual void ReceivedBunch(FInBunch& Bunch) override;
+
+ public:
+	/** Voice bytes received on this machine (all voice channels), for the voice stats log. */
+	static int64 ReceivedVoiceBytes;
 };

@@ -42,7 +42,7 @@ void UFPSRLUserSettings::SetVoiceChatEnabled(bool bEnabled)
 
 void UFPSRLUserSettings::SetVoiceChatVolume(float Volume)
 {
-	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::VoiceChatVolume, FMath::Clamp(Volume, 0.f, 1.f), TEXT("Voice chat volume"));
+	FPSRLUserSettingsPrivate::Set(&UFPSRLUserSettings::VoiceChatVolume, FMath::Clamp(Volume, 0.f, 2.f), TEXT("Voice chat volume"));
 }
 
 void UFPSRLUserSettings::SetMicrophoneVolume(float Volume)
