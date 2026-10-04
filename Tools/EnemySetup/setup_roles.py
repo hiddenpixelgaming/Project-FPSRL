@@ -53,33 +53,33 @@ ROLES = {
                      attacks=[attack(name="LeapSlam", action=Action.LEAP_SLAM, priority=20, min_range=500.0, max_range=2500.0,
                                      max_angle=30.0, requires_line_of_sight=True, cooldown=9.0, windup_seconds=1.6,
                                      execute_seconds=0.0, recovery_seconds=1.0, hold_position=True, interruptible=False,
-                                     target_nearest_after=True, leap_seconds=0.9, shockwave_damage=80.0,
+                                     target_nearest_after=True, leap_seconds=0.9, shockwave_damage=50.0,
                                      shockwave_radius=1800.0, shockwave_speed=1400.0, shockwave_height=45.0),
                               attack(name="Slam", action=Action.MELEE, priority=10, min_range=0.0, max_range=320.0,
                                      max_angle=35.0, requires_line_of_sight=True, cooldown=1.5, windup_seconds=0.9,
                                      execute_seconds=0.15, recovery_seconds=0.9, hold_position=True,
                                      interruptible=False, melee_damage=30.0, melee_radius=200.0, melee_max_targets=4)]),
         note="Brute (after playtest v0.1.42): roars at its target (1.6 s), leaps to where the target stands (0.9 s in the air) and lands "
-             "with a red shockwave ring along the ground (80 x2 damage, 18 m at 14 m/s; jump over it to take nothing). Pauses "
+             "with a red shockwave ring along the ground (50 x2 = 100 damage (playtest v0.1.46), 18 m at 14 m/s; jump over it to take nothing). Pauses "
              "1 s, then rushes the nearest player with heavy overhead swings (0.9 s wind-up, 30 x2 damage, 2 m wide sweep, "
              "3.2 m reach). Leaps again every 9 s when its target is 5-25 m away. Health 7x a Grunt's."),
     "Skirmisher": dict(
-        weapon=PISTOL, hide_weapon=True, health=1.0, damage=2.0, scale=1.0, speed=900.0, anim_class=None,
+        weapon=PISTOL, hide_weapon=True, health=130.0 / 150.0, damage=2.0, scale=1.0, speed=900.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_01/SkeletalMesh/SK_SciFiTrooperGirlV1",
         anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(ANIMS + "Sprint_Mannequin", 596.0)),
         anims={"Stab": (ANIMS + "Stabbing_Mannequin", 0.0, 0.85, 1.6),
-               "Phase": (ANIMS + "Jump_Mannequin", 0.04, 0.62, 0.85)},	# jumps backwards
+               "Phase": (ANIMS + "Jump_Mannequin", 0.04, 0.62, 0.72)},	# jumps backwards
         profile=dict(preferred_min_distance=0.0, preferred_max_distance=150.0, movement_style=Move.CHASE,
                      too_close_response=Close.HOLD_AND_ATTACK, lost_sight_response=Lost.SEEK_LAST_SEEN,
                      damage_response=Hurt.KEEP_ATTACKING, separation_radius=180.0, proximity_aggro_radius=800.0,
                      reaction_time=0.25, squad_movement=False, phase_on_projectile_hit=True, phase_seconds=4.0,
-                     phase_cooldown=3.0, phase_leap_distance=450.0, phase_leap_seconds=0.3,
+                     phase_cooldown=3.0, phase_leap_distance=450.0, phase_leap_seconds=0.22,
                      attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=250.0,
                                      max_angle=45.0, requires_line_of_sight=True, cooldown=0.9, windup_seconds=0.5,
                                      execute_seconds=0.1, recovery_seconds=0.5, hold_position=False,
                                      interruptible=True, melee_damage=25.0, melee_radius=100.0, melee_max_targets=1)]),
-        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs on the run (keeps chasing through the 0.5 s wind-up, 25 x2 = 50 damage (playtest v0.1.44), 2.5 m reach; health 150) - it stood still to stab and moving players were never hit (playtest v0.1.43). "
-             "Shot by a player: leaps back away from the shooter (0.3 s) and phases for 4 s - bullets pass through it and do "
+        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs on the run (keeps chasing through the 0.5 s wind-up, 25 x2 = 50 damage (playtest v0.1.44), 2.5 m reach; health 130) - it stood still to stab and moving players were never hit (playtest v0.1.43). "
+             "Shot by a player: leaps back away from the shooter (0.22 s) and phases for 4 s - bullets pass through it and do "
              "nothing, melee still hurts - then can't phase again for 3 s."),
     "Marksman": dict(
         weapon=RIFLE, hide_weapon=False, health=1.2, damage=4.5, scale=1.0, speed=450.0, anim_class=None,

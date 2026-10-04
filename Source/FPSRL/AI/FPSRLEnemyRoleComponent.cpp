@@ -111,7 +111,7 @@ bool UFPSRLEnemyRoleComponent::PlayNamed(FName ActionName, float Seconds)
 	}
 	// Timed: StartTime..ImpactTime takes Seconds (the wind-up, the leap); otherwise normal speed.
 	const float Timed = Anim->ImpactTime - Anim->StartTime;
-	const float PlayRate = Seconds > 0.05f && Timed > 0.05f ? FMath::Clamp(Timed / Seconds, 0.4f, 2.5f) : 1.f;
+	const float PlayRate = Seconds > 0.05f && Timed > 0.05f ? FMath::Clamp(Timed / Seconds, 0.4f, 3.f) : 1.f;
 	const float End = Anim->EndTime > Anim->StartTime ? Anim->EndTime : Animation->GetPlayLength();
 	if (UFPSRLEnemyAnimInstance* EnemyAnim = Cast<UFPSRLEnemyAnimInstance>(AnimInstance))
 	{
