@@ -89,6 +89,7 @@ public:
 	int32 GetAttacksExecuted() const { return AttacksExecuted; }
 	int32 GetMoveFailures() const { return MoveFailures; }
 	int32 GetLeapsLanded() const { return LeapsLanded; }
+	int32 GetLeapsCancelled() const { return LeapsCancelled; }
 	int32 GetPhases() const { return Phases; }
 	int32 GetMeleeHits() const { return MeleeHits; }
 
@@ -144,6 +145,8 @@ private:
 	/** LeapSlam: launched on an arc to where its target stands; landing (or a safety timer) sends the shockwave and ends
 	 *  the execution (its recovery is the pause after the leap). */
 	void StartLeap(const FFPSRLEnemyAttack& Attack);
+	/** The leap's arc to the target (its launch velocity), or false when level geometry is in the way. */
+	bool PlanLeap(const FFPSRLEnemyAttack& Attack, FVector* OutVelocity) const;
 	UFUNCTION()
 	void HandleLeapLanded(const FHitResult& Hit);
 	void FinishLeap();
@@ -215,6 +218,7 @@ private:
 	bool bLeaping = false;
 	double NextPhaseTime = 0.0;
 	int32 LeapsLanded = 0;
+	int32 LeapsCancelled = 0;
 	int32 Phases = 0;
 	int32 MeleeHits = 0;
 	FDelegateHandle StunHandle;

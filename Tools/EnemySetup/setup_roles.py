@@ -64,7 +64,7 @@ ROLES = {
              "1 s, then rushes the nearest player with heavy overhead swings (0.9 s wind-up, 30 x2 damage, 2 m wide sweep, "
              "3.2 m reach). Leaps again every 9 s when its target is 5-25 m away. Health 7x a Grunt's."),
     "Skirmisher": dict(
-        weapon=PISTOL, hide_weapon=True, health=0.6, damage=2.0, scale=1.0, speed=900.0, anim_class=None,
+        weapon=PISTOL, hide_weapon=True, health=1.0, damage=2.0, scale=1.0, speed=900.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_01/SkeletalMesh/SK_SciFiTrooperGirlV1",
         anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(ANIMS + "Sprint_Mannequin", 596.0)),
         anims={"Stab": (ANIMS + "Stabbing_Mannequin", 0.0, 0.85, 1.6),
@@ -77,8 +77,8 @@ ROLES = {
                      attacks=[attack(name="Stab", action=Action.MELEE, priority=10, min_range=0.0, max_range=250.0,
                                      max_angle=45.0, requires_line_of_sight=True, cooldown=0.9, windup_seconds=0.5,
                                      execute_seconds=0.1, recovery_seconds=0.5, hold_position=False,
-                                     interruptible=True, melee_damage=12.0, melee_radius=100.0, melee_max_targets=1)]),
-        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs on the run (keeps chasing through the 0.5 s wind-up, 12 x2 damage, 2.5 m reach) - it stood still to stab and moving players were never hit (playtest v0.1.43). "
+                                     interruptible=True, melee_damage=25.0, melee_radius=100.0, melee_max_targets=1)]),
+        note="Skirmisher (after playtest v0.1.42): sprints straight at its target (9 m/s) and stabs on the run (keeps chasing through the 0.5 s wind-up, 25 x2 = 50 damage (playtest v0.1.44), 2.5 m reach; health 150) - it stood still to stab and moving players were never hit (playtest v0.1.43). "
              "Shot by a player: leaps back away from the shooter (0.3 s) and phases for 4 s - bullets pass through it and do "
              "nothing, melee still hurts - then can't phase again for 3 s."),
     "Marksman": dict(

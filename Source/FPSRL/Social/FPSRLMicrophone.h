@@ -57,8 +57,11 @@ public:
 	/**
 	 * Reads what was captured since the last step and processes it (activity, automatic gain, level). Encodes it when
 	 * bSendAlways (Push-to-Talk held) or bSendWhenVoice and voice is active (open mic).
+	 * bEchoGuard: a teammate's voice is playing here - their voice coming back out of this player's speakers into the
+	 * microphone must not be sent on (feedback, playtest v0.1.44): only a much louder, direct voice opens the mic and the
+	 * automatic gain neither rises nor goes above EchoMaxGain.
 	 */
-	void Step(float OpenThreshold, float Trim, bool bSendWhenVoice, bool bSendAlways, FFPSRLMicStep& Out);
+	void Step(float OpenThreshold, float Trim, bool bSendWhenVoice, bool bSendAlways, bool bEchoGuard, FFPSRLMicStep& Out);
 
 	/** Auto-detect: listen to every device for Seconds. */
 	void StartDetect(float Seconds);
@@ -69,7 +72,10 @@ public:
 private:
 	/** Voice level a speaking player is brought to (RMS, about -22 dBFS). */
 	static constexpr float TargetLevel = 0.14f;	// about -17 dBFS (v0.1.39 playtest: 0.08 was too soft)
-	static constexpr float MaxGain = 16.f;
+	static constexpr float MaxGain = 8.f;	// was 16: a speakerphone mic at 8-9x brought up the room and the speakers (v0.1.44)
+	static constexpr float EchoMaxGain = 2.5f;
+	static constexpr float EchoGateFactor = 3.f;	// the open-mic threshold while a teammate talks, times the normal one
+	static constexpr float EchoNoiseFactor = 10.f;	// ... and at least this many times the noise floor
 	static constexpr double VoiceHoldSeconds = 0.4;
 
 	TSharedPtr<IVoiceCapture> Capture;

@@ -136,3 +136,96 @@ static FAutoConsoleCommandWithWorld GFPSRLReviveTestCommand(TEXT("FPSRL.ReviveTe
 		}), 0.25f);
 	}));
 #endif
+
+#if !UE_BUILD_SHIPPING
+// Test only: FPSRL.DownedAnimTest (host of a game with a client). The host is downed, then revived 4 s later: every
+// machine shows the fall / writhe / crawl and the stand-up on the host's body ([Downed] in each machine's log).
+static FAutoConsoleCommandWithWorld GFPSRLDownedAnimTestCommand(TEXT("FPSRL.DownedAnimTest"),
+	TEXT("Test (host with a client): down the host, revive it 4 s later; each machine logs the downed body animation ([Downed])."),
+	FConsoleCommandWithWorldDelegate::CreateLambda([](UWorld* StartWorld)
+	{
+		TWeakObjectPtr<UGameInstance> GameInstance = StartWorld ? StartWorld->GetGameInstance() : nullptr;
+		TSharedRef<int32> Step = MakeShared<int32>(0);
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([GameInstance, Step](float)
+		{
+			UGameInstance* GI = GameInstance.Get();
+			UWorld* World = GI ? GI->GetWorld() : nullptr;
+			APlayerController* PC = World ? GI->GetFirstLocalPlayerController(World) : nullptr;
+			APawn* Host = PC ? PC->GetPawn() : nullptr;
+			UFPSRLHealthComponent* Health = Host ? Host->FindComponentByClass<UFPSRLHealthComponent>() : nullptr;
+			if (!Health || World->GetNumPlayerControllers() < 2)
+			{
+				return true;	// wait for the client
+			}
+			++*Step;
+			if (*Step == 20)
+			{
+				// Stand 5 m from the client so its screenshots (FPSRL.TeammateShots) show the whole body and the nameplate.
+				for (TActorIterator<APawn> It(World); It; ++It)
+				{
+					if (*It != Host && It->GetPlayerState())
+					{
+						const FVector Away = (Host->GetActorLocation() - It->GetActorLocation()).GetSafeNormal2D();
+						Host->TeleportTo(It->GetActorLocation() + (Away.IsNearlyZero() ? FVector::ForwardVector : Away) * 500.f, Host->GetActorRotation());
+						break;
+					}
+				}
+			}
+			if (*Step == 40)
+			{
+				if (UAbilitySystemComponent* ASC = UAbilitySystemBlueprintLibrary::GetAbilitySystemComponent(Host->GetPlayerState()))
+				{
+					ASC->AddLooseGameplayTag(FPSRLGameplayTags::Status_Downable, 1, EGameplayTagReplicationState::TagOnly);
+				}
+				Health->ApplyEnvironmentDamage(Health->GetCurrentHealth() + 10.f);
+				UE_LOG(LogFPSRL, Log, TEXT("[DownedAnimTest] host downed: %d"), Health->IsDowned());
+			}
+			else if (*Step == 40 + 16)	// ticks at 0.25 s: 4 s later
+			{
+				Health->Revive(0.5f);
+				UE_LOG(LogFPSRL, Log, TEXT("[DownedAnimTest] host revived: %d"), !Health->IsDowned());
+			}
+			else if (*Step == 40 + 30)
+			{
+				UE_LOG(LogFPSRL, Log, TEXT("[DownedAnimTest] done"));
+				return false;
+			}
+			return true;
+		}), 0.25f);
+	}));
+#endif
+
+#if !UE_BUILD_SHIPPING
+// Test only: FPSRL.TeammateShots [count] (any player, rendered): every second, look at the nearest other player and take
+// a screenshot (their body, nameplate, downed animation).
+static FAutoConsoleCommandWithWorldAndArgs GFPSRLTeammateShotsCommand(TEXT("FPSRL.TeammateShots"),
+	TEXT("Test (rendered): look at the nearest other player once a second and take a screenshot."),
+	FConsoleCommandWithWorldAndArgsDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* StartWorld)
+	{
+		TWeakObjectPtr<UGameInstance> GameInstance = StartWorld ? StartWorld->GetGameInstance() : nullptr;
+		TSharedRef<int32> Left = MakeShared<int32>(Args.IsEmpty() ? 8 : FCString::Atoi(*Args[0]));
+		FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([GameInstance, Left](float)
+		{
+			UGameInstance* GI = GameInstance.Get();
+			UWorld* World = GI ? GI->GetWorld() : nullptr;
+			APlayerController* PC = World ? GI->GetFirstLocalPlayerController(World) : nullptr;
+			const APawn* Self = PC ? PC->GetPawn() : nullptr;
+			const APawn* Other = nullptr;
+			for (TActorIterator<APawn> It(World); It && Self; ++It)
+			{
+				if (*It != Self && It->GetPlayerState() && (!Other || FVector::Dist(It->GetActorLocation(), Self->GetActorLocation()) < FVector::Dist(Other->GetActorLocation(), Self->GetActorLocation())))
+				{
+					Other = *It;
+				}
+			}
+			if (!Other)
+			{
+				return true;
+			}
+			PC->SetControlRotation((Other->GetActorLocation() - FVector(0.f, 0.f, 60.f) - Self->GetActorLocation()).Rotation());
+			PC->ConsoleCommand(TEXT("Shot showui"));
+			UE_LOG(LogFPSRL, Log, TEXT("[TeammateShots] %s at %.0f cm"), *Other->GetName(), FVector::Dist(Other->GetActorLocation(), Self->GetActorLocation()));
+			return --*Left > 0;
+		}), 1.f);
+	}));
+#endif

@@ -120,7 +120,7 @@ void FFPSRLMicrophone::Close()
 	DeviceName.Reset();
 }
 
-void FFPSRLMicrophone::Step(float OpenThreshold, float Trim, bool bSendWhenVoice, bool bSendAlways, FFPSRLMicStep& Out)
+void FFPSRLMicrophone::Step(float OpenThreshold, float Trim, bool bSendWhenVoice, bool bSendAlways, bool bEchoGuard, FFPSRLMicStep& Out)
 {
 	const double Now = FPlatformTime::Seconds();
 	Out.Level = SmoothedLevel *= 0.9f;	// decays while nothing arrives
@@ -155,13 +155,19 @@ void FFPSRLMicrophone::Step(float OpenThreshold, float Trim, bool bSendWhenVoice
 		const int32 Length = FMath::Min(FrameLength, Count - Start);
 		const float Level = FPSRLMicrophone::Rms(Samples + Start, Length);
 		NoiseFloor = Level < NoiseFloor ? FMath::Lerp(NoiseFloor, Level, 0.2f) : FMath::Min(NoiseFloor * 1.002f + 0.00001f, 0.05f);
-		if (Level > FMath::Max(OpenThreshold, NoiseFloor * 3.f))
+		// While a teammate talks (bEchoGuard) their voice can come back in through this player's speakers: the mic opens
+		// only for a much louder (direct) voice, and the gain neither climbs on the echo nor goes above EchoMaxGain.
+		const float Open = bEchoGuard ? FMath::Max(OpenThreshold * EchoGateFactor, NoiseFloor * EchoNoiseFactor) : FMath::Max(OpenThreshold, NoiseFloor * 3.f);
+		if (Level > Open)
 		{
 			LastVoiceTime = Now;
 			const float Desired = FMath::Clamp(TargetLevel / FMath::Max(Level, 0.0001f), 0.5f, MaxGain);
-			Gain += (Desired - Gain) * (Desired < Gain ? 0.3f : 0.03f);
+			if (!bEchoGuard || Desired < Gain)
+			{
+				Gain += (Desired - Gain) * (Desired < Gain ? 0.3f : 0.03f);
+			}
 		}
-		const float TotalGain = Gain * Trim;
+		const float TotalGain = (bEchoGuard ? FMath::Min(Gain, EchoMaxGain) : Gain) * Trim;
 		for (int32 Index = Start; Index < Start + Length; ++Index)
 		{
 			float Value = Samples[Index] / 32768.f * TotalGain;

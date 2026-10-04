@@ -187,3 +187,12 @@ bool FFPSRLEnemyAnimProxy::Evaluate(FPoseContext& Output)
 	}
 	return true;
 }
+
+void UFPSRLEnemyAnimInstance::SetLocomotion(UAnimSequence* InIdle, UAnimSequence* InWalk, float InWalkAnimSpeed, UAnimSequence* InRun, float InRunAnimSpeed)
+{
+	Idle = InIdle;
+	Walk = InWalk;
+	Run = InRun;
+	WalkAnimSpeed = FMath::Max(10.f, InWalkAnimSpeed);
+	RunAnimSpeed = FMath::Max(WalkAnimSpeed + 10.f, InRunAnimSpeed);
+}

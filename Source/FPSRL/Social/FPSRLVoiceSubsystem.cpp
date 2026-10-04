@@ -21,6 +21,9 @@
 #include "OnlineSubsystemUtils.h"
 #include "Social/FPSRLUserSettings.h"
 #include "VoicePacketImpl.h"
+#include "VoipListenerSynthComponent.h"
+#include "Components/SynthComponent.h"
+#include "UObject/UObjectIterator.h"
 #include "Serialization/MemoryReader.h"
 #include "Serialization/MemoryWriter.h"
 #include "Net/VoiceDataCommon.h"
@@ -34,6 +37,8 @@ namespace FPSRLVoice
 
 	/** A destroy this soon after a travel started is the travel replacing a PlayerState, not the player leaving. */
 	constexpr double TravelGraceSeconds = 60.0;
+	/** The echo guard stays on this long after a teammate stops (their last words still coming out of the speakers). */
+	constexpr double EchoHoldSeconds = 0.4;
 
 #if !UE_BUILD_SHIPPING
 	static TAutoConsoleVariable<float> CVarForceThreshold(TEXT("fpsrl.Voice.ForceThreshold"), -1.f,
@@ -59,6 +64,8 @@ void UFPSRLVoiceSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	EndHandle = AFPSRLPlayerState::OnPlayerStateEnd.AddUObject(this, &ThisClass::HandlePlayerStateEnd);
 	SettingsHandle = UFPSRLUserSettings::OnChanged.AddUObject(this, &ThisClass::HandleSettingsChanged);
 	TravelHandle = FWorldDelegates::OnSeamlessTravelStart.AddUObject(this, &ThisClass::HandleSeamlessTravelStart);
+	WorldCleanupHandle = FWorldDelegates::OnWorldCleanup.AddUObject(this, &ThisClass::HandleWorldCleanup);
+	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &ThisClass::HandlePostLoadMap);
 
 	if (IsRunningDedicatedServer())
 	{
@@ -94,6 +101,8 @@ void UFPSRLVoiceSubsystem::Deinitialize()
 	AFPSRLPlayerState::OnPlayerStateEnd.Remove(EndHandle);
 	UFPSRLUserSettings::OnChanged.Remove(SettingsHandle);
 	FWorldDelegates::OnSeamlessTravelStart.Remove(TravelHandle);
+	FWorldDelegates::OnWorldCleanup.Remove(WorldCleanupHandle);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
 	if (IOnlineSubsystem* Online = Online::GetSubsystem(GetGameWorld()); Online && Online->GetSessionInterface())
 	{
 		Online->GetSessionInterface()->ClearOnCreateSessionCompleteDelegate_Handle(SessionCreatedHandle);
@@ -360,6 +369,41 @@ void UFPSRLVoiceSubsystem::HandlePlayerStateEnd(AFPSRLPlayerState* PlayerState, 
 void UFPSRLVoiceSubsystem::HandleSeamlessTravelStart(UWorld* World, const FString& LevelName)
 {
 	LastTravelStart = FPlatformTime::Seconds();
+	UFPSRLVoiceChannel::bDropIncoming = true;	// until the new level is up (HandlePostLoadMap)
+}
+
+void UFPSRLVoiceSubsystem::HandlePostLoadMap(UWorld* World)
+{
+	// The temporary transition world (/Temp/...) loads first; voice comes back with the real level.
+	if (World && !World->GetOutermost()->GetName().StartsWith(TEXT("/Temp/")))
+	{
+		UFPSRLVoiceChannel::bDropIncoming = false;
+	}
+}
+
+void UFPSRLVoiceSubsystem::HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources)
+{
+	int32 Released = 0;
+	for (TObjectIterator<USynthComponent> It; It; ++It)
+	{
+		USynthComponent* Synth = *It;
+		if (!IsValid(Synth) || !Synth->IsA(UVoipListenerSynthComponent::StaticClass()) || Synth->GetWorld() != World || !Synth->IsRegistered())
+		{
+			continue;
+		}
+		// What the engine's own voice reset does, while the world still exists.
+		Synth->Stop();
+		if (UAudioComponent* Audio = Synth->GetAudioComponent(); Audio && Audio->IsRegistered())
+		{
+			Audio->UnregisterComponent();
+		}
+		Synth->UnregisterComponent();
+		++Released;
+	}
+	if (Released > 0)
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Voice] released %d voice playback component(s) of %s before its teardown"), Released, *GetNameSafe(World));
+	}
 }
 
 // --- Speaking ------------------------------------------------------------------------------------------------------
@@ -421,6 +465,7 @@ void UFPSRLVoiceSubsystem::SetSpeaking(int32 PlayerId, bool bSpeaking)
 	else
 	{
 		SpeakingPlayers.Remove(PlayerId);
+		LastRemoteSpeechEnd = FPlatformTime::Seconds();
 	}
 	UE_LOG(LogFPSRL, Verbose, TEXT("[Voice] player %d %s speaking"), PlayerId, bSpeaking ? TEXT("started") : TEXT("stopped"));
 	if (bSpeaking && !HeardPlayers.Contains(PlayerId))
@@ -603,10 +648,15 @@ void UFPSRLVoiceTalker::OnTalkingEnd()
 // --- Voice channel -------------------------------------------------------------------------------------------------
 
 int64 UFPSRLVoiceChannel::ReceivedVoiceBytes = 0;
+bool UFPSRLVoiceChannel::bDropIncoming = false;
 
 void UFPSRLVoiceChannel::ReceivedBunch(FInBunch& Bunch)
 {
 	ReceivedVoiceBytes += Bunch.GetNumBytes();
+	if (bDropIncoming)
+	{
+		return;	// a level change is under way (see bDropIncoming)
+	}
 	// Server: read the packets from a copy first; every one must come from this connection's own player.
 	if (Connection && Connection->Driver && Connection->Driver->ServerConnection == nullptr)
 	{
@@ -809,7 +859,10 @@ bool UFPSRLVoiceSubsystem::StepMicrophone(float DeltaTime)
 #endif
 		FFPSRLMicStep Step;
 		const bool bTestRecording = VoiceTestState == EVoiceTest::Recording;	// the test records everything, sends nothing
-		Microphone->Step(GetOpenMicThreshold(), Settings->MicrophoneVolume, bTransmitting && !bPushToTalk && !bTestRecording, (bTransmitting && bSendAll) || bTestRecording, Step);
+		// Echo guard: a teammate is talking (or just stopped) - their voice may be coming back in through the speakers.
+		const bool bEchoGuard = !SpeakingPlayers.IsEmpty() || FPlatformTime::Seconds() - LastRemoteSpeechEnd < FPSRLVoice::EchoHoldSeconds;
+		StatsEchoSteps += bEchoGuard ? 1 : 0;
+		Microphone->Step(GetOpenMicThreshold(), Settings->MicrophoneVolume, bTransmitting && !bPushToTalk && !bTestRecording, (bTransmitting && bSendAll) || bTestRecording, bEchoGuard, Step);
 		MicLevel = Step.Level;
 		StatsPeakLevel = FMath::Max(StatsPeakLevel, Step.Level);
 		++StatsSteps;
@@ -932,13 +985,14 @@ void UFPSRLVoiceSubsystem::LogStats()
 	{
 		Heard.Add(FString::FromInt(PlayerId));
 	}
-	UE_LOG(LogFPSRL, Log, TEXT("[Voice] stats (10 s): mic '%s' peak level %.3f, gain %.1fx, voice %d%% of the time, sent %d packets / %lld bytes, received %lld voice bytes, sending %d, speaking now [%s], heard so far [%s]"),
-		*GetOpenMicrophoneName(), StatsPeakLevel, Microphone->GetGain(), StatsSteps > 0 ? 100 * StatsVoicedSteps / StatsSteps : 0,
+	UE_LOG(LogFPSRL, Log, TEXT("[Voice] stats (10 s): mic '%s' peak level %.3f, gain %.1fx, voice %d%% of the time, echo guard %d%%, sent %d packets / %lld bytes, received %lld voice bytes, sending %d, speaking now [%s], heard so far [%s]"),
+		*GetOpenMicrophoneName(), StatsPeakLevel, Microphone->GetGain(), StatsSteps > 0 ? 100 * StatsVoicedSteps / StatsSteps : 0, StatsSteps > 0 ? 100 * StatsEchoSteps / StatsSteps : 0,
 		Microphone->GetPacketsSent() - StatsPacketsMark, Microphone->GetBytesSent() - StatsBytesMark, UFPSRLVoiceChannel::ReceivedVoiceBytes - StatsReceivedMark,
 		bTransmitting, *FString::JoinBy(SpeakingPlayers, TEXT(","), [](int32 Id) { return FString::FromInt(Id); }), *FString::Join(Heard, TEXT(",")));
 	StatsPeakLevel = 0.f;
 	StatsSteps = 0;
 	StatsVoicedSteps = 0;
+	StatsEchoSteps = 0;
 	StatsPacketsMark = Microphone->GetPacketsSent();
 	StatsBytesMark = Microphone->GetBytesSent();
 	StatsReceivedMark = UFPSRLVoiceChannel::ReceivedVoiceBytes;

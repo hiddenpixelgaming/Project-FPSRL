@@ -133,6 +133,14 @@ private:
 	void HandleSettingsChanged();
 	void HandleSeamlessTravelStart(UWorld* World, const FString& LevelName);
 
+	/** A world is torn down: the engine's voice playback components still registered with it are stopped and unregistered
+	 *  first (the engine leaves them; the world's teardown check then failed and the engine's next voice reset read freed
+	 *  memory - the crash after dying and at the exit portal, playtest v0.1.44). */
+	void HandleWorldCleanup(UWorld* World, bool bSessionEnded, bool bCleanupResources);
+	void HandlePostLoadMap(UWorld* World);
+	FDelegateHandle WorldCleanupHandle;
+	FDelegateHandle PostLoadMapHandle;
+
 	/** A teammate's PlayerState in the current world: register them with the voice interface, give them a talker. */
 	void RegisterTeammate(AFPSRLPlayerState* PlayerState);
 	void RegisterAllTeammates();
@@ -163,6 +171,8 @@ private:
 	double NextStatsTime = 0.0;
 	float StatsPeakLevel = 0.f;
 	int32 StatsSteps = 0;
+	int32 StatsEchoSteps = 0;
+	double LastRemoteSpeechEnd = -100.0;
 	int32 StatsVoicedSteps = 0;
 	int32 StatsPacketsMark = 0;
 	int64 StatsBytesMark = 0;
@@ -236,6 +246,10 @@ public:
 		: UVoiceChannel(ObjectInitializer)
 	{
 	}
+
+	/** While a level change is under way incoming voice is dropped: the engine would start playing it in the temporary
+	 *  transition world, and that world's teardown then crashed the game (playtest v0.1.44). */
+	static bool bDropIncoming;
 
 protected:
 	virtual void ReceivedBunch(FInBunch& Bunch) override;

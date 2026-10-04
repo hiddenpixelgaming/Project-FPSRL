@@ -471,12 +471,14 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 			}
 			int32 MeleeHits = 0;
 			int32 Attacks = 0;
+			int32 LeapsCancelled = 0;
 			for (TActorIterator<AFPSRLEnemyAIController> It(World); It; ++It)
 			{
 				MeleeHits += It->GetMeleeHits();
+				LeapsCancelled += It->GetLeapsCancelled();
 				Attacks += It->GetAttacksExecuted();
 			}
-			UE_LOG(LogFPSRL, Log, TEXT("[Motion] attacks %d, melee hits %d (enemies alive now); host top speed %.0f"), Attacks, MeleeHits, W->HostTopSpeed);
+			UE_LOG(LogFPSRL, Log, TEXT("[Motion] attacks %d, melee hits %d, leaps cancelled (no clear path) %d (enemies alive now); host top speed %.0f"), Attacks, MeleeHits, LeapsCancelled, W->HostTopSpeed);
 			UE_LOG(LogFPSRL, Log, TEXT("[Motion] done: %d leap(s) landed, %d phase(s) (enemies alive now)"), Leaps, Phases);
 			return false;
 		}));

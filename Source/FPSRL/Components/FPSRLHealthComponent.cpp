@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Components/FPSRLHealthComponent.h"
+#include "Components/FPSRLDownedAnimComponent.h"
 #include "UI/FPSRLEnemyHealthBar.h"
 #include "AbilitySystemComponent.h"
 #include "AIController.h"
@@ -656,6 +657,21 @@ void UFPSRLHealthComponent::HandleDownedTagChanged(const FGameplayTag Tag, int32
 	UpdateProjectileBlocking();	// downed: shots pass through to whoever revives them; revived: blocks again
 	ApplyDownedMovement(bDowned);
 	OnDownedChanged.Broadcast(bDowned);
+
+	// The body: falls and crawls while down, stands up when revived (players; every machine).
+	if (IsPlayerSide(nullptr, GetOwner()))
+	{
+		UFPSRLDownedAnimComponent* DownedAnim = GetOwner()->FindComponentByClass<UFPSRLDownedAnimComponent>();
+		if (!DownedAnim && bDowned)
+		{
+			DownedAnim = NewObject<UFPSRLDownedAnimComponent>(GetOwner(), TEXT("DownedAnimation"));
+			DownedAnim->RegisterComponent();
+		}
+		if (DownedAnim)
+		{
+			DownedAnim->SetDowned(bDowned, bDied);
+		}
+	}
 
 	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	if (AFPSRLPlayerController* PC = OwnerPawn && OwnerPawn->IsLocallyControlled() ? Cast<AFPSRLPlayerController>(OwnerPawn->GetController()) : nullptr)

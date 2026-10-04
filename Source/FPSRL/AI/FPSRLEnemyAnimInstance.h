@@ -63,6 +63,10 @@ class FPSRL_API UFPSRLEnemyAnimInstance : public UAnimInstance
 	GENERATED_BODY()
 
 public:
+	/** Sets the locomotion directly (players while downed: writhe / crawl), instead of an enemy definition's AnimSet. */
+	void SetLocomotion(UAnimSequence* InIdle, UAnimSequence* InWalk, float InWalkAnimSpeed, UAnimSequence* InRun = nullptr, float InRunAnimSpeed = 500.f);
+
+public:
 	/** Plays an action from StartTime to EndTime (seconds into the animation; EndTime 0 = its end) at PlayRate. */
 	void PlayAction(UAnimSequence* Animation, float StartTime, float EndTime, float PlayRate);
 

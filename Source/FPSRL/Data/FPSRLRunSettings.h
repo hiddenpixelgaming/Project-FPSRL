@@ -7,6 +7,7 @@
 #include "Types/FPSRLTypes.h"
 #include "FPSRLRunSettings.generated.h"
 
+class UAnimSequence;
 class UFPSRLRunDefinition;
 
 /**
@@ -130,6 +131,24 @@ public:
 	/** Move speed while downed, as a fraction of normal (0.2 = 20%). */
 	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0", ClampMax = "1"))
 	float DownedMoveSpeedMultiplier = 0.2f;
+
+	/** A downed player's body (seen by teammates; UE Mannequin rig): falls, writhes when still, crawls when moving, stands
+	 *  up when revived (UFPSRLDownedAnimComponent). Licensed art, not in Git: missing = the normal animation stays. */
+	UPROPERTY(Config, EditAnywhere, Category = "Downed")
+	TSoftObjectPtr<UAnimSequence> DownedFallAnim;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Downed")
+	TSoftObjectPtr<UAnimSequence> DownedIdleAnim;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Downed")
+	TSoftObjectPtr<UAnimSequence> DownedCrawlAnim;
+
+	/** The speed (cm/s) the crawl is played for (the crawl steps match the downed move speed around it). */
+	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "10"))
+	float DownedCrawlAnimSpeed = 75.f;
+
+	UPROPERTY(Config, EditAnywhere, Category = "Downed")
+	TSoftObjectPtr<UAnimSequence> DownedStandUpAnim;
 
 	/** Seconds a teammate must stay beside a downed player to revive them. */
 	UPROPERTY(Config, EditAnywhere, Category = "Downed", meta = (ClampMin = "0"))

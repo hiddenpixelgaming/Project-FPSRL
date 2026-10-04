@@ -1042,7 +1042,8 @@ int32 AFPSRLEnemyAIController::SelectAttack(float Distance, bool bSeesTarget) co
 			continue;	// still turning toward it
 		}
 		const bool bAvailable = Attack.Action == EFPSRLEnemyAttackAction::FireWeapon ? FindWeapon() != nullptr
-			: Attack.Action == EFPSRLEnemyAttackAction::GameplayAbility ? AbilitySystem.IsValid() && Attack.AbilityTag.IsValid() : true;
+			: Attack.Action == EFPSRLEnemyAttackAction::GameplayAbility ? AbilitySystem.IsValid() && Attack.AbilityTag.IsValid()
+			: Attack.Action == EFPSRLEnemyAttackAction::LeapSlam ? PlanLeap(Attack, nullptr) : true;
 		if (bAvailable)
 		{
 			Best = Index;
@@ -1310,25 +1311,23 @@ void AFPSRLEnemyAIController::StartLeap(const FFPSRLEnemyAttack& Attack)
 	StopMovement();
 	bMoving = false;
 
-	// Lands where the target stands now (the navmesh under it), no farther than the attack reaches.
-	const FVector Start = EnemyCharacter->GetActorLocation();
-	const float HalfHeight = EnemyCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	FVector Goal = Current->GetActorLocation();
-	if (FVector::Dist2D(Start, Goal) > Attack.MaxRange)
+	// The target may have moved behind cover during the roar: no clear arc now -> cancel and try again shortly.
+	FVector Velocity;
+	if (!PlanLeap(Attack, &Velocity))
 	{
-		Goal = Start + (Goal - Start).GetSafeNormal2D() * Attack.MaxRange + FVector(0.f, 0.f, Goal.Z - Start.Z);
+		UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s cancels its leap: no clear path to %s"), *EnemyCharacter->GetName(), *GetNameSafe(Current));
+		const int32 LeapIndex = CurrentAttack;
+		CancelAttack(0.f);
+		if (AttackReadyTimes.IsValidIndex(LeapIndex))
+		{
+			AttackReadyTimes[LeapIndex] = GetWorld()->GetTimeSeconds() + 1.f;
+		}
+		++LeapsCancelled;
+		return;
 	}
-	FVector OnNav;
-	if (ProjectToNav(Goal, OnNav))
-	{
-		Goal = OnNav + FVector(0.f, 0.f, HalfHeight);
-	}
-	// A ballistic arc that gets there in LeapSeconds.
 	const float Seconds = Attack.LeapSeconds;
-	const float Gravity = EnemyCharacter->GetCharacterMovement()->GetGravityZ();
-	const FVector Delta = Goal - Start;
 	BeginAirborne(EnemyCharacter);
-	EnemyCharacter->LaunchCharacter(FVector(Delta.X / Seconds, Delta.Y / Seconds, Delta.Z / Seconds - 0.5f * Gravity * Seconds), true, true);
+	EnemyCharacter->LaunchCharacter(Velocity, true, true);
 	bLeaping = true;
 	EnemyCharacter->LandedDelegate.AddUniqueDynamic(this, &ThisClass::HandleLeapLanded);
 	GetWorldTimerManager().SetTimer(LeapSafetyTimer, this, &ThisClass::FinishLeap, Seconds + 1.5f, false);
@@ -1450,4 +1449,56 @@ void AFPSRLEnemyAIController::HandleProjectileHit(float Damage, APawn* Attacker)
 		}
 	}), FMath::Max(0.05f, Profile->PhaseSeconds), false);
 	UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s phases away from %s"), *EnemyCharacter->GetName(), *GetNameSafe(Attacker));
+}
+
+bool AFPSRLEnemyAIController::PlanLeap(const FFPSRLEnemyAttack& Attack, FVector* OutVelocity) const
+{
+	const ACharacter* EnemyCharacter = Cast<ACharacter>(GetPawn());
+	const AActor* Current = Target.Get();
+	if (!EnemyCharacter || !Current)
+	{
+		return false;
+	}
+	// Lands where the target stands now (the navmesh under it), no farther than the attack reaches.
+	const FVector Start = EnemyCharacter->GetActorLocation();
+	const float Radius = EnemyCharacter->GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const float HalfHeight = EnemyCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	FVector Goal = Current->GetActorLocation();
+	if (FVector::Dist2D(Start, Goal) > Attack.MaxRange)
+	{
+		Goal = Start + (Goal - Start).GetSafeNormal2D() * Attack.MaxRange + FVector(0.f, 0.f, Goal.Z - Start.Z);
+	}
+	FVector OnNav;
+	if (ProjectToNav(Goal, OnNav))
+	{
+		Goal = OnNav + FVector(0.f, 0.f, HalfHeight);
+	}
+	// A ballistic arc that gets there in LeapSeconds.
+	const float Seconds = Attack.LeapSeconds;
+	const float Gravity = EnemyCharacter->GetCharacterMovement()->GetGravityZ();
+	const FVector Delta = Goal - Start;
+	const FVector Velocity(Delta.X / Seconds, Delta.Y / Seconds, Delta.Z / Seconds - 0.5f * Gravity * Seconds);
+
+	// The whole arc must be clear of level geometry (walls, ceilings, pillars, ledges): its body swept along it, a bit
+	// slimmer so brushing a floor or a corner doesn't count. Players and enemies don't block it.
+	const FCollisionShape Body = FCollisionShape::MakeCapsule(Radius * 0.8f, HalfHeight * 0.8f);
+	const FCollisionObjectQueryParams Geometry(FCollisionObjectQueryParams::InitType::AllStaticObjects);
+	FCollisionQueryParams Params(TEXT("LeapArc"), false, EnemyCharacter);
+	constexpr int32 Steps = 10;
+	FVector Previous = Start;
+	for (int32 Step = 1; Step <= Steps; ++Step)
+	{
+		const float Time = Seconds * Step / Steps;
+		const FVector Point = Start + Velocity * Time + FVector(0.f, 0.f, 0.5f * Gravity * Time * Time);
+		if (GetWorld()->SweepTestByObjectType(Previous, Point, FQuat::Identity, Geometry, Body, Params))
+		{
+			return false;
+		}
+		Previous = Point;
+	}
+	if (OutVelocity)
+	{
+		*OutVelocity = Velocity;
+	}
+	return true;
 }
