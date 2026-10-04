@@ -384,6 +384,9 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 			bool bShots = false;
 			bool bStrafe = false;
 			float HostTopSpeed = 0.f;
+			/** Per enemy: since when it has been attacking / recovering without a break; the longest such stretch seen. */
+			TMap<TWeakObjectPtr<const APawn>, double> InAttackSince;
+			double LongestInAttack = 0.0;
 			int32 ShotsTaken = 0;
 			double NextShot = 0.0;
 		};
@@ -427,6 +430,16 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 				++Active;
 				Leaps += It->GetLeapsLanded();
 				Phases += It->GetPhases();
+				const bool bInAttack = It->GetAIState() == EFPSRLEnemyAIState::Attacking || It->GetAIState() == EFPSRLEnemyAIState::Recovering;
+				if (bInAttack)
+				{
+					const double Since = W->InAttackSince.FindOrAdd(Pawn, Now);
+					W->LongestInAttack = FMath::Max(W->LongestInAttack, Now - Since);
+				}
+				else
+				{
+					W->InAttackSince.Remove(Pawn);
+				}
 				const FString Class = Pawn->GetClass()->GetName();
 				const float Speed = Pawn->GetVelocity().Size2D();
 				W->TopSpeed.FindOrAdd(Class) = FMath::Max(W->TopSpeed.FindRef(Class), Speed);
@@ -479,6 +492,7 @@ static FAutoConsoleCommandWithWorldAndArgs GFPSRLEnemyMotionWatchCommand(TEXT("F
 				Attacks += It->GetAttacksExecuted();
 			}
 			UE_LOG(LogFPSRL, Log, TEXT("[Motion] attacks %d, melee hits %d, leaps cancelled (no clear path) %d (enemies alive now); host top speed %.0f"), Attacks, MeleeHits, LeapsCancelled, W->HostTopSpeed);
+			UE_LOG(LogFPSRL, Log, TEXT("[Motion] longest unbroken attack / recovery by one enemy: %.1f s (frozen if much longer than an attack)"), W->LongestInAttack);
 			UE_LOG(LogFPSRL, Log, TEXT("[Motion] done: %d leap(s) landed, %d phase(s) (enemies alive now)"), Leaps, Phases);
 			return false;
 		}));

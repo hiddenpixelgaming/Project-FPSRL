@@ -521,7 +521,18 @@ void AFPSRLEnemyAIController::Think()
 	}
 	if (State == EFPSRLEnemyAIState::Attacking || State == EFPSRLEnemyAIState::Recovering)
 	{
-		return;	// the attack's timers drive these
+		// Safety net: nothing is driving the attack any more (no timer, not in the air) - never freeze in it.
+		if (!GetWorldTimerManager().IsTimerActive(AttackTimer) && !bLeaping)
+		{
+			UE_LOG(LogFPSRL, Log, TEXT("[AI] %s was left in %s with nothing driving it: back to normal"), *GetNameSafe(GetPawn()), *UEnum::GetValueAsString(State));
+			CurrentAttack = INDEX_NONE;
+			bExecuting = false;
+			SetState(Target.IsValid() ? EFPSRLEnemyAIState::Positioning : EFPSRLEnemyAIState::Idle);
+		}
+		else
+		{
+			return;	// the attack's timers drive these
+		}
 	}
 
 	// Re-evaluate the strategy now and then (each enemy on its own).
@@ -1180,6 +1191,12 @@ void AFPSRLEnemyAIController::CancelAttack(float RecoverySeconds)
 	else
 	{
 		CurrentAttack = INDEX_NONE;
+		// No recovery: straight back to its normal behaviour (left in Attacking it would never act again - a Brute whose
+		// leap was cancelled stood frozen, playtest v0.1.45).
+		if (State == EFPSRLEnemyAIState::Attacking || State == EFPSRLEnemyAIState::Recovering)
+		{
+			SetState(Target.IsValid() ? EFPSRLEnemyAIState::Positioning : EFPSRLEnemyAIState::Idle);
+		}
 	}
 }
 
