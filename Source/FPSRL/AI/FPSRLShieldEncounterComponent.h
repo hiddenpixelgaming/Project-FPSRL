@@ -13,6 +13,7 @@ UENUM(BlueprintType)
 enum class EFPSRLShieldPhase : uint8
 {
 	Idle,				// normal combat (or waiting for the next mechanic)
+	Throwing,			// its mines are flying out all round it: the pull is coming
 	Charging,			// players brought in, platforms lit, the boss charges its shockwave
 	AwaitingPlayers,	// the shockwave is out; not every required player is on a lit platform (disruption paused)
 	Disrupting,			// every required player is placed: Shield Disruption charging
@@ -51,6 +52,8 @@ public:
 	float GetDisruptionFraction() const { return DisruptionSeconds > 0.f ? FMath::Clamp(DisruptionProgress / DisruptionSeconds, 0.f, 1.f) : 0.f; }
 	float GetDisruptionSecondsLeft() const { return FMath::Max(0.f, DisruptionSeconds - DisruptionProgress); }
 	int32 GetRequiredCount() const { return RequiredCount; }
+	/** The pull under way is a forced one (nobody was in sight): no platforms. */
+	bool IsForcedPull() const { return bForcedPullShown; }
 
 	/** Any machine: the shields / phase / disruption changed (the HUD). */
 	FSimpleMulticastDelegate OnStateChanged;
@@ -70,6 +73,10 @@ private:
 	void Watch();
 	void ScheduleMechanic();
 	void StartMechanic();
+	/** A pull: mines thrown, then players pulled in; forced (nobody in sight) = a short charge and no platforms. */
+	void StartPull(bool bForced);
+	void PullAndCharge();
+	void CheckSight();
 	void ReleaseShockwave();
 	void CheckPlayers();
 	void BreakShield();
@@ -103,7 +110,14 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_State)
 	int32 RequiredCount = 0;
 
+	UPROPERTY(ReplicatedUsing = OnRep_State)
+	bool bForcedPullShown = false;
+
 	bool bActive = false;
+	bool bForcedPull = false;
+	double BlindSince = 0.0;
+	double NextForcedPull = 0.0;
+	FTimerHandle BlindTimer;
 	bool bDead = false;
 	double LastCheckTime = 0.0;
 	uint32 LastSelection = 0;

@@ -27,19 +27,29 @@ class FPSRL_API AFPSRLLandmine : public AActor
 public:
 	AFPSRLLandmine();
 
-	/** Server: a mine at GroundLocation (the floor). Source = the boss that placed it. */
-	static AFPSRLLandmine* Spawn(APawn* Source, const FVector& GroundLocation, float TriggerRadius, float ExplosionRadius, float Damage, float ArmSeconds);
+	/** Server: a mine landing at GroundLocation (the floor). Source = the boss that placed it. FlightSeconds > 0: it is
+	 *  thrown from FlightFrom and lands on an arc first (arming starts when it lands). */
+	static AFPSRLLandmine* Spawn(APawn* Source, const FVector& GroundLocation, float TriggerRadius, float ExplosionRadius, float Damage, float ArmSeconds,
+		const FVector& FlightFrom = FVector::ZeroVector, float FlightSeconds = 0.f);
+
+	/** Server: throws Settings.MinesPerThrow mines (the oldest ones go at the cap) out from the boss all at once, spread all round it,
+	 *  onto free floor: its arena's reachable ground at its own floor level, never on a platform, never under a player,
+	 *  never inside another mine's reach. Returns how many. */
+	static int32 ThrowAround(APawn* Boss, const struct FFPSRLMineSettings& Settings);
 
 	/** The mines a boss has down now. */
 	static TArray<AFPSRLLandmine*> GetMinesOf(const APawn* Source);
 
 	bool IsArmed() const { return bArmed; }
 	float GetTriggerRadius() const { return TriggerRadius; }
+	bool HasLanded() const { return bLanded; }
+	const FVector& GetDestination() const { return Destination; }
 
 	/** Server: blow it up now (a player stepped in, or a test). */
 	void Detonate();
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void Tick(float DeltaSeconds) override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -52,6 +62,7 @@ private:
 	void HandleOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
 
 	void Arm();
+	void Land();
 	bool IsTriggeringPlayer(const AActor* Actor) const;
 
 	UPROPERTY(Replicated)
@@ -60,10 +71,23 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_Armed)
 	bool bArmed = false;
 
+	/** The throw: from, to, how long (initial-only; every machine flies it the same). */
+	UPROPERTY(Replicated)
+	FVector FlightFrom = FVector::ZeroVector;
+
+	UPROPERTY(Replicated)
+	FVector Destination = FVector::ZeroVector;
+
+	UPROPERTY(Replicated)
+	float FlightSeconds = 0.f;
+
+	double FlightStart = 0.0;
+
 	float ExplosionRadius = 300.f;
 	float Damage = 40.f;
 	float ArmSeconds = 1.5f;
 	bool bDetonated = false;
+	bool bLanded = false;
 	FTimerHandle ArmTimer;
 
 	UPROPERTY(VisibleAnywhere, Category = "Mine")

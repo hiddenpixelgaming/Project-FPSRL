@@ -1,5 +1,6 @@
 """Miniboss #1 Ground Juggernaut (user spec 2026-10-05): a stationary war machine. Two shield layers broken by the
-four-platform mechanic (UFPSRLShieldEncounterComponent), Grounded Missiles (GroundStrike), landmines (DeployMines).
+four-platform mechanic (UFPSRLShieldEncounterComponent), mines thrown out at every pull, a forced pull when nobody is in
+its sight, and a 3-shot volley + heavy shot (VolleyHeavy).
 Creates / updates: BP_Enemy_Juggernaut (child of the shooter enemy, its pistol hidden), DA_EnemyBehavior_Juggernaut,
 DA_Enemy_Juggernaut (the Fab MPMECH mech as its placeholder body), DA_Encounter_GroundJuggernaut.
 Run with the editor closed: UnrealEditor-Cmd FPSRL.uproject -run=pythonscript -script=<this file>
@@ -15,6 +16,7 @@ NPC = "/Game/Variant_Shooter/Blueprints/AI/BP_ShooterNPC.BP_ShooterNPC_C"
 PISTOL = "/Game/Variant_Shooter/Blueprints/Pickups/Weapons/BP_ShooterWeapon_Pistol.BP_ShooterWeapon_Pistol_C"
 MECH = "/Game/MPMECH/MESHES/SK_MPMECH_LOD0"
 MECH_ANIM = "/Game/MPMECH/BP/ABP_MPMECH.ABP_MPMECH_C"
+BULLET = "/Game/Variant_Shooter/Blueprints/Pickups/Projectiles/BP_ShooterProjectile_Bullet.BP_ShooterProjectile_Bullet_C"
 Action = unreal.FPSRLEnemyAttackAction
 
 
@@ -45,7 +47,15 @@ cls = unreal.BlueprintEditorLibrary.generated_class(bp)
 unreal.get_default_object(cls).set_editor_property("Weapon Class", unreal.load_class(None, PISTOL))
 lib.save_loaded_asset(bp)
 
-# --- behaviour: never moves, sees everyone, missiles + mines; the shield encounter's numbers --------------------------
+# Mines (playtest v0.1.47): no longer laid on a timer - thrown out all at once, spread all round it, at the start of
+# every pull (the warning that the pull is coming): 6 per throw, at most 8 down, 9-16 m out, 1 s in the air, armed 1.5 s
+# after landing, 40 in 3 m.
+mines = unreal.FPSRLMineSettings()
+for key, value in dict(mines_per_throw=6, max_active_mines=8, trigger_radius=150.0, explosion_radius=300.0, damage=40.0,
+                       throw_seconds=1.0, arm_seconds=1.5, min_distance=900.0, max_distance=1600.0).items():
+    mines.set_editor_property(key, value)
+
+# --- behaviour: never moves, sees everyone, the volley; the shield encounter's numbers ------ --------------------------
 profile = copy(DATA, "DA_EnemyBehavior_Shooter", "DA_EnemyBehavior_Juggernaut")
 values = dict(
     movement_style=unreal.FPSRLMovementStyle.STATIONARY, preferred_min_distance=0.0, preferred_max_distance=9000.0,
@@ -53,26 +63,25 @@ values = dict(
     proximity_aggro_radius=3000.0, damage_response=unreal.FPSRLDamageResponse.KEEP_ATTACKING,
     lost_sight_response=unreal.FPSRLLostSightResponse.REPOSITION, squad_movement=False, phase_on_projectile_hit=False,
     attacks=[
-        # Landmines: every 8 s while a shield stands, 2 at a time, at most 8 down (it waits at the cap).
-        attack(name="Mines", action=Action.DEPLOY_MINES, priority=20, min_range=0.0, max_range=9000.0, max_angle=180.0,
-               requires_line_of_sight=False, cooldown=8.0, windup_seconds=0.3, execute_seconds=0.1, recovery_seconds=0.3,
-               hold_position=True, only_while_shielded=True, mines_per_deploy=2, max_active_mines=8,
-               mine_trigger_radius=150.0, mine_explosion_radius=300.0, mine_damage=40.0, mine_arm_seconds=1.5,
-               mine_placement_radius=1900.0),
-        # Grounded Missiles: every 4 s a mark under every player, 1.2 s warning, 25 damage in 3 m.
-        attack(name="Missiles", action=Action.GROUND_STRIKE, priority=10, min_range=0.0, max_range=9000.0, max_angle=180.0,
-               requires_line_of_sight=False, cooldown=4.0, windup_seconds=0.4, execute_seconds=0.1, recovery_seconds=0.4,
-               hold_position=True, strike_warning_seconds=1.2, strike_radius=300.0, strike_damage=25.0, strike_targets=0),
+        # A basic dodgeable attack (playtest v0.1.47): 3 slow shots at its target, then the Marksman-style heavy shot
+        # (the laser for 1 s, then a fast 50). Needs to see its target. The missiles are kept for another boss.
+        attack(name="Volley", action=Action.VOLLEY_HEAVY, priority=10, min_range=0.0, max_range=9000.0, max_angle=25.0,
+               requires_line_of_sight=True, cooldown=2.5, windup_seconds=0.4, execute_seconds=0.1, recovery_seconds=0.6,
+               hold_position=True, volley_projectile=unreal.load_class(None, BULLET), volley_shots=3, volley_interval=0.35,
+               volley_damage=15.0, volley_speed=0.35, heavy_aim_seconds=1.0, heavy_damage=50.0, heavy_speed=0.9),
     ],
     shield_layers=2, shield_mechanic_interval=30.0, shield_charge_seconds=2.0, shield_disruption_seconds=5.0,
     shield_reposition_radius=450.0, shield_shockwave_damage=150.0, shield_shockwave_radius=1500.0,
     shield_shockwave_speed=1100.0, shield_shockwave_height=45.0,
-    reference_behaviour="Ground Juggernaut (Miniboss #1, user spec 2026-10-05): a stationary war machine. Two shield "
-        "layers: its health can't be hurt until both are broken from the arena's four platforms - every 30 s the "
-        "standing players are pulled next to it, as many platforms as players light up, it charges 2 s and sends out "
-        "a jumpable shockwave (150); once every standing player is on a lit platform, 5 s of Shield Disruption breaks "
-        "a layer (stepping off pauses it). Grounded Missiles every 4 s (a mark under every player, 1.2 s, 25 in 3 m). "
-        "Landmines every 8 s while shielded (2 at a time, up to 8; 40 in 3 m; they stay until stepped on).")
+    shield_mines=mines, forced_pull_blind_seconds=4.0, forced_pull_cooldown=12.0, forced_pull_charge_seconds=0.6,
+    reference_behaviour="Ground Juggernaut (Miniboss #1, user spec 2026-10-05, reworked after playtest v0.1.47): a "
+        "stationary war machine. Two shield layers: its health can't be hurt until both are broken from the arena's four "
+        "platforms. Every 30 s it throws 6 mines out all round it (the warning), pulls the standing players next to it, "
+        "lights as many platforms as players, charges 2 s and sends out a jumpable shockwave (150); once every standing "
+        "player is on a lit platform, 5 s of Shield Disruption breaks a layer (stepping off pauses it). Nobody in its "
+        "sight for 4 s: a forced pull - mines, pull, the shockwave after 0.6 s, no platforms (12 s cooldown). Its attack: "
+        "3 slow dodgeable shots (15), then a laser for 1 s and a heavy shot (50).",
+)
 for key, value in values.items():
     profile.set_editor_property(key, value)
 lib.save_loaded_asset(profile)

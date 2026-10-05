@@ -38,7 +38,7 @@ IDLE = MANNY + "MM_Idle"
 
 ROLES = {
     "Brute": dict(
-        weapon=PISTOL, hide_weapon=True, health=7.0, damage=2.0, scale=1.2, speed=520.0, anim_class=None,
+        weapon=PISTOL, hide_weapon=True, health=7.0, damage=2.0, scale=1.0, body_scale=1.2, speed=520.0, anim_class=None,
         body=TROOPERS + "SciFITrooper-02/SkeletalMesh/SK_SciFiTrooperV2",
         # Locomotion: (animation, the speed it was authored for). Mixamo / Mannequin travel measured from the root.
         anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(MANNY + "Jog/MF_Unarmed_Jog_Fwd", 600.0)),
@@ -64,7 +64,7 @@ ROLES = {
              "1 s, then rushes the nearest player with heavy overhead swings (0.9 s wind-up, 30 x2 damage, 2 m wide sweep, "
              "3.2 m reach). Leaps again every 9 s when its target is 5-25 m away. Health 7x a Grunt's."),
     "Skirmisher": dict(
-        weapon=PISTOL, hide_weapon=True, health=130.0 / 150.0, damage=2.0, scale=1.0, speed=900.0, anim_class=None,
+        weapon=PISTOL, hide_weapon=True, health=130.0 / 150.0, damage=2.0, scale=1.0, body_scale=1.0, speed=900.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_01/SkeletalMesh/SK_SciFiTrooperGirlV1",
         anim_set=dict(idle=IDLE, walk=(MANNY + "Walk/MF_Unarmed_Walk_Fwd", 300.0), run=(ANIMS + "Sprint_Mannequin", 596.0)),
         anims={"Stab": (ANIMS + "Stabbing_Mannequin", 0.0, 0.85, 1.6),
@@ -82,7 +82,7 @@ ROLES = {
              "Shot by a player: leaps back away from the shooter (0.22 s) and phases for 4 s - bullets pass through it and do "
              "nothing, melee still hurts - then can't phase again for 3 s."),
     "Marksman": dict(
-        weapon=RIFLE, hide_weapon=False, health=1.2, damage=4.5, scale=1.0, speed=450.0, anim_class=None,
+        weapon=RIFLE, hide_weapon=False, health=1.2, damage=4.5, scale=1.0, body_scale=1.0, speed=450.0, anim_class=None,
         body=TROOPERS + "SciFITrooper_Girl_02/SkeletalMesh/SK_SciFiTrooperGirlV2",
         anim_set=None,
         anims={},
@@ -159,6 +159,9 @@ for role, r in ROLES.items():
         anim_set.set_editor_property("run_anim_speed", r["anim_set"]["run"][1])
     definition.set_editor_property("anim_set", anim_set)
     definition.set_editor_property("scale", r["scale"])
+    # The Brute looks 1.2x but keeps a normal hit box: a wider capsule than the navmesh is built for wedged it on columns
+    # (playtest v0.1.47).
+    definition.set_editor_property("body_scale", r["body_scale"])
     definition.set_editor_property("walk_speed", r["speed"])
     definition.set_editor_property("hide_weapon", r["hide_weapon"])
     lib.save_loaded_asset(definition)

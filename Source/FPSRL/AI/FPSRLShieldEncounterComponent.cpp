@@ -4,6 +4,7 @@
 #include "AI/FPSRLEnemyAIController.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
 #include "Combat/FPSRLGroundStrike.h"
+#include "Combat/FPSRLLandmine.h"
 #include "Combat/FPSRLShockwave.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/FPSRLHealthComponent.h"
@@ -49,6 +50,7 @@ void UFPSRLShieldEncounterComponent::GetLifetimeReplicatedProps(TArray<FLifetime
 	DOREPLIFETIME(UFPSRLShieldEncounterComponent, DisruptionProgress);
 	DOREPLIFETIME(UFPSRLShieldEncounterComponent, DisruptionSeconds);
 	DOREPLIFETIME(UFPSRLShieldEncounterComponent, RequiredCount);
+	DOREPLIFETIME(UFPSRLShieldEncounterComponent, bForcedPullShown);
 }
 
 void UFPSRLShieldEncounterComponent::BeginPlay()
@@ -99,6 +101,7 @@ void UFPSRLShieldEncounterComponent::Watch()
 		return;
 	}
 	bActive = true;
+	BlindSince = GetWorld()->GetTimeSeconds();	// the blind clock starts now (players are still coming in)
 	GetWorld()->GetTimerManager().ClearTimer(WatchTimer);
 	ShieldLayers = Profile->ShieldLayers;
 	ShieldsRemaining = ShieldLayers;
@@ -111,6 +114,7 @@ void UFPSRLShieldEncounterComponent::Watch()
 	OnRep_State();	// the HUD and the shield glow (the server has no OnRep)
 	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %s: encounter on, %d shield layer(s)"), *GetOwner()->GetName(), ShieldsRemaining);
 	ScheduleMechanic();
+	GetWorld()->GetTimerManager().SetTimer(BlindTimer, this, &ThisClass::CheckSight, 0.5f, true);
 }
 
 void UFPSRLShieldEncounterComponent::ScheduleMechanic()
@@ -152,17 +156,52 @@ TArray<APawn*> UFPSRLShieldEncounterComponent::GetStandingPlayers() const
 
 void UFPSRLShieldEncounterComponent::StartMechanic()
 {
+	StartPull(false);
+}
+
+void UFPSRLShieldEncounterComponent::StartPull(bool bForced)
+{
+	const UFPSRLEnemyBehaviorProfile* Profile = GetProfile();
+	ACharacter* Boss = Cast<ACharacter>(GetOwner());
+	const TArray<APawn*> Players = GetStandingPlayers();
+	const TArray<AFPSRLShieldPlatform*> Platforms = AFPSRLShieldPlatform::FindAround(GetWorld(), Boss->GetActorLocation(), FPSRLShieldEncounter::PlatformSearchRadius);
+	if (!bForced && Phase != EFPSRLShieldPhase::Idle)
+	{
+		GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::StartMechanic, 3.f, false);	// a forced pull is under way
+		return;
+	}
+	if (!Profile || bDead || Players.IsEmpty() || (!bForced && (ShieldsRemaining <= 0 || Platforms.IsEmpty())))
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] pull skipped (%d standing player(s), %d platform(s))"), Players.Num(), Platforms.Num());
+		if (!bForced)
+		{
+			ScheduleMechanic();
+		}
+		return;
+	}
+	SetAttacksPaused(true);
+	bForcedPull = bForced;
+	bForcedPullShown = bForced;
+
+	// 1. The warning: every mine it has thrown out at once, spread all round it. Then the pull.
+	SetPhase(EFPSRLShieldPhase::Throwing);
+	AFPSRLLandmine::ThrowAround(Boss, Profile->ShieldMines);
+	GetWorld()->GetTimerManager().SetTimer(ChargeTimer, this, &ThisClass::PullAndCharge, Profile->ShieldMines.ThrowSeconds + 0.2f, false);
+	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %s: mines thrown, the pull comes in %.1f s"), bForced ? TEXT("FORCED PULL (nobody in sight)") : TEXT("platform mechanic"),
+		Profile->ShieldMines.ThrowSeconds + 0.2f);
+}
+
+void UFPSRLShieldEncounterComponent::PullAndCharge()
+{
 	const UFPSRLEnemyBehaviorProfile* Profile = GetProfile();
 	ACharacter* Boss = Cast<ACharacter>(GetOwner());
 	TArray<APawn*> Players = GetStandingPlayers();
 	TArray<AFPSRLShieldPlatform*> Platforms = AFPSRLShieldPlatform::FindAround(GetWorld(), Boss->GetActorLocation(), FPSRLShieldEncounter::PlatformSearchRadius);
-	if (!Profile || ShieldsRemaining <= 0 || bDead || Players.IsEmpty() || Platforms.IsEmpty())
+	if (!Profile || bDead || Players.IsEmpty())
 	{
-		UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] platform mechanic skipped (%d standing player(s), %d platform(s))"), Players.Num(), Platforms.Num());
-		ScheduleMechanic();
+		EndMechanic(!bForcedPull);
 		return;
 	}
-	SetAttacksPaused(true);
 
 	// 1. The standing players: brought next to the boss, spread around it (never inside each other), facing it.
 	Required.Reset();
@@ -194,9 +233,14 @@ void UFPSRLShieldEncounterComponent::StartMechanic()
 	RequiredCount = Required.Num();
 
 	// 2. As many platforms as standing players (up to the four), a different combination than last time when possible.
-	const int32 Count = FMath::Clamp(Required.Num(), 1, Platforms.Num());
+	//    Not for a forced pull: it only punishes hiding (no shield progress).
+	if (bForcedPull)
+	{
+		Platforms.Reset();
+	}
+	const int32 Count = FMath::Clamp(Required.Num(), 1, FMath::Max(1, Platforms.Num()));
 	uint32 Selection = 0;
-	for (int32 Try = 0; Try < 12 && (Selection == 0 || (Selection == LastSelection && Count < Platforms.Num())); ++Try)
+	for (int32 Try = 0; Try < 12 && !Platforms.IsEmpty() && (Selection == 0 || (Selection == LastSelection && Count < Platforms.Num())); ++Try)
 	{
 		TArray<int32> Order;
 		for (int32 Index = 0; Index < Platforms.Num(); ++Index)
@@ -213,7 +257,10 @@ void UFPSRLShieldEncounterComponent::StartMechanic()
 			Selection |= 1u << Order[Pick];
 		}
 	}
-	LastSelection = Selection;
+	if (!Platforms.IsEmpty())
+	{
+		LastSelection = Selection;
+	}
 	Highlighted.Reset();
 	TArray<FString> Names;
 	for (int32 Index = 0; Index < Platforms.Num(); ++Index)
@@ -227,17 +274,18 @@ void UFPSRLShieldEncounterComponent::StartMechanic()
 		}
 	}
 
-	// 3. The charge: its blast area fills on the floor while it charges.
+	// 3. The charge: its blast area fills on the floor while it charges (a forced pull barely waits).
+	const float Charge = bForcedPull ? Profile->ForcedPullChargeSeconds : Profile->ShieldChargeSeconds;
 	DisruptionProgress = 0.f;
 	SetPhase(EFPSRLShieldPhase::Charging);
-	AFPSRLGroundStrike::Spawn(Boss, FVector(Center.X, Center.Y, Floor), Profile->ShieldShockwaveRadius, Profile->ShieldChargeSeconds, 0.f);
+	AFPSRLGroundStrike::Spawn(Boss, FVector(Center.X, Center.Y, Floor), Profile->ShieldShockwaveRadius, Charge, 0.f);
 	if (UFPSRLEnemyRoleComponent* RoleView = Boss->FindComponentByClass<UFPSRLEnemyRoleComponent>())
 	{
-		RoleView->PlayAction(TEXT("ShieldCharge"), Profile->ShieldChargeSeconds);
+		RoleView->PlayAction(TEXT("ShieldCharge"), Charge);
 	}
-	GetWorld()->GetTimerManager().SetTimer(ChargeTimer, this, &ThisClass::ReleaseShockwave, Profile->ShieldChargeSeconds, false);
-	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] platform mechanic: %d standing player(s) brought in, platforms lit [%s], charging %.1f s (shield %d of %d)"),
-		Required.Num(), *FString::Join(Names, TEXT(", ")), Profile->ShieldChargeSeconds, ShieldLayers - ShieldsRemaining + 1, ShieldLayers);
+	GetWorld()->GetTimerManager().SetTimer(ChargeTimer, this, &ThisClass::ReleaseShockwave, Charge, false);
+	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %d standing player(s) pulled in, platforms lit [%s], charging %.1f s (%s)"), Required.Num(),
+		*FString::Join(Names, TEXT(", ")), Charge, bForcedPull ? TEXT("forced: no platforms") : *FString::Printf(TEXT("shield %d of %d"), ShieldLayers - ShieldsRemaining + 1, ShieldLayers));
 }
 
 void UFPSRLShieldEncounterComponent::ReleaseShockwave()
@@ -250,6 +298,13 @@ void UFPSRLShieldEncounterComponent::ReleaseShockwave()
 	}
 	const FVector Floor = Boss->GetActorLocation() - FVector(0.f, 0.f, Boss->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 	AFPSRLShockwave::Spawn(Boss, Floor, Profile->ShieldShockwaveDamage, Profile->ShieldShockwaveRadius, Profile->ShieldShockwaveSpeed, Profile->ShieldShockwaveHeight);
+	if (bForcedPull)
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] forced pull over (shockwave %.0f); no platforms"), Profile->ShieldShockwaveDamage);
+		NextForcedPull = GetWorld()->GetTimeSeconds() + Profile->ForcedPullCooldown;
+		EndMechanic(false);
+		return;
+	}
 	SetPhase(EFPSRLShieldPhase::AwaitingPlayers);
 	LastCheckTime = GetWorld()->GetTimeSeconds();
 	GetWorld()->GetTimerManager().SetTimer(CheckTimer, this, &ThisClass::CheckPlayers, FPSRLShieldEncounter::CheckInterval, true);
@@ -369,10 +424,9 @@ void UFPSRLShieldEncounterComponent::EndMechanic(bool bResumeLater)
 	Required.Reset();
 	RequiredCount = 0;
 	DisruptionProgress = 0.f;
-	if (Phase != EFPSRLShieldPhase::Vulnerable)
-	{
-		SetPhase(EFPSRLShieldPhase::Idle);
-	}
+	bForcedPullShown = false;
+	bForcedPull = false;
+	SetPhase(ShieldsRemaining > 0 ? EFPSRLShieldPhase::Idle : EFPSRLShieldPhase::Vulnerable);
 	SetAttacksPaused(false);
 	if (bResumeLater)
 	{
@@ -402,6 +456,7 @@ void UFPSRLShieldEncounterComponent::SetAttacksPaused(bool bPaused)
 void UFPSRLShieldEncounterComponent::HandleDeath(AController* Killer, AActor* Causer)
 {
 	bDead = true;
+	GetWorld()->GetTimerManager().ClearTimer(BlindTimer);
 	GetWorld()->GetTimerManager().ClearTimer(MechanicTimer);
 	EndMechanic(false);
 }
@@ -447,4 +502,31 @@ void UFPSRLShieldEncounterComponent::OnRep_State()
 		UE_LOG(LogFPSRL, Verbose, TEXT("[Juggernaut] shield dome %s (%d layer(s))"), ShieldsRemaining > 0 ? TEXT("up") : TEXT("gone"), ShieldsRemaining);
 	}
 	OnStateChanged.Broadcast();
+}
+
+void UFPSRLShieldEncounterComponent::CheckSight()
+{
+	// Nobody it can see for ForcedPullBlindSeconds (players hiding behind cover / out of its sight): a forced pull.
+	const UFPSRLEnemyBehaviorProfile* Profile = GetProfile();
+	const APawn* Boss = Cast<APawn>(GetOwner());
+	const AFPSRLEnemyAIController* AI = Boss ? Cast<AFPSRLEnemyAIController>(Boss->GetController()) : nullptr;
+	const double Now = GetWorld()->GetTimeSeconds();
+	if (!Profile || !AI || bDead || (Phase != EFPSRLShieldPhase::Idle && Phase != EFPSRLShieldPhase::Vulnerable))
+	{
+		BlindSince = Now;
+		return;
+	}
+	const TArray<APawn*> Players = GetStandingPlayers();
+	const bool bSeesAnyone = Players.ContainsByPredicate([AI](const APawn* Player) { return AI->HasLineOfSightTo(Player); });
+	if (bSeesAnyone || Players.IsEmpty())
+	{
+		BlindSince = Now;
+		return;
+	}
+	if (Now - BlindSince >= Profile->ForcedPullBlindSeconds && Now >= NextForcedPull)
+	{
+		UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] nobody in sight for %.1f s"), Now - BlindSince);
+		BlindSince = Now;
+		StartPull(true);
+	}
 }

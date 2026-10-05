@@ -90,6 +90,8 @@ public:
 	int32 GetMoveFailures() const { return MoveFailures; }
 	int32 GetLeapsLanded() const { return LeapsLanded; }
 	int32 GetLeapsCancelled() const { return LeapsCancelled; }
+	int32 GetProjectilesFired() const { return ProjectilesFired; }
+	int32 GetTimesStuck() const { return TimesStuck; }
 
 	/** An encounter mechanic pauses its attacks (the Juggernaut's platforms): none start; one in progress is cancelled. */
 	void SetAttacksPaused(bool bPaused);
@@ -156,6 +158,15 @@ private:
 	void ExecuteGroundStrike(const FFPSRLEnemyAttack& Attack);
 	/** DeployMines: landmines on free floor around it, up to its cap. */
 	void DeployMines(const FFPSRLEnemyAttack& Attack);
+	/** VolleyHeavy: the next step of the volley (a slow shot, the aim line, or the heavy shot). */
+	void FireVolleyShot();
+	/** Stuck twice in the same place: walk to a reachable spot 2-5 m away (not towards BlockedToward) before chasing again.
+	 *  bStranded (its path is partial: ground the navmesh doesn't join to the target's): walk straight at the target instead. */
+	void StepAside(const FVector& BlockedToward, bool bStranded);
+	void HopAtTarget();
+	void FireProjectileAtTarget(const FFPSRLEnemyAttack& Attack, float Damage, float SpeedMultiplier);
+	int32 VolleyShotsLeft = 0;
+	bool bHeavyAiming = false;
 	UFUNCTION()
 	void HandleLeapLanded(const FHitResult& Hit);
 	void FinishLeap();
@@ -229,6 +240,15 @@ private:
 	int32 LeapsLanded = 0;
 	int32 LeapsCancelled = 0;
 	bool bAttacksPaused = false;
+	int32 ProjectilesFired = 0;
+	double StuckSince = -1.0;
+	int32 TimesStuck = 0;
+	FVector LastStuckLocation = FVector::ZeroVector;
+	double LastStuckTime = -100.0;
+	double SteppingAsideUntil = 0.0;
+	int32 StuckRepeats = 0;
+	/** Where its leap lands, while in the air (others leap somewhere else). */
+	FVector LeapGoal = FVector::ZeroVector;
 	int32 Phases = 0;
 	int32 MeleeHits = 0;
 	FDelegateHandle StunHandle;

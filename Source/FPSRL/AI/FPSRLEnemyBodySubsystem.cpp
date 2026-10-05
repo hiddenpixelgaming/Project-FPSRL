@@ -91,7 +91,7 @@ void UFPSRLEnemyBodySubsystem::ApplyBody(APawn* Pawn)
 			Character->AddActorWorldOffset(FVector(0.f, 0.f, Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - HalfHeight));
 		}
 		const UFPSRLEnemyBehaviorProfile* Profile = Definition->BehaviorProfile;
-		const bool bAimLine = Profile && Profile->Attacks.ContainsByPredicate([](const FFPSRLEnemyAttack& Attack) { return Attack.bShowAimLine; });
+		const bool bAimLine = Profile && Profile->Attacks.ContainsByPredicate([](const FFPSRLEnemyAttack& Attack) { return Attack.bShowAimLine || Attack.Action == EFPSRLEnemyAttackAction::VolleyHeavy; });
 		const bool bPhase = Profile && Profile->bPhaseOnProjectileHit;
 		if ((!Definition->AttackAnims.IsEmpty() || bAimLine || bPhase) && !Character->FindComponentByClass<UFPSRLEnemyRoleComponent>())
 		{

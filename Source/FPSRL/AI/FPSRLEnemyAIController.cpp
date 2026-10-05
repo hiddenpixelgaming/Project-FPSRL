@@ -4,6 +4,7 @@
 #include "AI/FPSRLEnemyRoleComponent.h"
 #include "AI/FPSRLShieldEncounterComponent.h"
 #include "Combat/FPSRLGroundStrike.h"
+#include "Combat/FPSRLProjectile.h"
 #include "Combat/FPSRLLandmine.h"
 #include "Rooms/FPSRLRoom.h"
 #include "Rooms/FPSRLShieldPlatform.h"
@@ -27,6 +28,8 @@
 #include "Navigation/CrowdFollowingComponent.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "NavigationSystem.h"
+#include "NavigationPath.h"
+#include "NavMesh/RecastNavMesh.h"
 #include "TimerManager.h"
 #include "Types/FPSRLGameplayTags.h"
 #include "FPSRL.h"
@@ -459,6 +462,94 @@ void AFPSRLEnemyAIController::Think()
 	const double Now = GetWorld()->GetTimeSeconds();
 	const float DeltaSeconds = static_cast<float>(Now - LastThinkTime);
 	LastThinkTime = Now;
+	// Stuck: trying to walk but not getting anywhere (wedged on a column or a ledge) - drop the path and pick again. Not while
+	// attacking (a stab on the run, a crowd round the player: the attack drives it).
+	if (bMoving && State != EFPSRLEnemyAIState::Attacking && State != EFPSRLEnemyAIState::Recovering && MyPawn->GetVelocity().Size2D() < 20.f)
+	{
+		StuckSince = StuckSince < 0.0 ? Now : StuckSince;
+		if (Now - StuckSince > 2.5)
+		{
+			const UPathFollowingComponent* Follow = GetPathFollowingComponent();
+			const FNavPathSharedPtr Path = Follow ? Follow->GetPath() : nullptr;
+			const int32 NextPoint = Follow ? static_cast<int32>(Follow->GetNextPathIndex()) : -1;
+			// What's in the way: its capsule swept 80 cm towards the next path point.
+			FString Blocker = TEXT("-");
+			const UCapsuleComponent* Capsule = MyPawn->FindComponentByClass<UCapsuleComponent>();
+			if (Capsule && Path.IsValid() && Path->GetPathPoints().IsValidIndex(NextPoint))
+			{
+				const FVector From = MyPawn->GetActorLocation() + FVector(0.f, 0.f, 50.f);	// above step height: not the floor it stands on
+				const FVector Toward = (Path->GetPathPoints()[NextPoint].Location - From).GetSafeNormal2D();
+				FHitResult Hit;
+				FCollisionQueryParams Params(SCENE_QUERY_STAT(FPSRLEnemyStuck), false, MyPawn);
+				Blocker = GetWorld()->SweepSingleByChannel(Hit, From, From + Toward * 80.f, FQuat::Identity, ECC_Pawn,
+					FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight()), Params)
+					? FString::Printf(TEXT("%s (%s) at %.0f cm"), Hit.GetActor() ? *Hit.GetActor()->GetActorNameOrLabel() : TEXT("-"), Hit.GetComponent() ? *Hit.GetComponent()->Bounds.GetBox().ToString() : TEXT("-"), Hit.Distance)
+					: TEXT("nothing");
+				const ACharacter* Body = Cast<ACharacter>(MyPawn);
+				const UCharacterMovementComponent* Move = Body ? Body->GetCharacterMovement() : nullptr;
+				Blocker += FString::Printf(TEXT(", capsule r%.0f h%.0f, walk speed %.0f, step %.0f, mode %d, floor %s"), Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight(),
+					Move ? Move->MaxWalkSpeed : -1.f, Move ? Move->MaxStepHeight : -1.f, Move ? static_cast<int32>(Move->MovementMode) : -1, Move ? *GetNameSafe(Move->CurrentFloor.HitResult.GetActor()) : TEXT("-"));
+				// Where the navmesh puts it, and a fresh path from there to the end.
+				UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+				FNavLocation OnNav;
+				if (Nav && Nav->ProjectPointToNavigation(MyPawn->GetActorLocation(), OnNav, FVector(100.f, 100.f, 250.f)))
+				{
+					const UNavigationPath* Fresh = UNavigationSystemV1::FindPathToLocationSynchronously(GetWorld(), OnNav.Location, Path->GetPathPoints().Last().Location, MyPawn);
+					Blocker += FString::Printf(TEXT(", on the navmesh at %s (%.0f cm off), a fresh path: %s%d point(s), %.0f cm"), *OnNav.Location.ToCompactString(),
+						FVector::Dist2D(OnNav.Location, MyPawn->GetActorLocation()), Fresh && Fresh->IsPartial() ? TEXT("partial ") : TEXT(""),
+						Fresh ? Fresh->PathPoints.Num() : 0, Fresh ? Fresh->GetPathLength() : 0.f);
+					FBox Reach(ForceInit);
+					for (int32 Sample = 0; Sample < 60; ++Sample)
+					{
+						FNavLocation Point;
+						if (Nav->GetRandomReachablePointInRadius(OnNav.Location, 4000.f, Point))
+						{
+							Reach += Point.Location;
+						}
+					}
+					Blocker += FString::Printf(TEXT(", reachable from here: %s"), *Reach.ToString());
+					if (const ARecastNavMesh* Recast = Cast<ARecastNavMesh>(Nav->GetDefaultNavDataInstance()))
+					{
+						Blocker += FString::Printf(TEXT(", navmesh %s: radius %.0f height %.0f step %.0f slope %.0f cell %.0f/%.0f tile %.0f"), *Recast->GetName(), Recast->AgentRadius, Recast->AgentHeight,
+							Recast->GetAgentMaxStepHeight(ENavigationDataResolution::Default), Recast->AgentMaxSlope, Recast->GetCellSize(ENavigationDataResolution::Default),
+							Recast->GetCellHeight(ENavigationDataResolution::Default), Recast->TileSizeUU);
+					}
+				}
+				else
+				{
+					Blocker += TEXT(", OFF the navmesh");
+				}
+			}
+			// Stuck again where it was stuck a moment ago: a new path is the same path. Step aside to reachable ground first.
+			const bool bAgain = FVector::Dist(MyPawn->GetActorLocation(), LastStuckLocation) < 150.f && Now - LastStuckTime < 10.0;
+			LastStuckLocation = MyPawn->GetActorLocation();
+			LastStuckTime = Now;
+			UE_LOG(LogFPSRL, Log, TEXT("[AI] %s seems stuck at %s (%s): %s (follow %s, path %s%d point(s), next %s, end %s; in the way: %s)"), *MyPawn->GetName(),
+				*MyPawn->GetActorLocation().ToCompactString(), *UEnum::GetValueAsString(State), bAgain ? TEXT("stepping aside") : TEXT("picking a new path"), Follow ? *UEnum::GetValueAsString(Follow->GetStatus()) : TEXT("-"),
+				Path.IsValid() && Path->IsPartial() ? TEXT("partial ") : TEXT(""), Path.IsValid() ? Path->GetPathPoints().Num() : 0,
+				Path.IsValid() && Path->GetPathPoints().IsValidIndex(NextPoint) ? *Path->GetPathPoints()[NextPoint].Location.ToCompactString() : TEXT("-"),
+				Path.IsValid() && Path->GetPathPoints().Num() > 0 ? *Path->GetPathPoints().Last().Location.ToCompactString() : TEXT("-"), *Blocker);
+			StopMovement();
+			bMoving = false;
+			StuckSince = -1.0;
+			++TimesStuck;
+			StuckRepeats = bAgain ? StuckRepeats + 1 : 0;
+			if (StuckRepeats >= 2)
+			{
+				StuckRepeats = 0;
+				HopAtTarget();
+			}
+			else if (bAgain)
+			{
+				StepAside(Path.IsValid() && Path->GetPathPoints().IsValidIndex(NextPoint) ? Path->GetPathPoints()[NextPoint].Location : MyPawn->GetActorLocation(),
+					Path.IsValid() && Path->IsPartial());
+			}
+		}
+	}
+	else
+	{
+		StuckSince = -1.0;
+	}
 	for (auto It = Threat.CreateIterator(); It; ++It)
 	{
 		It.Value() -= Profile->ThreatDecayPerSecond * DeltaSeconds;
@@ -566,6 +657,10 @@ void AFPSRLEnemyAIController::Think()
 			BeginAttack(Blind);
 			return;
 		}
+		if (bMoving && Now < SteppingAsideUntil)
+		{
+			return;	// stepping aside after being stuck
+		}
 		// Squad members never go looking on their own: they stay with the leader, who does.
 		if (!FollowSquad())
 		{
@@ -579,6 +674,10 @@ void AFPSRLEnemyAIController::Think()
 	{
 		BeginAttack(Attack);
 		return;
+	}
+	if (bMoving && Now < SteppingAsideUntil)
+	{
+		return;	// stepping aside after being stuck
 	}
 	if (!FollowSquad())
 	{
@@ -1161,6 +1260,12 @@ void AFPSRLEnemyAIController::ExecuteAttack()
 	case EFPSRLEnemyAttackAction::DeployMines:
 		DeployMines(Attack);
 		break;
+	case EFPSRLEnemyAttackAction::VolleyHeavy:
+		UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s volley at %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()));
+		VolleyShotsLeft = Attack.VolleyShots;
+		bHeavyAiming = false;
+		FireVolleyShot();
+		return;	// its own timers end the execution
 	case EFPSRLEnemyAttackAction::LeapSlam:
 		UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s leaps at %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()));
 		StartLeap(Attack);
@@ -1390,6 +1495,7 @@ void AFPSRLEnemyAIController::StartLeap(const FFPSRLEnemyAttack& Attack)
 	BeginAirborne(EnemyCharacter);
 	EnemyCharacter->LaunchCharacter(Velocity, true, true);
 	bLeaping = true;
+	LeapGoal = EnemyCharacter->GetActorLocation() + Velocity * Seconds + FVector(0.f, 0.f, 0.5f * EnemyCharacter->GetCharacterMovement()->GetGravityZ() * Seconds * Seconds);
 	EnemyCharacter->LandedDelegate.AddUniqueDynamic(this, &ThisClass::HandleLeapLanded);
 	GetWorldTimerManager().SetTimer(LeapSafetyTimer, this, &ThisClass::FinishLeap, Seconds + 1.5f, false);
 	if (UFPSRLEnemyRoleComponent* RoleView = EnemyCharacter->FindComponentByClass<UFPSRLEnemyRoleComponent>())
@@ -1529,8 +1635,32 @@ bool AFPSRLEnemyAIController::PlanLeap(const FFPSRLEnemyAttack& Attack, FVector*
 	{
 		Goal = Start + (Goal - Start).GetSafeNormal2D() * Attack.MaxRange + FVector(0.f, 0.f, Goal.Z - Start.Z);
 	}
+	// (No navmesh there - a test area: it lands where the target is.)
 	FVector OnNav;
-	if (ProjectToNav(Goal, OnNav))
+	const bool bOnNav = ProjectToNav(Goal, OnNav);
+	// Not on top of another enemy, or where one is about to land (two Brutes landing together stack up and one ends on
+	// whatever is beside them): round the target instead.
+	const float Room = Radius * 2.f + 60.f;
+	auto IsTaken = [this, Room](const FVector& Spot)
+	{
+		for (TActorIterator<AFPSRLEnemyAIController> It(GetWorld()); It; ++It)
+		{
+			const APawn* Other = *It != this ? It->GetPawn() : nullptr;
+			if (Other && (FVector::Dist2D(Other->GetActorLocation(), Spot) < Room || (It->bLeaping && FVector::Dist2D(It->LeapGoal, Spot) < Room)))
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	for (int32 Around = 0; bOnNav && IsTaken(OnNav); ++Around)
+	{
+		if (Around >= 8 || !ProjectToNav(Goal + FRotator(0.f, (Start - Goal).Rotation().Yaw + 45.f * Around, 0.f).Vector() * (Room + 60.f), OnNav))
+		{
+			return false;
+		}
+	}
+	if (bOnNav)
 	{
 		Goal = OnNav + FVector(0.f, 0.f, HalfHeight);
 	}
@@ -1556,6 +1686,17 @@ bool AFPSRLEnemyAIController::PlanLeap(const FFPSRLEnemyAttack& Attack, FVector*
 			return false;
 		}
 		Previous = Point;
+	}
+	// Never onto ground it can't walk off (a crate or a ledge the navmesh doesn't join to the rest): it would be stranded
+	// there once the player leaves. The landing must have a full path back to where it stands now.
+	FVector Here;
+	if (bOnNav && ProjectToNav(Start - FVector(0.f, 0.f, HalfHeight), Here))
+	{
+		const UNavigationPath* Back = UNavigationSystemV1::FindPathToLocationSynchronously(GetWorld(), OnNav, Here);
+		if (!Back || !Back->IsValid() || Back->IsPartial())
+		{
+			return false;
+		}
 	}
 	if (OutVelocity)
 	{
@@ -1662,4 +1803,120 @@ void AFPSRLEnemyAIController::DeployMines(const FFPSRLEnemyAttack& Attack)
 		}
 	}
 	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %s laid %d mine(s), %d down now (max %d)"), *Boss->GetName(), Placed, Taken.Num(), Attack.MaxActiveMines);
+}
+
+void AFPSRLEnemyAIController::FireVolleyShot()
+{
+	// VolleyHeavy: the slow shots one by one, then the aim line, then the heavy shot (all on AttackTimer: a cancel stops it).
+	APawn* MyPawn = GetPawn();
+	if (!MyPawn || !Profile || !Profile->Attacks.IsValidIndex(CurrentAttack) || !Target.IsValid())
+	{
+		EndAttackExecution();
+		return;
+	}
+	const FFPSRLEnemyAttack& Attack = Profile->Attacks[CurrentAttack];
+	if (VolleyShotsLeft > 0)
+	{
+		--VolleyShotsLeft;
+		FireProjectileAtTarget(Attack, Attack.VolleyDamage, Attack.VolleySpeed);
+		GetWorldTimerManager().SetTimer(AttackTimer, this, &ThisClass::FireVolleyShot, VolleyShotsLeft > 0 ? Attack.VolleyInterval : Attack.VolleyInterval * 1.5f, false);
+		return;
+	}
+	if (!bHeavyAiming)
+	{
+		bHeavyAiming = true;
+		if (UFPSRLEnemyRoleComponent* RoleView = MyPawn->FindComponentByClass<UFPSRLEnemyRoleComponent>())
+		{
+			RoleView->StartAttack(FName(*(Attack.Name.ToString() + TEXT("_Heavy"))), Attack.HeavyAimSeconds, Target.Get(), true);	// the laser
+		}
+		GetWorldTimerManager().SetTimer(AttackTimer, this, &ThisClass::FireVolleyShot, Attack.HeavyAimSeconds, false);
+		return;
+	}
+	bHeavyAiming = false;
+	FireProjectileAtTarget(Attack, Attack.HeavyDamage, Attack.HeavySpeed);
+	UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s heavy shot at %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()));
+	EndAttackExecution();
+}
+
+void AFPSRLEnemyAIController::FireProjectileAtTarget(const FFPSRLEnemyAttack& Attack, float Damage, float SpeedMultiplier)
+{
+	ACharacter* Shooter = Cast<ACharacter>(GetPawn());
+	UClass* ProjectileClass = Attack.VolleyProjectile.LoadSynchronous();
+	if (!Shooter || !ProjectileClass)
+	{
+		return;
+	}
+	// From its chest, a little in front of it, at where its aim says (dodgeable: slow, and aimed where the target was).
+	const FVector From = Shooter->GetActorLocation() + FVector(0.f, 0.f, Shooter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() * 0.4f)
+		+ Shooter->GetActorForwardVector() * (Shooter->GetCapsuleComponent()->GetScaledCapsuleRadius() + 60.f);
+	const FTransform Shot((GetAimPoint() - From).Rotation(), From);
+	if (AActor* Projectile = GetWorld()->SpawnActorDeferred<AActor>(ProjectileClass, Shot, Shooter, Shooter, ESpawnActorCollisionHandlingMethod::AlwaysSpawn))
+	{
+		AFPSRLProjectile::SetProjectileDamage(Projectile, Damage);
+		if (AFPSRLProjectile* Tracked = Cast<AFPSRLProjectile>(Projectile))
+		{
+			Tracked->SpeedMultiplier = SpeedMultiplier;
+		}
+		Projectile->FinishSpawning(Shot);
+		++ProjectilesFired;
+	}
+}
+
+void AFPSRLEnemyAIController::StepAside(const FVector& BlockedToward, bool bStranded)
+{
+	// A reachable spot 2-5 m away, not the way it was blocked; it walks there, then the chase picks up again.
+	APawn* MyPawn = GetPawn();
+	const UNavigationSystemV1* Nav = MyPawn ? FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()) : nullptr;
+	if (!Nav)
+	{
+		return;
+	}
+	if (bStranded && Target.IsValid())
+	{
+		// On ground the navmesh doesn't join to its target's (no full path): walk straight at the target, off the edge.
+		if (MoveToLocation(Target->GetActorLocation(), 50.f, true, false, false, false, nullptr, true) == EPathFollowingRequestResult::RequestSuccessful)
+		{
+			bMoving = true;
+			SteppingAsideUntil = GetWorld()->GetTimeSeconds() + 2.5;
+			UE_LOG(LogFPSRL, Log, TEXT("[AI] %s is stranded: walks straight at %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()));
+			return;
+		}
+	}
+	const FVector Here = MyPawn->GetActorLocation();
+	const FVector Blocked = (BlockedToward - Here).GetSafeNormal2D();
+	for (int32 Try = 0; Try < 12; ++Try)
+	{
+		FNavLocation Point;
+		if (!Nav->GetRandomReachablePointInRadius(Here, 500.f, Point))
+		{
+			continue;
+		}
+		const FVector Offset = Point.Location - Here;
+		if (Offset.Size2D() < 200.f || (Try < 8 && FVector::DotProduct(Offset.GetSafeNormal2D(), Blocked) > 0.3f))
+		{
+			continue;
+		}
+		if (MoveToLocation(Point.Location, 50.f, true, true, false, false, nullptr, false) == EPathFollowingRequestResult::RequestSuccessful)
+		{
+			bMoving = true;
+			SteppingAsideUntil = GetWorld()->GetTimeSeconds() + 2.5;
+			UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s steps aside to %s"), *MyPawn->GetName(), *Point.Location.ToCompactString());
+			return;
+		}
+	}
+}
+
+void AFPSRLEnemyAIController::HopAtTarget()
+{
+	// Stuck a third time in the same place (a pile-up, a ledge the navmesh doesn't see): a short hop at the target clears it.
+	ACharacter* EnemyCharacter = Cast<ACharacter>(GetPawn());
+	if (!EnemyCharacter || !Target.IsValid() || !EnemyCharacter->GetCharacterMovement()->IsMovingOnGround())
+	{
+		return;
+	}
+	StopMovement();
+	bMoving = false;
+	const FVector Toward = (Target->GetActorLocation() - EnemyCharacter->GetActorLocation()).GetSafeNormal2D();
+	EnemyCharacter->LaunchCharacter(Toward * 450.f + FVector(0.f, 0.f, 450.f), true, true);
+	UE_LOG(LogFPSRL, Log, TEXT("[AI] %s hops at %s to get unstuck"), *EnemyCharacter->GetName(), *GetNameSafe(Target.Get()));
 }

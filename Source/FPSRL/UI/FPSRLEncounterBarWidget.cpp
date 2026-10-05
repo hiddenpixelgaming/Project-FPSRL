@@ -177,14 +177,18 @@ void UFPSRLEncounterBarWidget::RefreshShields()
 	}
 	// The disruption bar while the platform mechanic runs.
 	const EFPSRLShieldPhase Phase = ShieldComponent ? ShieldComponent->GetPhase() : EFPSRLShieldPhase::Idle;
-	const bool bMechanic = Phase == EFPSRLShieldPhase::Charging || Phase == EFPSRLShieldPhase::AwaitingPlayers || Phase == EFPSRLShieldPhase::Disrupting;
+	const bool bMechanic = Phase == EFPSRLShieldPhase::Throwing || Phase == EFPSRLShieldPhase::Charging || Phase == EFPSRLShieldPhase::AwaitingPlayers
+		|| Phase == EFPSRLShieldPhase::Disrupting;
+	const bool bForced = ShieldComponent && ShieldComponent->IsForcedPull();
 	if (DisruptionText && DisruptionBar)
 	{
 		DisruptionText->SetVisibility(bMechanic ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-		DisruptionBar->SetVisibility(bMechanic ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		DisruptionBar->SetVisibility(bMechanic && !bForced && Phase != EFPSRLShieldPhase::Throwing ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		if (bMechanic)
 		{
-			const FString Status = Phase == EFPSRLShieldPhase::Disrupting
+			const FString Status = Phase == EFPSRLShieldPhase::Throwing ? FString(TEXT("MINES  -  a pull is coming"))
+				: bForced ? FString(TEXT("SHOCKWAVE  -  jump it or get clear"))
+				: Phase == EFPSRLShieldPhase::Disrupting
 				? FString::Printf(TEXT("SHIELD DISRUPTION  %.1f s"), ShieldComponent->GetDisruptionSecondsLeft())
 				: Phase == EFPSRLShieldPhase::Charging ? FString(TEXT("SHIELD DISRUPTION  -  get to a lit platform"))
 				: FString::Printf(TEXT("SHIELD DISRUPTION  paused  -  %d player(s) needed on the lit platforms"), ShieldComponent->GetRequiredCount());

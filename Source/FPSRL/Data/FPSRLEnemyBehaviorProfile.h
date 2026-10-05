@@ -96,7 +96,46 @@ enum class EFPSRLEnemyAttackAction : uint8
 	GameplayAbility,	// activates the abilities with AbilityTag on its ability system
 	LeapSlam,			// the wind-up (a roar) faces the target, then it leaps to where the target is and lands with a shockwave ring
 	GroundStrike,		// marks the ground under its targets; each mark explodes after StrikeWarningSeconds (Juggernaut missiles)
-	DeployMines			// places landmines on free floor around it, up to MaxActiveMines (Juggernaut)
+	DeployMines,		// places landmines on free floor around it, up to MaxActiveMines
+	VolleyHeavy			// VolleyShots slow dodgeable shots at its target, then an aimed heavy shot with a laser telegraph (Juggernaut)
+};
+
+/** Landmines a boss throws out (UFPSRLShieldEncounterComponent: the Juggernaut throws them all at once, spread around
+ *  it, as the warning that its pull is coming). */
+USTRUCT(BlueprintType)
+struct FPSRL_API FFPSRLMineSettings
+{
+	GENERATED_BODY()
+
+	/** Mines per throw, and the most it keeps down at once (every throw is the full set: the oldest go at the cap). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "0"))
+	int32 MinesPerThrow = 6;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "0"))
+	int32 MaxActiveMines = 8;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "20"))
+	float TriggerRadius = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "50"))
+	float ExplosionRadius = 300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "0"))
+	float Damage = 40.f;
+
+	/** Seconds in the air, then seconds to arm after landing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "0"))
+	float ThrowSeconds = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "0"))
+	float ArmSeconds = 1.5f;
+
+	/** How far from it they land (between these). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "100"))
+	float MinDistance = 600.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mines", meta = (ClampMin = "100"))
+	float MaxDistance = 1600.f;
 };
 
 /** One attack an archetype can choose (evaluated in Priority order; the first valid one is used). */
@@ -197,6 +236,32 @@ struct FPSRL_API FFPSRLEnemyAttack
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Strike", meta = (ClampMin = "0"))
 	int32 StrikeTargets = 0;
+
+	/** VolleyHeavy: VolleyShots slow shots (VolleyInterval apart, VolleyDamage each, at VolleySpeed of the projectile's
+	 *  speed), then the aim line for HeavyAimSeconds and one fast heavy shot. VolleyProjectile = the projectile class. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley")
+	TSoftClassPtr<AActor> VolleyProjectile;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0"))
+	int32 VolleyShots = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0.05"))
+	float VolleyInterval = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0"))
+	float VolleyDamage = 15.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float VolleySpeed = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0.1"))
+	float HeavyAimSeconds = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0"))
+	float HeavyDamage = 50.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Volley", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float HeavySpeed = 0.9f;
 
 	/** DeployMines: mines placed per use (Cooldown = the deploy interval), the most it keeps down at once (it waits at
 	 *  the cap), how close a player must come to set one off, the blast, the time a new mine takes to arm, and how far
@@ -407,6 +472,21 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "10"))
 	float ShieldShockwaveHeight = 45.f;
+
+	/** Thrown out all at once at the start of every pull (the warning). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter")
+	FFPSRLMineSettings ShieldMines;
+
+	/** Nobody in sight for ForcedPullBlindSeconds (players hiding): mines, pull, and the shockwave after only
+	 *  ForcedPullChargeSeconds - no platforms lit, no shield progress. Not again for ForcedPullCooldown seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0.5"))
+	float ForcedPullBlindSeconds = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0"))
+	float ForcedPullCooldown = 12.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0.1"))
+	float ForcedPullChargeSeconds = 0.6f;
 
 	// --- Phase (Skirmisher: shot -> leaps back and can't be shot for a moment) ----------------------------------------
 
