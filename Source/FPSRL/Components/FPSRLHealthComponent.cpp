@@ -192,6 +192,10 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 	{
 		return;	// nothing to do, or a corpse being shot
 	}
+	if (bInvulnerable)
+	{
+		return;	// shielded
+	}
 	if (IsGodMode())
 	{
 		return;

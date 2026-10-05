@@ -5,7 +5,7 @@ post process volume around it that brightens the view (exposure compensation) wh
 removes what it placed before. Run: UnrealEditor-Cmd FPSRL.uproject -run=pythonscript -script=<this file>."""
 import unreal
 sub = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-ROOMS = ["LV_Z1_Traversal_01", "LV_Z1_Miniboss_01", "LV_Z1_Exit_01", "LV_Z1_BossArena_01", "LV_Z1_Prep_01"]
+ROOMS = ["LV_Z1_Traversal_01", "LV_Z1_Exit_01", "LV_Z1_BossArena_01", "LV_Z1_Prep_01"]  # LV_Z1_Miniboss_01 is a full arena now (miniboss_juggernaut.py lights it)
 LIGHT_INTENSITY = 3000.0
 LIGHT_RADIUS = 1800.0
 SPACING = 800.0

@@ -19,7 +19,8 @@ namespace FPSRLShockwave
 	static constexpr int32 SegmentCount = 40;
 	static constexpr float StartRadius = 60.f;
 	static constexpr float Thickness = 30.f;		// the ring's wall, cm
-	static constexpr float BelowTolerance = 150.f;	// players this far below its floor are on other ground
+	static constexpr float BelowTolerance = 150.f;	// players on ground this far below its floor are on other ground
+	static constexpr float HigherGround = 200.f;	// ... or this far above it (a platform, a ledge): it doesn't climb there
 	static const TCHAR* SegmentMesh = TEXT("/Engine/BasicShapes/Cube.Cube");
 	static const TCHAR* SegmentMaterial = TEXT("/Game/MainProject/Contents/Materials/Enemies/M_EnemyAimLine.M_EnemyAimLine");
 }
@@ -122,7 +123,15 @@ void AFPSRLShockwave::UpdateRing()
 	{
 		const float Angle = 360.f * Index / Segments.Num();
 		const FVector Direction = FRotator(0.f, Angle, 0.f).Vector();
-		Segments[Index]->SetRelativeLocationAndRotation(Direction * Radius + FVector(0.f, 0.f, Height * 0.5f), FRotator(0.f, Angle + 90.f, 0.f));
+		// Along the floor: each piece sits on the ground under it (ramps, steps, a pit's rim), never up on a platform.
+		FVector Point = GetActorLocation() + Direction * Radius;
+		FHitResult Hit;
+		if (GetWorld()->LineTraceSingleByChannel(Hit, Point + FVector(0.f, 0.f, 400.f), Point - FVector(0.f, 0.f, 400.f), ECC_Visibility)
+			&& Hit.ImpactPoint.Z - GetActorLocation().Z < FPSRLShockwave::HigherGround)
+		{
+			Point.Z = Hit.ImpactPoint.Z;
+		}
+		Segments[Index]->SetWorldLocationAndRotation(Point + FVector(0.f, 0.f, Height * 0.5f), FRotator(0.f, Angle + 90.f, 0.f));
 		Segments[Index]->SetRelativeScale3D(FVector(Length / 100.f, FPSRLShockwave::Thickness / 100.f, Height / 100.f));
 		Segments[Index]->SetVisibility(!bDone);
 	}
@@ -152,11 +161,21 @@ void AFPSRLShockwave::DamagePlayers(float FromRadius, float ToRadius)
 		{
 			continue;
 		}
-		// Jumped over it (feet above the ring), or on other ground.
-		const float Feet = Player->GetActorLocation().Z - Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() - Origin.Z;
-		if (Feet > Height || Feet < -FPSRLShockwave::BelowTolerance)
+		// The ground under the player: jumped over the ring (feet above it by more than its height), or standing on other
+		// ground well above (a platform) or below its floor. It runs along the main floor, up and down small steps.
+		const float Feet = Player->GetActorLocation().Z - Player->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		float Ground = Feet;
+		FHitResult Hit;
+		if (GetWorld()->LineTraceSingleByChannel(Hit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0.f, 0.f, 1000.f), ECC_Visibility,
+			FCollisionQueryParams(TEXT("ShockwaveGround"), false, Player)))
 		{
-			UE_LOG(LogFPSRL, Verbose, TEXT("[Shockwave] %s cleared it (feet %.0f cm above its floor)"), *Player->GetName(), Feet);
+			Ground = Hit.ImpactPoint.Z;
+		}
+		const float AboveGround = Feet - Ground;
+		const float GroundAboveFloor = Ground - Origin.Z;
+		if (AboveGround > Height || GroundAboveFloor > FPSRLShockwave::HigherGround || GroundAboveFloor < -FPSRLShockwave::BelowTolerance)
+		{
+			UE_LOG(LogFPSRL, Verbose, TEXT("[Shockwave] %s cleared it (feet %.0f cm above their ground, ground %.0f cm from its floor)"), *Player->GetName(), AboveGround, GroundAboveFloor);
 			Struck.Add(Player);	// it has passed them
 			continue;
 		}

@@ -48,6 +48,10 @@ public:
 	void SetPhased(bool bInPhased);
 	bool IsPhased() const { return bPhased; }
 
+	/** Server: shielded (a boss's shield layers): no damage at all until it's cleared. */
+	void SetInvulnerable(bool bInInvulnerable) { bInvulnerable = bInInvulnerable; }
+	bool IsInvulnerable() const { return bInvulnerable; }
+
 	UFPSRLHealthComponent(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	/** Health and MaxHealth are set to this on the server when initialized (each spawn/respawn). */
@@ -160,6 +164,7 @@ private:
 
 	bool bBodyIgnoresProjectiles = false;
 	bool bPhased = false;
+	bool bInvulnerable = false;
 
 	/** Testing aid (console: fpsrl.TintEnemies 0 to turn off): enemies' materials are tinted this colour on every machine. */
 	void ApplyEnemyTestTint();

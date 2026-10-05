@@ -51,7 +51,8 @@ enum class EFPSRLMovementStyle : uint8
 	Strafe,				// side-step around the target every so often
 	Reposition,			// move to a new spot in the band (with sight of the target) every so often
 	Retreat,			// keep backing off toward the far edge of the band
-	GuardPosition		// stay near where it started; never follows beyond its guard radius
+	GuardPosition,		// stay near where it started; never follows beyond its guard radius
+	Stationary			// never moves (bosses that hold their ground); only turns to aim
 };
 
 /** When the target is closer than PreferredMinDistance. */
@@ -93,7 +94,9 @@ enum class EFPSRLEnemyAttackAction : uint8
 	FireWeapon,			// holds its weapon's trigger for ExecuteSeconds (the weapon's own fire rate, projectiles, damage)
 	Melee,				// one server sweep in front of it (the players' melee rules)
 	GameplayAbility,	// activates the abilities with AbilityTag on its ability system
-	LeapSlam			// the wind-up (a roar) faces the target, then it leaps to where the target is and lands with a shockwave ring
+	LeapSlam,			// the wind-up (a roar) faces the target, then it leaps to where the target is and lands with a shockwave ring
+	GroundStrike,		// marks the ground under its targets; each mark explodes after StrikeWarningSeconds (Juggernaut missiles)
+	DeployMines			// places landmines on free floor around it, up to MaxActiveMines (Juggernaut)
 };
 
 /** One attack an archetype can choose (evaluated in Priority order; the first valid one is used). */
@@ -175,6 +178,49 @@ struct FPSRL_API FFPSRLEnemyAttack
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Leap", meta = (ClampMin = "10"))
 	float ShockwaveHeight = 45.f;
+
+	/** Only while its shields are up (UFPSRLShieldEncounterComponent): e.g. the Juggernaut stops laying mines once both
+	 *  shields are broken (the mines already down stay). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
+	bool bOnlyWhileShielded = false;
+
+	/** GroundStrike: a mark under each target's feet (where they stand when it fires; it doesn't follow), exploding after
+	 *  the warning for this damage in this radius. StrikeTargets 0 = every player. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Strike", meta = (ClampMin = "0.1"))
+	float StrikeWarningSeconds = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Strike", meta = (ClampMin = "50"))
+	float StrikeRadius = 300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Strike", meta = (ClampMin = "0"))
+	float StrikeDamage = 25.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Strike", meta = (ClampMin = "0"))
+	int32 StrikeTargets = 0;
+
+	/** DeployMines: mines placed per use (Cooldown = the deploy interval), the most it keeps down at once (it waits at
+	 *  the cap), how close a player must come to set one off, the blast, the time a new mine takes to arm, and how far
+	 *  from it they may be placed. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "1"))
+	int32 MinesPerDeploy = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "1"))
+	int32 MaxActiveMines = 8;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "20"))
+	float MineTriggerRadius = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "50"))
+	float MineExplosionRadius = 300.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "0"))
+	float MineDamage = 40.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "0"))
+	float MineArmSeconds = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Mines", meta = (ClampMin = "100"))
+	float MinePlacementRadius = 1800.f;
 
 	/** Melee: damage, sweep radius and targets per swing (reach = MaxRange). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Melee", meta = (ClampMin = "0"))
@@ -329,6 +375,38 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attacks")
 	TArray<FFPSRLEnemyAttack> Attacks;
+
+	// --- Shield encounter (Ground Juggernaut: shields broken from the platforms) --------------------------------------
+
+	/** UFPSRLShieldEncounterComponent: shield layers (its health can't be hurt while any is up), how often the platform
+	 *  mechanic runs, the charge before its shockwave, the Shield Disruption time, where players are brought (around it),
+	 *  and that shockwave. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0"))
+	int32 ShieldLayers = 2;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "5"))
+	float ShieldMechanicInterval = 30.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0.2"))
+	float ShieldChargeSeconds = 2.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0.5"))
+	float ShieldDisruptionSeconds = 5.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "100"))
+	float ShieldRepositionRadius = 450.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0"))
+	float ShieldShockwaveDamage = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "100"))
+	float ShieldShockwaveRadius = 1500.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "100"))
+	float ShieldShockwaveSpeed = 1100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "10"))
+	float ShieldShockwaveHeight = 45.f;
 
 	// --- Phase (Skirmisher: shot -> leaps back and can't be shot for a moment) ----------------------------------------
 

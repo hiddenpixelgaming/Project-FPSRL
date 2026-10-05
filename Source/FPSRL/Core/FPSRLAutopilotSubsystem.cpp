@@ -222,7 +222,7 @@ bool UFPSRLAutopilotSubsystem::Step(float DeltaTime)
 	}
 
 	const FVector Target = Layout->Placements[Next].Transform.TransformPosition(FVector(250.f, 0.f, 120.f));
-	if (FVector::Dist2D(Pawn->GetActorLocation(), Target) > 200.f)
+	if (FightRoom != Next && FVector::Dist2D(Pawn->GetActorLocation(), Target) > 200.f)	// (once its fight is on, the host stays put: encounters move players)
 	{
 		Pawn->TeleportTo(Target, Layout->Placements[Next].Transform.Rotator());
 		UE_LOG(LogFPSRL, Log, TEXT("[Autopilot] moved into room %d (%s)"), Next, *GetNameSafe(Layout->Placements[Next].Room));

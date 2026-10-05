@@ -31,6 +31,22 @@
 
 namespace FPSRLDepthLayout
 {
+	static TAutoConsoleVariable<FString> CVarForceMinibossRoom(TEXT("fpsrl.Depth.ForceMinibossRoom"), TEXT(""),
+		TEXT("Testing / comparing Miniboss arenas: <room asset name> (e.g. DA_Room_Miniboss_02_DiagonalBastions) is the first encounter of every Depth. Empty = normal."));
+
+	/** Loads a room definition by asset name from the room data folders. */
+	static const UFPSRLRoomDefinition* LoadRoomByName(const FString& Name)
+	{
+		for (const TCHAR* Folder : { TEXT("/Game/MainProject/Contents/Data/Rooms/Arenas/"), TEXT("/Game/MainProject/Contents/Data/Rooms/Zone1/") })
+		{
+			if (const UFPSRLRoomDefinition* Room = LoadObject<UFPSRLRoomDefinition>(nullptr, *FString::Printf(TEXT("%s%s.%s"), Folder, *Name, *Name)))
+			{
+				return Room;
+			}
+		}
+		return nullptr;
+	}
+
 	static TAutoConsoleVariable<FString> CVarForceCombatRoom(TEXT("fpsrl.Depth.ForceCombatRoom"), TEXT(""),
 		TEXT("Testing: every combat room of the next Depth is this room definition (asset name, e.g. DA_Room_Arena01_SunkenPlaza; empty = random)."));
 	static TAutoConsoleVariable<FString> CVarForceReward(TEXT("fpsrl.Depth.ForceReward"), TEXT(""),
@@ -225,6 +241,15 @@ TArray<FFPSRLRoomPlacement> UFPSRLDepthLayoutComponent::RollSequence(const UFPSR
 				{
 					Arena = Loaded;
 				}
+			}
+		}
+		// fpsrl.Depth.ForceMinibossRoom: that Miniboss arena first (straight into it, any Depth).
+		if (Index == 0 && !FPSRLDepthLayout::CVarForceMinibossRoom.GetValueOnGameThread().IsEmpty())
+		{
+			if (const UFPSRLRoomDefinition* Miniboss = FPSRLDepthLayout::LoadRoomByName(FPSRLDepthLayout::CVarForceMinibossRoom.GetValueOnGameThread()))
+			{
+				Add(Miniboss);
+				continue;
 			}
 		}
 		Add(Arena ? Arena : PickRoom(Depth.CombatRooms, Used, AnyRoom));

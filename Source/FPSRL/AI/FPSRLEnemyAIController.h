@@ -90,6 +90,10 @@ public:
 	int32 GetMoveFailures() const { return MoveFailures; }
 	int32 GetLeapsLanded() const { return LeapsLanded; }
 	int32 GetLeapsCancelled() const { return LeapsCancelled; }
+
+	/** An encounter mechanic pauses its attacks (the Juggernaut's platforms): none start; one in progress is cancelled. */
+	void SetAttacksPaused(bool bPaused);
+	bool AreAttacksPaused() const { return bAttacksPaused; }
 	int32 GetPhases() const { return Phases; }
 	int32 GetMeleeHits() const { return MeleeHits; }
 
@@ -147,6 +151,11 @@ private:
 	void StartLeap(const FFPSRLEnemyAttack& Attack);
 	/** The leap's arc to the target (its launch velocity), or false when level geometry is in the way. */
 	bool PlanLeap(const FFPSRLEnemyAttack& Attack, FVector* OutVelocity) const;
+
+	/** GroundStrike: a mark under each target that explodes after the warning. */
+	void ExecuteGroundStrike(const FFPSRLEnemyAttack& Attack);
+	/** DeployMines: landmines on free floor around it, up to its cap. */
+	void DeployMines(const FFPSRLEnemyAttack& Attack);
 	UFUNCTION()
 	void HandleLeapLanded(const FHitResult& Hit);
 	void FinishLeap();
@@ -219,6 +228,7 @@ private:
 	double NextPhaseTime = 0.0;
 	int32 LeapsLanded = 0;
 	int32 LeapsCancelled = 0;
+	bool bAttacksPaused = false;
 	int32 Phases = 0;
 	int32 MeleeHits = 0;
 	FDelegateHandle StunHandle;

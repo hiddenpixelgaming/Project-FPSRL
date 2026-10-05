@@ -27,16 +27,18 @@ M_FEATURE = unreal.load_asset("/Game/LevelPrototyping/Materials/MI_PrototypeGrid
 state = {"mesh": 0, "spawns": [], "world": None}
 
 
-def begin(level_name):
+def begin(level_name, levels=None):
     """The arena level, emptied of everything this kit builds (a new copy of the room template the first time).
 
     Rebuilding never deletes the level (a room definition references it, so a delete fails silently and the old
     contents would stay underneath): it clears every actor the kit placed (folder "Arena/...", the nav bounds, spawn
     points) and keeps the room logic (room, trigger, door, connector), which finish() positions again."""
-    if not lib.does_asset_exist(LEVELS + level_name):
-        if not lib.duplicate_asset(SRC, LEVELS + level_name):
+    levels = levels or LEVELS
+    state["levels"] = levels
+    if not lib.does_asset_exist(levels + level_name):
+        if not lib.duplicate_asset(SRC, levels + level_name):
             raise RuntimeError("could not create " + level_name)
-    state["world"] = unreal.EditorLoadingAndSavingUtils.load_map(LEVELS + level_name)
+    state["world"] = unreal.EditorLoadingAndSavingUtils.load_map(levels + level_name)
     state["mesh"] = 0
     state["spawns"] = []
     removed = 0
@@ -162,8 +164,13 @@ def name_plate(display_name):
 
 
 def finish(level_name, data_name, display_name, arena_type, exit_x, room_center, room_extent, nav_center, nav_extent,
-           enemy_count, active_zones, trigger_x=700.0, depths=(1, 2, 3), min_depth=0, max_depth=0):
-    """Room logic, nav bounds, save, room definition and Depth pools. Returns log lines."""
+           enemy_count, active_zones, trigger_x=700.0, depths=(1, 2, 3), min_depth=0, max_depth=0,
+           room_type=None, pool="combat_rooms", encounter=None, data_dir=None):
+    """Room logic, nav bounds, save, room definition and Depth pools. Returns log lines.
+    Miniboss rooms: room_type=unreal.RoomType.MINIBOSS, pool="miniboss_rooms", encounter=its encounter definition."""
+    room_type = room_type if room_type is not None else unreal.RoomType.COMBAT
+    levels = state.get("levels", LEVELS)
+    data_dir = data_dir or DATA
     out = []
     actors = sub.get_all_level_actors()
     room = [a for a in actors if a.get_class().get_name() == "BP_Room_C"][0]
@@ -172,6 +179,9 @@ def finish(level_name, data_name, display_name, arena_type, exit_x, room_center,
     room.set_editor_property("spawn_points", state["spawns"])
     room.set_editor_property("enemy_count", enemy_count)
     room.set_editor_property("active_spawn_zones", active_zones)
+    room.set_editor_property("room_type", room_type)
+    if encounter is not None:
+        room.set_editor_property("encounter", encounter)
     trigger = [a for a in actors if a.get_class().get_name() == "BP_TriggerBox_Base_C"][0]
     trigger.set_actor_location(unreal.Vector(trigger_x, 0, 200), False, False)
     trigger.set_actor_rotation(unreal.Rotator(yaw=90), False)
@@ -184,31 +194,31 @@ def finish(level_name, data_name, display_name, arena_type, exit_x, room_center,
     nav.set_actor_label("NavBounds_Arena")
     nav.set_actor_scale3d(unreal.Vector(nav_extent[0] / 100.0, nav_extent[1] / 100.0, nav_extent[2] / 100.0))
     name_plate(display_name)
-    unreal.EditorLoadingAndSavingUtils.save_map(state["world"], LEVELS + level_name)
+    unreal.EditorLoadingAndSavingUtils.save_map(state["world"], levels + level_name)
     zones = sorted(set(str(p.get_editor_property("spawn_zone")) for p in state["spawns"]))
     out.append("level %s: %d meshes built (%d old actors cleared), %d spawn points in zones %s" % (level_name, state["mesh"], state.get("removed", 0), len(state["spawns"]), zones))
 
-    if not lib.does_asset_exist(DATA + data_name):
-        lib.duplicate_asset("/Game/MainProject/Contents/Data/Rooms/Zone1/DA_Room_Z1_Combat_01", DATA + data_name)
-    r = unreal.load_asset(DATA + data_name)
+    if not lib.does_asset_exist(data_dir + data_name):
+        lib.duplicate_asset("/Game/MainProject/Contents/Data/Rooms/Zone1/DA_Room_Z1_Combat_01", data_dir + data_name)
+    r = unreal.load_asset(data_dir + data_name)
     r.set_editor_property("display_name", display_name)
-    r.set_editor_property("room_type", unreal.RoomType.COMBAT)
+    r.set_editor_property("room_type", room_type)
     r.set_editor_property("arena_type", arena_type)
     r.set_editor_property("min_depth", min_depth)
     r.set_editor_property("max_depth", max_depth)
-    r.set_editor_property("level", unreal.load_asset(LEVELS + level_name))
+    r.set_editor_property("level", unreal.load_asset(levels + level_name))
     t = unreal.Transform()
     t.translation = unreal.Vector(exit_x, 0, 0)
     r.set_editor_property("exit_transform", t)
     lib.save_loaded_asset(r, False)
     for i in depths:
         d = unreal.load_asset("/Game/MainProject/Contents/Data/Run/DA_Depth_A1_D%d" % i)
-        pool = list(d.get_editor_property("combat_rooms"))
-        if r not in pool:
-            pool.append(r)
-            d.set_editor_property("combat_rooms", pool)
+        rooms = list(d.get_editor_property(pool))
+        if r not in rooms:
+            rooms.append(r)
+            d.set_editor_property(pool, rooms)
             lib.save_loaded_asset(d, False)
-        out.append("%s combat pool: %s" % (d.get_name(), [p.get_name() for p in d.get_editor_property("combat_rooms")]))
+        out.append("%s %s: %s" % (d.get_name(), pool, [p.get_name() for p in d.get_editor_property(pool)]))
     return out
 
 
@@ -344,3 +354,39 @@ def stairs(label, x, y, z_from, z_to, direction, width, mat, folder, step_h=25.0
         else:
             box("%s_%d" % (label, s), x - width / 2.0, x + width / 2.0, y + a, y + b, min(z_from, z_to) - 40, top, mat, folder)
     return count * step_d   # the run length
+
+
+def ramp_dir(label, x0, y0, yaw, run, z0, z1, width, mat, folder, thick=40.0):
+    """A sloped slab starting at (x0, y0) at height z0 and running `run` cm toward `yaw` (degrees) up to z1."""
+    import math
+    dz = z1 - z0
+    length = math.hypot(run, dz)
+    pitch = math.degrees(math.atan2(dz, run))
+    dx, dy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    s, c = math.sin(math.radians(pitch)), math.cos(math.radians(pitch))
+    cx = x0 + dx * run / 2.0 + dx * s * thick / 2.0
+    cy = y0 + dy * run / 2.0 + dy * s * thick / 2.0
+    cz = (z0 + z1) / 2.0 - c * thick / 2.0
+    return boxc(label, cx, cy, cz, length, width, thick, mat, folder, yaw=yaw, pitch=pitch)
+
+
+def shield_platform(name, cx, cy, half, top, toward, run=700.0, width=320.0, floor_z=0.0):
+    """Ground Juggernaut (user spec 2026-10-05): one of the four permanent elevated platforms. A solid block (top at
+    `top`, half size `half`), a ramp from the floor up to its edge on the side facing `toward` (x, y: the boss), a light,
+    and the AFPSRLShieldPlatform actor on its top (the shield mechanic lights it and checks who stands on it)."""
+    import math
+    box("Platform_%s" % name, cx - half, cx + half, cy - half, cy + half, floor_z - 40, top, M_FEATURE, "ShieldPlatforms")
+    # The ramp: from the floor toward the platform, meeting the middle of its edge that faces the boss.
+    ang = math.degrees(math.atan2(toward[1] - cy, toward[0] - cx))
+    side = round(ang / 90.0) * 90.0                     # the platform face toward the boss (axis aligned)
+    dx, dy = round(math.cos(math.radians(side))), round(math.sin(math.radians(side)))
+    edge_x, edge_y = cx + dx * half, cy + dy * half
+    low_x, low_y = edge_x + dx * run, edge_y + dy * run
+    ramp_dir("Platform_%s_Ramp" % name, low_x, low_y, side + 180.0, run, floor_z, top, width, M_FLOOR, "ShieldPlatforms")
+    a = sub.spawn_actor_from_class(unreal.FPSRLShieldPlatform, unreal.Vector(cx, cy, top), unreal.Rotator())
+    a.set_actor_label("ShieldPlatform_%s" % name)
+    a.set_editor_property("half_size", unreal.Vector2D(half, half))
+    a.set_editor_property("platform_name", name)
+    a.set_folder_path("Arena/ShieldPlatforms")
+    light("Platform_%s_Light" % name, cx, cy, top + 450, 7000.0, 1100.0)
+    return a

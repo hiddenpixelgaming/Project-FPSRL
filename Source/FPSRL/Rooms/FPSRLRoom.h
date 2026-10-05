@@ -36,6 +36,9 @@ class FPSRL_API AFPSRLRoom : public AActor
 	GENERATED_BODY()
 
 public:
+	/** A point inside this room's bounds box (its arena). */
+	bool IsInsideBounds(const FVector& WorldLocation) const;
+
 	AFPSRLRoom();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Room")
@@ -133,7 +136,6 @@ private:
 	/** Server: this encounter's spawn points: the active spawn zones (encounter preference, else ActiveSpawnZones at random,
 	 *  else all), EnemyCount of them spread round-robin over the zones (0 = all their points). */
 	TArray<AFPSRLEnemySpawnPoint*> ChooseSpawnPoints() const;
-	bool IsInsideBounds(const FVector& WorldLocation) const;
 	void CompleteRoom();
 
 	/** Server: unlock the exit once the next room is loaded on every player's machine (or the safety timeout passes).

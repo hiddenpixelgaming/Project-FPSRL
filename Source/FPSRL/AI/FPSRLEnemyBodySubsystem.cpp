@@ -99,6 +99,12 @@ void UFPSRLEnemyBodySubsystem::ApplyBody(APawn* Pawn)
 			Role->RegisterComponent();
 			Character->AddInstanceComponent(Role);
 		}
+		if (Definition->EncounterComponent && !Character->FindComponentByClass(Definition->EncounterComponent))
+		{
+			UActorComponent* Encounter = NewObject<UActorComponent>(Character, Definition->EncounterComponent, TEXT("EncounterLogic"));
+			Encounter->RegisterComponent();
+			Character->AddInstanceComponent(Encounter);
+		}
 	}
 	if (Definition->AnimSet.IsSet())
 	{
@@ -132,7 +138,15 @@ void UFPSRLEnemyBodySubsystem::ApplyBody(APawn* Pawn)
 	Body->SetGenerateOverlapEvents(false);
 	Body->RegisterComponent();
 	Character->AddInstanceComponent(Body);
-	Body->SetLeaderPoseComponent(Skeleton);
+	Body->SetRelativeScale3D(FVector(Definition->BodyScale));
+	if (UClass* BodyAnim = Definition->BodyAnimClass.LoadSynchronous())
+	{
+		Body->SetAnimInstanceClass(BodyAnim);	// its own skeleton and animation (the Juggernaut's mech)
+	}
+	else
+	{
+		Body->SetLeaderPoseComponent(Skeleton);
+	}
 
 	// The original mesh still animates (the body copies its pose) but isn't drawn; the weapon attached to it stays.
 	Skeleton->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;

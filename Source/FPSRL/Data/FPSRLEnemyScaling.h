@@ -109,6 +109,18 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
 	TMap<FName, FFPSRLEnemyAttackAnim> AttackAnims;
 
+	/** A body with its own skeleton and animation (e.g. the Juggernaut's mech) instead of following the class's rig: its
+	 *  anim class, and its size relative to the enemy (the enemy's Scale already applies). Empty = leader pose. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance")
+	TSoftClassPtr<UAnimInstance> BodyAnimClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance", meta = (ClampMin = "0.05"))
+	float BodyScale = 1.f;
+
+	/** An encounter component the server adds to it (replicated), e.g. UFPSRLShieldEncounterComponent for the Juggernaut. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy")
+	TSubclassOf<UActorComponent> EncounterComponent;
+
 	/** Size of the whole enemy (hit box included); 1 = the class's size. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Appearance", meta = (ClampMin = "0.5", ClampMax = "2"))
 	float Scale = 1.f;

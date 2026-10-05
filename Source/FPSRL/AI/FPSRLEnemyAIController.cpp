@@ -2,6 +2,11 @@
 
 #include "AI/FPSRLEnemyAIController.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
+#include "AI/FPSRLShieldEncounterComponent.h"
+#include "Combat/FPSRLGroundStrike.h"
+#include "Combat/FPSRLLandmine.h"
+#include "Rooms/FPSRLRoom.h"
+#include "Rooms/FPSRLShieldPlatform.h"
 #include "Combat/FPSRLShockwave.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/GameStateBase.h"
@@ -555,6 +560,12 @@ void AFPSRLEnemyAIController::Think()
 	}
 	else
 	{
+		// Attacks that don't need sight of the target still go (the Juggernaut's missiles and mines hit anyone anywhere).
+		if (const int32 Blind = SelectAttack(Distance, false); Blind != INDEX_NONE)
+		{
+			BeginAttack(Blind);
+			return;
+		}
 		// Squad members never go looking on their own: they stay with the leader, who does.
 		if (!FollowSquad())
 		{
@@ -786,6 +797,11 @@ void AFPSRLEnemyAIController::HandleLostSight(float Distance)
 
 void AFPSRLEnemyAIController::UpdateMovement(float Distance)
 {
+	if (Profile->MovementStyle == EFPSRLMovementStyle::Stationary)
+	{
+		SetState(EFPSRLEnemyAIState::Positioning);
+		return;	// never moves
+	}
 	AActor* Current = Target.Get();
 	const APawn* MyPawn = GetPawn();
 	const double Now = GetWorld()->GetTimeSeconds();
@@ -987,6 +1003,11 @@ bool AFPSRLEnemyAIController::FindSpotAroundTarget(float MinDistance, float MaxD
 
 bool AFPSRLEnemyAIController::MoveToSpot(const FVector& Spot, EFPSRLEnemyAIState MoveState)
 {
+	if (Profile && Profile->MovementStyle == EFPSRLMovementStyle::Stationary)
+	{
+		SetState(MoveState == EFPSRLEnemyAIState::Idle ? MoveState : EFPSRLEnemyAIState::Positioning);
+		return false;	// holds its ground (it still turns to aim)
+	}
 	const EPathFollowingRequestResult::Type Result = MoveToLocation(Spot, Profile->AcceptanceRadius, true, true, true, true);
 	bMoving = Result == EPathFollowingRequestResult::RequestSuccessful;
 	if (Result == EPathFollowingRequestResult::Failed)
@@ -1039,9 +1060,22 @@ int32 AFPSRLEnemyAIController::SelectAttack(float Distance, bool bSeesTarget) co
 	const AActor* Current = Target.Get();
 	const double Now = GetWorld()->GetTimeSeconds();
 	int32 Best = INDEX_NONE;
+	if (bAttacksPaused)
+	{
+		return INDEX_NONE;	// an encounter mechanic is running (the Juggernaut's platforms)
+	}
+	const UFPSRLShieldEncounterComponent* Shield = MyPawn->FindComponentByClass<UFPSRLShieldEncounterComponent>();
 	for (int32 Index = 0; Index < Profile->Attacks.Num(); ++Index)
 	{
 		const FFPSRLEnemyAttack& Attack = Profile->Attacks[Index];
+		if (Attack.bOnlyWhileShielded && (!Shield || Shield->GetShieldsRemaining() <= 0))
+		{
+			continue;
+		}
+		if (Attack.Action == EFPSRLEnemyAttackAction::DeployMines && AFPSRLLandmine::GetMinesOf(MyPawn).Num() >= Attack.MaxActiveMines)
+		{
+			continue;	// at its cap: waits until one is set off
+		}
 		if ((Best != INDEX_NONE && Attack.Priority <= Profile->Attacks[Best].Priority)
 			|| Now < AttackReadyTimes[Index] || Distance < Attack.MinRange || Distance > Attack.MaxRange || (Attack.bRequiresLineOfSight && !bSeesTarget))
 		{
@@ -1120,6 +1154,12 @@ void AFPSRLEnemyAIController::ExecuteAttack()
 		{
 			ASC->TryActivateAbilitiesByTag(FGameplayTagContainer(Attack.AbilityTag));
 		}
+		break;
+	case EFPSRLEnemyAttackAction::GroundStrike:
+		ExecuteGroundStrike(Attack);
+		break;
+	case EFPSRLEnemyAttackAction::DeployMines:
+		DeployMines(Attack);
 		break;
 	case EFPSRLEnemyAttackAction::LeapSlam:
 		UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s leaps at %s"), *MyPawn->GetName(), *GetNameSafe(Target.Get()));
@@ -1307,6 +1347,10 @@ void AFPSRLEnemyAIController::HandleStunTagChanged(const FGameplayTag Tag, int32
 
 void AFPSRLEnemyAIController::HandleDeath(AController* KillerInstigator, AActor* Causer)
 {
+	for (AFPSRLLandmine* Mine : AFPSRLLandmine::GetMinesOf(GetPawn()))
+	{
+		Mine->Destroy();
+	}
 	CancelAttack(0.f);
 	GetWorldTimerManager().ClearTimer(ThinkTimer);
 	GetWorldTimerManager().ClearTimer(AttackTimer);
@@ -1518,4 +1562,104 @@ bool AFPSRLEnemyAIController::PlanLeap(const FFPSRLEnemyAttack& Attack, FVector*
 		*OutVelocity = Velocity;
 	}
 	return true;
+}
+
+void AFPSRLEnemyAIController::SetAttacksPaused(bool bPaused)
+{
+	bAttacksPaused = bPaused;
+	if (bPaused && CurrentAttack != INDEX_NONE)
+	{
+		CancelAttack(0.f);
+	}
+}
+
+void AFPSRLEnemyAIController::ExecuteGroundStrike(const FFPSRLEnemyAttack& Attack)
+{
+	// A mark under each target's feet where they stand now (it doesn't follow them); StrikeTargets 0 = every player.
+	APawn* MyPawn = GetPawn();
+	const AGameStateBase* GameState = GetWorld()->GetGameState();
+	TArray<APawn*> Targets;
+	for (const APlayerState* Entry : GameState ? GameState->PlayerArray : TArray<TObjectPtr<APlayerState>>())
+	{
+		APawn* Player = Entry ? Entry->GetPawn() : nullptr;
+		if (Player && IsValidTarget(Player))
+		{
+			Targets.Add(Player);
+		}
+	}
+	Targets.Sort([MyPawn](const APawn& A, const APawn& B) { return FVector::DistSquared(A.GetActorLocation(), MyPawn->GetActorLocation()) < FVector::DistSquared(B.GetActorLocation(), MyPawn->GetActorLocation()); });
+	if (Attack.StrikeTargets > 0 && Targets.Num() > Attack.StrikeTargets)
+	{
+		Targets.SetNum(Attack.StrikeTargets);
+	}
+	for (const APawn* Player : Targets)
+	{
+		const ACharacter* PlayerCharacter = Cast<ACharacter>(Player);
+		const float HalfHeight = PlayerCharacter ? PlayerCharacter->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.f;
+		FVector Ground = Player->GetActorLocation() - FVector(0.f, 0.f, HalfHeight);
+		FHitResult Hit;
+		if (GetWorld()->LineTraceSingleByChannel(Hit, Player->GetActorLocation(), Player->GetActorLocation() - FVector(0.f, 0.f, 3000.f), ECC_Visibility,
+			FCollisionQueryParams(TEXT("StrikeGround"), false, Player)))
+		{
+			Ground = Hit.ImpactPoint;	// a jumping player: the floor under them
+		}
+		AFPSRLGroundStrike::Spawn(MyPawn, Ground, Attack.StrikeRadius, Attack.StrikeWarningSeconds, Attack.StrikeDamage);
+	}
+	UE_LOG(LogFPSRL, Verbose, TEXT("[AI] %s %s: %d mark(s)"), *MyPawn->GetName(), *Attack.Name.ToString(), Targets.Num());
+}
+
+void AFPSRLEnemyAIController::DeployMines(const FFPSRLEnemyAttack& Attack)
+{
+	// Free floor around it: the navmesh's reachable ground in its arena (the room's bounds), at its own floor level (never
+	// up on a platform), not under a player, not near the boss, and never inside another mine's reach.
+	ACharacter* Boss = Cast<ACharacter>(GetPawn());
+	const UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!Boss || !Nav)
+	{
+		return;
+	}
+	const AFPSRLRoom* Room = nullptr;
+	for (TActorIterator<AFPSRLRoom> It(GetWorld()); It && !Room; ++It)
+	{
+		Room = It->IsInsideBounds(Boss->GetActorLocation()) ? *It : nullptr;
+	}
+	const FVector Center = Boss->GetActorLocation();
+	const float Floor = Center.Z - Boss->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const TArray<AFPSRLShieldPlatform*> Platforms = AFPSRLShieldPlatform::FindAround(GetWorld(), Center, 6000.f);
+	TArray<FVector> Taken;
+	for (const AFPSRLLandmine* Mine : AFPSRLLandmine::GetMinesOf(Boss))
+	{
+		Taken.Add(Mine->GetActorLocation());
+	}
+	const int32 ToPlace = FMath::Min(Attack.MinesPerDeploy, Attack.MaxActiveMines - Taken.Num());
+	int32 Placed = 0;
+	for (int32 Try = 0; Try < 40 && Placed < ToPlace; ++Try)
+	{
+		FNavLocation Point;
+		if (!Nav->GetRandomReachablePointInRadius(Center, Attack.MinePlacementRadius, Point))
+		{
+			continue;
+		}
+		const FVector Spot = Point.Location;
+		bool bOk = Spot.Z - Floor < 200.f && FVector::Dist2D(Spot, Center) > 500.f && (!Room || Room->IsInsideBounds(Spot));
+		for (const AFPSRLShieldPlatform* Platform : Platforms)
+		{
+			const FVector Local = Platform->GetActorTransform().InverseTransformPosition(Spot);
+			bOk &= !(FMath::Abs(Local.X) <= Platform->HalfSize.X + 100.f && FMath::Abs(Local.Y) <= Platform->HalfSize.Y + 100.f);
+		}
+		for (const FVector& Other : Taken)
+		{
+			bOk &= FVector::Dist2D(Spot, Other) > Attack.MineTriggerRadius * 2.f + 50.f;
+		}
+		for (TActorIterator<APawn> It(GetWorld()); It && bOk; ++It)
+		{
+			bOk &= !(UFPSRLHealthComponent::IsPlayerSide(nullptr, *It) && FVector::Dist2D(It->GetActorLocation(), Spot) < Attack.MineTriggerRadius + 250.f);
+		}
+		if (bOk && AFPSRLLandmine::Spawn(Boss, Spot, Attack.MineTriggerRadius, Attack.MineExplosionRadius, Attack.MineDamage, Attack.MineArmSeconds))
+		{
+			Taken.Add(Spot);
+			++Placed;
+		}
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %s laid %d mine(s), %d down now (max %d)"), *Boss->GetName(), Placed, Taken.Num(), Attack.MaxActiveMines);
 }

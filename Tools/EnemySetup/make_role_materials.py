@@ -42,3 +42,20 @@ mel.connect_material_property(opacity, "", unreal.MaterialProperty.MP_OPACITY)
 mel.recompile_material(phased)
 lib.save_loaded_asset(phased)
 unreal.log("[EnemySetup] role materials in " + FOLDER)
+
+# M_EnemyTelegraph: see-through red for ground warnings (Juggernaut missile marks, mine areas, its charge's blast area).
+telegraph = material("M_EnemyTelegraph")
+telegraph.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+mel.connect_material_property(constant(telegraph, unreal.LinearColor(1.6, 0.0, 0.0, 1.0), -300, 0), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+t_opacity = mel.create_material_expression(telegraph, unreal.MaterialExpressionConstant, -300, 200)
+t_opacity.set_editor_property("r", 0.45)
+mel.connect_material_property(t_opacity, "", unreal.MaterialProperty.MP_OPACITY)
+mel.recompile_material(telegraph)
+lib.save_loaded_asset(telegraph)
+
+# M_PlatformHighlight: glowing cyan rim of a lit Juggernaut platform (cyan = "go here"; red = enemy, orange = hazard).
+rim = material("M_PlatformHighlight")
+mel.connect_material_property(constant(rim, unreal.LinearColor(0.2, 1.6, 2.2, 1.0), -300, 0), "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+mel.recompile_material(rim)
+lib.save_loaded_asset(rim)
+unreal.log("[EnemySetup] telegraph and platform materials in " + FOLDER)
