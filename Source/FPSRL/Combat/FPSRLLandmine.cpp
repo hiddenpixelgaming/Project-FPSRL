@@ -275,11 +275,11 @@ int32 AFPSRLLandmine::ThrowAround(APawn* Boss, const FFPSRLMineSettings& Setting
 		}
 		for (const FVector& Other : Taken)
 		{
-			bOk &= FVector::Dist2D(Spot, Other) > Settings.TriggerRadius * 2.f + 50.f;
+			bOk &= FVector::Dist2D(Spot, Other) > Settings.TriggerRadius + 50.f;	// never inside another mine's reach (a ring can be dense)
 		}
 		for (TActorIterator<APawn> It(World); It && bOk; ++It)
 		{
-			bOk &= !(UFPSRLHealthComponent::IsPlayerSide(nullptr, *It) && FVector::Dist2D(It->GetActorLocation(), Spot) < Settings.TriggerRadius + 250.f);
+			bOk &= !(UFPSRLHealthComponent::IsPlayerSide(nullptr, *It) && FVector::Dist2D(It->GetActorLocation(), Spot) < Settings.TriggerRadius + 100.f);
 		}
 		return bOk;
 	};
@@ -291,7 +291,7 @@ int32 AFPSRLLandmine::ThrowAround(APawn* Boss, const FFPSRLMineSettings& Setting
 	{
 		for (int32 Try = 0; Try < 10; ++Try)
 		{
-			const float Yaw = Start + 360.f * Index / FMath::Max(1, Count) + FMath::FRandRange(-1.f, 1.f) * (Try == 0 ? 3.f : 60.f / FMath::Max(1, Count));
+			const float Yaw = Start + 360.f * Index / FMath::Max(1, Count) + FMath::FRandRange(-1.f, 1.f) * (Try == 0 ? 2.f : Try * 60.f / FMath::Max(1, Count));
 			const FVector Wanted = Center + FRotator(0.f, Yaw, 0.f).Vector() * FMath::FRandRange(Settings.MinDistance, Settings.MaxDistance);
 			FNavLocation Point;
 			if (!Nav->ProjectPointToNavigation(FVector(Wanted.X, Wanted.Y, Floor), Point, FVector(200.f, 200.f, 300.f)) || !IsFree(Point.Location))
