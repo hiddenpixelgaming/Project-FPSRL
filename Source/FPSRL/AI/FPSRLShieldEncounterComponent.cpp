@@ -307,6 +307,7 @@ void UFPSRLShieldEncounterComponent::ReleaseShockwave()
 	}
 	SetPhase(EFPSRLShieldPhase::AwaitingPlayers);
 	LastCheckTime = GetWorld()->GetTimeSeconds();
+	SetAttacksPaused(false);	// it keeps shooting at players while they work on its shield
 	GetWorld()->GetTimerManager().SetTimer(CheckTimer, this, &ThisClass::CheckPlayers, FPSRLShieldEncounter::CheckInterval, true);
 	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] shockwave: %.0f damage out to %.0f cm"), Profile->ShieldShockwaveDamage, Profile->ShieldShockwaveRadius);
 }

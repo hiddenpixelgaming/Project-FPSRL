@@ -291,7 +291,7 @@ int32 AFPSRLLandmine::ThrowAround(APawn* Boss, const FFPSRLMineSettings& Setting
 	{
 		for (int32 Try = 0; Try < 10; ++Try)
 		{
-			const float Yaw = Start + 360.f * Index / FMath::Max(1, Count) + FMath::FRandRange(-20.f, 20.f);
+			const float Yaw = Start + 360.f * Index / FMath::Max(1, Count) + FMath::FRandRange(-1.f, 1.f) * (Try == 0 ? 3.f : 60.f / FMath::Max(1, Count));
 			const FVector Wanted = Center + FRotator(0.f, Yaw, 0.f).Vector() * FMath::FRandRange(Settings.MinDistance, Settings.MaxDistance);
 			FNavLocation Point;
 			if (!Nav->ProjectPointToNavigation(FVector(Wanted.X, Wanted.Y, Floor), Point, FVector(200.f, 200.f, 300.f)) || !IsFree(Point.Location))

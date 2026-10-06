@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Combat/FPSRLShockwave.h"
+#include "Combat/FPSRLLandmine.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/FPSRLHealthComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -108,6 +109,14 @@ void AFPSRLShockwave::Tick(float DeltaSeconds)
 	if (HasAuthority())
 	{
 		DamagePlayers(LastRadius, Radius);
+		// Its source's mines on the floor go off as the ring passes over them (the Juggernaut's ring of mines).
+		for (AFPSRLLandmine* Mine : AFPSRLLandmine::GetMinesOf(GetInstigator()))
+		{
+			if (Mine->HasLanded() && FVector::Dist2D(Mine->GetActorLocation(), GetActorLocation()) <= Radius)
+			{
+				Mine->Detonate();
+			}
+		}
 	}
 	LastRadius = Radius;
 	UpdateRing();

@@ -6,11 +6,11 @@
 //  - two shield layers, the boss can't be hurt, it never moves; the HUD shows SHIELD 1 | SHIELD 2 | HP
 //  - its attack, in its sight: 3 slow shots, then the aim line, then the heavy shot
 //  - out of its sight for 4 s: a forced pull - mines thrown, the pull, a quick shockwave, no platforms lit, the shields
-//    untouched, back to normal
-//  - the platform mechanic: mines thrown out all round it first (in the air, then landed: never on a platform, never
-//    under a player, never more than the cap), the host brought next to the boss, one platform lights per player, the
-//    shockwave goes out; on the lit platform Shield Disruption charges; stepping off pauses it (progress kept), back on
-//    resumes; full = a layer breaks. Between the two: an armed mine stepped on goes off. Then it can be hurt.
+//    untouched, the shockwave sets off the ring of mines, back to normal
+//  - the platform mechanic: a ring of 12 mines thrown out round it first (in the air, then landed: never on a platform,
+//    never under a player, never more than the cap), the host brought next to the boss, one platform lights per player,
+//    the shockwave goes out and sets the mines off; on the lit platform Shield Disruption charges while the boss keeps
+//    shooting; stepping off pauses it (progress kept), back on resumes; full = a layer breaks. Twice: then it can be hurt.
 
 #include "AI/FPSRLEnemyAIController.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
@@ -55,8 +55,6 @@ namespace FPSRLJuggernautTest
 		TSet<TWeakObjectPtr<AFPSRLLandmine>> MinesSeenSet;
 		TSet<TWeakObjectPtr<AFPSRLLandmine>> MinesLanded;
 		bool bShockwaveSeen = false;
-		TWeakObjectPtr<AFPSRLLandmine> SteppedOn;
-		bool bSteppedOn = false;
 		TSet<int32> Shots;
 		/** Rendered runs: one screenshot (with the HUD) per moment, looking at Look. */
 		void Shot(APlayerController* PC, int32 Key, const FVector& Look, const TCHAR* Moment)
@@ -318,8 +316,8 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				{
 					return true;
 				}
-				S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Throwing && Shield->IsForcedPull() && InStep > 3.5 && MinesInFlight(Boss) == 6,
-					FString::Printf(TEXT("hidden %.1f s: a forced pull starts with all 6 mines in the air (%d flying; %s)"), InStep, MinesInFlight(Boss), *DescribeHud()));
+				S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Throwing && Shield->IsForcedPull() && InStep > 3.5 && MinesInFlight(Boss) == 12,
+					FString::Printf(TEXT("hidden %.1f s: a forced pull starts with all 12 mines in the air (%d flying; %s)"), InStep, MinesInFlight(Boss), *DescribeHud()));
 				Next(4);
 				break;
 			case 4:
@@ -343,6 +341,14 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 					&& Shield->GetHighlightedPlatforms().IsEmpty(),
 					FString::Printf(TEXT("forced shockwave after %.1f s, then back to normal: shields %d, no platforms (%s)"), InStep, Shield->GetShieldsRemaining(), *DescribeHud()));
 				S->bShockwaveSeen = false;
+				Next(6);
+				break;
+			case 6:	// the shockwave sets the ring of mines off as it passes
+				if (InStep < 1.2)
+				{
+					return true;
+				}
+				S->Check(Mines.IsEmpty(), FString::Printf(TEXT("forced pull: the shockwave set off the ring of mines (%d left)"), Mines.Num()));
 				Shield->StartMechanicNow();
 				Next(10);
 				break;
@@ -354,7 +360,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 					return true;
 				}
 				S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Throwing && !Shield->IsForcedPull() && Shield->GetHighlightedPlatforms().IsEmpty()
-					&& MinesInFlight(Boss) == 6,
+					&& MinesInFlight(Boss) == 12,
 					FString::Printf(TEXT("mechanic %d: mines thrown first (%d in the air, %d down), no platform lit yet (%s)"), S->Breaks + 1, MinesInFlight(Boss), Mines.Num(), *DescribeHud()));
 				S->Shot(PC, 5 + S->Breaks, S->BossStart, TEXT("the mines thrown out"));
 				Next(11);
@@ -380,6 +386,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 					return true;
 				}
 				S->Check(S->bShockwaveSeen && Shield->GetPhase() == EFPSRLShieldPhase::AwaitingPlayers, FString::Printf(TEXT("the shockwave went out; waiting for the platform (%s)"), *DescribeHud()));
+				S->ShotsBefore = AI ? AI->GetProjectilesFired() : 0;
 				EveryoneOn(World, Shield->GetHighlightedPlatforms());
 				Next(13);
 				break;
@@ -392,6 +399,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				{
 					return true;
 				}
+				S->Check(Mines.IsEmpty(), FString::Printf(TEXT("mechanic %d: the shockwave set off the ring of mines (%d left)"), S->Breaks + 1, Mines.Num()));
 				S->Progress = Shield->GetDisruptionFraction();
 				S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Disrupting && S->Progress > 0.2f, FString::Printf(TEXT("on the lit platform: Shield Disruption %.0f%% (%s)"), S->Progress * 100.f, *DescribeHud()));
 				Host->TeleportTo(S->BossStart + (Host->GetActorLocation() - S->BossStart).GetSafeNormal2D() * 1000.f, Host->GetActorRotation());	// step off
@@ -412,36 +420,16 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				{
 					return true;
 				}
+				S->Check(AI && AI->GetProjectilesFired() > S->ShotsBefore, FString::Printf(TEXT("it kept shooting during Shield Disruption (%d shot(s))"), AI ? AI->GetProjectilesFired() - S->ShotsBefore : 0));
 				++S->Breaks;
 				S->Check(Shield->GetShieldsRemaining() == 2 - S->Breaks, FString::Printf(TEXT("back on: resumed and broke shield %d after %.1f s (%d left; %s)"), S->Breaks, InStep, Shield->GetShieldsRemaining(), *DescribeHud()));
 				Next(S->Breaks < 2 ? 16 : 20);
 				break;
-			case 16:	// between the two: step on an armed mine
+			case 16:	// between the two
 				if (InStep < 0.5)
 				{
 					return true;
 				}
-				S->SteppedOn = nullptr;
-				S->bSteppedOn = false;
-				for (AFPSRLLandmine* Mine : Mines)
-				{
-					if (Mine->IsArmed())
-					{
-						S->SteppedOn = Mine;
-						S->bSteppedOn = true;
-						Host->TeleportTo(Mine->GetActorLocation() + FVector(0.f, 0.f, Host->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 5.f), Host->GetActorRotation());
-						break;
-					}
-				}
-				S->Check(S->bSteppedOn, FString::Printf(TEXT("an armed mine to step on (%d down)"), Mines.Num()));
-				Next(17);
-				break;
-			case 17:
-				if (InStep < 1.0)
-				{
-					return true;
-				}
-				S->Check(S->bSteppedOn && !S->SteppedOn.IsValid(), FString::Printf(TEXT("stepping on an armed mine set it off (it is gone; %d down now)"), Mines.Num()));
 				S->bShockwaveSeen = false;
 				Shield->StartMechanicNow();
 				Next(10);
@@ -461,8 +449,8 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 						FString::Printf(TEXT("both shields broken: vulnerable, 200 damage lands (%.0f -> %.0f)"), Before, BossHealth->GetCurrentHealth()));
 					S->Check(DescribeHud().Contains(TEXT("SHIELD 2  BROKEN")), FString::Printf(TEXT("HUD: %s"), *DescribeHud()));
 				}
-				S->Check(S->MinesSeen > 0 && S->MinesFlying == S->MinesSeen && S->MaxMines <= 8 && S->BadMines == 0,
-					FString::Printf(TEXT("mines: %d thrown (%d seen in the air), at most %d down at once (cap 8), %d landed badly"), S->MinesSeen, S->MinesFlying, S->MaxMines, S->BadMines));
+				S->Check(S->MinesSeen > 0 && S->MinesFlying == S->MinesSeen && S->MaxMines <= 24 && S->BadMines == 0,
+					FString::Printf(TEXT("mines: %d thrown (%d seen in the air), at most %d down at once (cap 24), %d landed badly"), S->MinesSeen, S->MinesFlying, S->MaxMines, S->BadMines));
 				UE_LOG(LogFPSRL, Log, TEXT("[JuggernautTest] done: %d problem(s)"), S->Problems);
 				return false;
 			default:

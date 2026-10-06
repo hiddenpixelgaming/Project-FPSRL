@@ -47,12 +47,12 @@ cls = unreal.BlueprintEditorLibrary.generated_class(bp)
 unreal.get_default_object(cls).set_editor_property("Weapon Class", unreal.load_class(None, PISTOL))
 lib.save_loaded_asset(bp)
 
-# Mines (playtest v0.1.47): no longer laid on a timer - thrown out all at once, spread all round it, at the start of
-# every pull (the warning that the pull is coming): 6 per throw, at most 8 down, 9-16 m out, 1 s in the air, armed 1.5 s
-# after landing, 40 in 3 m.
+# Mines (playtest v0.1.47, v0.1.48): no longer laid on a timer - thrown out all at once in a tight ring round it at the start of
+# every pull (the warning that the pull is coming): 12 per throw, 8-9.5 m out (just beyond where the pull puts players), 1 s in
+# the air, armed 1.5 s after landing, 40 in 3 m. Its shockwave sets them off as it passes.
 mines = unreal.FPSRLMineSettings()
-for key, value in dict(mines_per_throw=6, max_active_mines=8, trigger_radius=150.0, explosion_radius=300.0, damage=40.0,
-                       throw_seconds=1.0, arm_seconds=1.5, min_distance=900.0, max_distance=1600.0).items():
+for key, value in dict(mines_per_throw=12, max_active_mines=24, trigger_radius=150.0, explosion_radius=300.0, damage=40.0,
+                       throw_seconds=1.0, arm_seconds=1.5, min_distance=800.0, max_distance=950.0).items():
     mines.set_editor_property(key, value)
 
 # --- behaviour: never moves, sees everyone, the volley; the shield encounter's numbers ------ --------------------------
@@ -76,9 +76,10 @@ values = dict(
     shield_mines=mines, forced_pull_blind_seconds=4.0, forced_pull_cooldown=12.0, forced_pull_charge_seconds=0.6,
     reference_behaviour="Ground Juggernaut (Miniboss #1, user spec 2026-10-05, reworked after playtest v0.1.47): a "
         "stationary war machine. Two shield layers: its health can't be hurt until both are broken from the arena's four "
-        "platforms. Every 30 s it throws 6 mines out all round it (the warning), pulls the standing players next to it, "
-        "lights as many platforms as players, charges 2 s and sends out a jumpable shockwave (150); once every standing "
-        "player is on a lit platform, 5 s of Shield Disruption breaks a layer (stepping off pauses it). Nobody in its "
+        "platforms. Every 30 s it throws a ring of 12 mines round it (the warning), pulls the standing players next to it, "
+        "lights as many platforms as players, charges 2 s and sends out a jumpable shockwave (150) that sets off the mines; "
+        "once every standing player is on a lit platform, 5 s of Shield Disruption breaks a layer (stepping off pauses it; it keeps "
+        "shooting at them meanwhile). Nobody in its "
         "sight for 4 s: a forced pull - mines, pull, the shockwave after 0.6 s, no platforms (12 s cooldown). Its attack: "
         "3 slow dodgeable shots (15), then a laser for 1 s and a heavy shot (50).",
 )
