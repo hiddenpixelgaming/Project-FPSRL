@@ -443,14 +443,20 @@ public:
 
 	// --- Shield encounter (Ground Juggernaut: shields broken from the platforms) --------------------------------------
 
-	/** UFPSRLShieldEncounterComponent: shield layers (its health can't be hurt while any is up), how often the platform
-	 *  mechanic runs, the charge before its shockwave, the Shield Disruption time, where players are brought (around it),
-	 *  and that shockwave. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0"))
-	int32 ShieldLayers = 2;
+	/** UFPSRLShieldEncounterComponent (playtest v0.1.49): its health fractions that start the sequence (mines, pull,
+	 *  shockwave, platforms; one shield to break each; health can't pass a threshold before its sequence ran), what it
+	 *  takes while its shield is up / down, the charge before its shockwave, the Shield Disruption time, where players are
+	 *  brought (around it), and that shockwave. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter")
+	TArray<float> ShieldThresholds = { 0.75f, 0.5f, 0.25f };
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "5"))
-	float ShieldMechanicInterval = 30.f;
+	/** Damage taken while the shield is up (from the start, and from each threshold until that shield is broken). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0"))
+	float ShieldedDamageTaken = 0.25f;
+
+	/** Damage taken while the shield is down (after a break, until the next threshold). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0"))
+	float ExposedDamageTaken = 1.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Shield Encounter", meta = (ClampMin = "0.2"))
 	float ShieldChargeSeconds = 2.f;

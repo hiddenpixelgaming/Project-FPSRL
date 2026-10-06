@@ -7,8 +7,11 @@
 #include "Components/FPSRLHealthComponent.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/Overlay.h"
+#include "Components/OverlaySlot.h"
 #include "Components/ProgressBar.h"
 #include "Components/SizeBox.h"
+#include "Components/Spacer.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -17,7 +20,9 @@ namespace FPSRLEncounterBarStyle
 {
 	const FLinearColor Miniboss(1.f, 0.55f, 0.1f);
 	const FLinearColor FinalLevelBoss(0.9f, 0.08f, 0.08f);
-	const FLinearColor Shielded(0.35f, 0.35f, 0.38f);		// health while shields stand (it can't be hurt)
+	const FLinearColor Shielded(0.35f, 0.55f, 0.65f);		// health while the shield is up (reduced damage)
+	const FLinearColor Marker(1.f, 1.f, 1.f, 0.95f);			// a threshold still to come
+	const FLinearColor MarkerPassed(1.f, 1.f, 1.f, 0.25f);
 	const FLinearColor ShieldUp(0.15f, 0.75f, 1.f);
 	const FLinearColor ShieldDown(0.12f, 0.12f, 0.14f);
 	const FLinearColor Disruption(0.2f, 0.9f, 1.f);
@@ -34,7 +39,7 @@ void UFPSRLEncounterBarWidget::NativeOnInitialized()
 
 void UFPSRLEncounterBarWidget::BuildDefaultLayout()
 {
-	// Top-centre: the name over [SHIELD 1][SHIELD 2][ health bar ], the disruption bar under it.
+	// Top-centre: the name over [SHIELD UP/DOWN][ health bar with its threshold markers ], the disruption bar under it.
 	UVerticalBox* Column = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), TEXT("Column"));
 	WidgetTree->RootWidget = Column;
 
@@ -58,13 +63,12 @@ void UFPSRLEncounterBarWidget::BuildDefaultLayout()
 	}
 
 	UHorizontalBox* Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Row"));
-	for (int32 Index = 0; Index < 2; ++Index)
+	for (int32 Index = 0; Index < 1; ++Index)
 	{
 		UBorder* Box = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *FString::Printf(TEXT("Shield%d"), Index + 1));
 		Box->SetPadding(FMargin(10.f, 1.f));
 		Box->SetVerticalAlignment(VAlign_Center);
 		UTextBlock* Text = MakeText(*FString::Printf(TEXT("ShieldText%d"), Index + 1), 11);
-		Text->SetText(FText::FromString(FString::Printf(TEXT("SHIELD %d"), Index + 1)));
 		Box->SetContent(Text);
 		if (UHorizontalBoxSlot* BoxSlot = Row->AddChildToHorizontalBox(Box))
 		{
@@ -79,7 +83,19 @@ void UFPSRLEncounterBarWidget::BuildDefaultLayout()
 	BarSize->SetHeightOverride(22.f);
 	HealthBar = WidgetTree->ConstructWidget<UProgressBar>(UProgressBar::StaticClass(), TEXT("HealthBar"));
 	HealthBar->SetPercent(1.f);
-	BarSize->SetContent(HealthBar);
+	UOverlay* BarOverlay = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("BarOverlay"));
+	if (UOverlaySlot* BarSlot = BarOverlay->AddChildToOverlay(HealthBar))
+	{
+		BarSlot->SetHorizontalAlignment(HAlign_Fill);
+		BarSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+	Markers = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("Markers"));
+	if (UOverlaySlot* MarkersSlot = BarOverlay->AddChildToOverlay(Markers))
+	{
+		MarkersSlot->SetHorizontalAlignment(HAlign_Fill);
+		MarkersSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+	BarSize->SetContent(BarOverlay);
 	Row->AddChildToHorizontalBox(BarSize);
 	if (UVerticalBoxSlot* RowSlot = Column->AddChildToVerticalBox(Row))
 	{
@@ -162,18 +178,57 @@ void UFPSRLEncounterBarWidget::RefreshShields()
 	const UFPSRLShieldEncounterComponent* ShieldComponent = Shields.Get();
 	const int32 Layers = ShieldComponent ? ShieldComponent->GetShieldLayers() : 0;
 	const int32 Remaining = ShieldComponent ? ShieldComponent->GetShieldsRemaining() : 0;
+	const bool bUp = ShieldComponent && Layers > 0 && ShieldComponent->IsShieldUp();
 	for (int32 Index = 0; Index < ShieldBoxes.Num(); ++Index)
 	{
-		// Shield 1 breaks first: the first (Layers - Remaining) are broken.
-		const bool bShown = Index < Layers;
-		const bool bUp = bShown && Index >= Layers - Remaining;
-		ShieldBoxes[Index]->SetVisibility(bShown ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		ShieldBoxes[Index]->SetVisibility(Layers > 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		ShieldBoxes[Index]->SetBrushColor(bUp ? FPSRLEncounterBarStyle::ShieldUp : FPSRLEncounterBarStyle::ShieldDown);
-		ShieldTexts[Index]->SetText(FText::FromString(FString::Printf(TEXT("SHIELD %d%s"), Index + 1, bUp ? TEXT("") : TEXT("  BROKEN"))));
+		ShieldTexts[Index]->SetText(FText::FromString(bUp ? TEXT("SHIELD UP") : TEXT("SHIELD DOWN")));
 	}
 	if (HealthBar)
 	{
-		HealthBar->SetFillColorAndOpacity(Remaining > 0 ? FPSRLEncounterBarStyle::Shielded : HealthColor);
+		HealthBar->SetFillColorAndOpacity(bUp ? FPSRLEncounterBarStyle::Shielded : HealthColor);
+	}
+	// The threshold markers on the health bar (75 / 50 / 25 %): the ones already reached fade.
+	const TArray<float> Wanted = ShieldComponent ? ShieldComponent->GetThresholds() : TArray<float>();
+	if (Markers && Wanted != MarkersShown)
+	{
+		MarkersShown = Wanted;
+		Markers->ClearChildren();
+		MarkerBorders.Reset();
+		TArray<float> Ascending = Wanted;
+		Ascending.Sort();
+		float Previous = 0.f;
+		for (const float Fraction : Ascending)
+		{
+			USpacer* Gap = WidgetTree->ConstructWidget<USpacer>(USpacer::StaticClass());
+			if (UHorizontalBoxSlot* GapSlot = Markers->AddChildToHorizontalBox(Gap))
+			{
+				GapSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+				GapSlot->Size.Value = FMath::Max(0.001f, Fraction - Previous);
+			}
+			UBorder* Line = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass());
+			Line->SetBrushColor(FPSRLEncounterBarStyle::Marker);
+			USizeBox* LineSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass());
+			LineSize->SetWidthOverride(3.f);
+			LineSize->SetContent(Line);
+			Markers->AddChildToHorizontalBox(LineSize);
+			MarkerBorders.Add(Fraction, Line);
+			Previous = Fraction;
+		}
+		USpacer* Rest = WidgetTree->ConstructWidget<USpacer>(USpacer::StaticClass());
+		if (UHorizontalBoxSlot* RestSlot = Markers->AddChildToHorizontalBox(Rest))
+		{
+			RestSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			RestSlot->Size.Value = FMath::Max(0.001f, 1.f - Previous);
+		}
+	}
+	for (int32 Index = 0; Index < Wanted.Num(); ++Index)
+	{
+		if (const TObjectPtr<UBorder>* Line = MarkerBorders.Find(Wanted[Index]))
+		{
+			(*Line)->SetBrushColor(Index < Layers - Remaining ? FPSRLEncounterBarStyle::MarkerPassed : FPSRLEncounterBarStyle::Marker);
+		}
 	}
 	// The disruption bar while the platform mechanic runs.
 	const EFPSRLShieldPhase Phase = ShieldComponent ? ShieldComponent->GetPhase() : EFPSRLShieldPhase::Idle;
@@ -209,6 +264,15 @@ FString UFPSRLEncounterBarWidget::Describe() const
 		}
 	}
 	Parts.Add(FString::Printf(TEXT("HP %.0f%%"), HealthBar ? HealthBar->GetPercent() * 100.f : 0.f));
+	if (!MarkersShown.IsEmpty())
+	{
+		TArray<FString> Marks;
+		for (const float Fraction : MarkersShown)
+		{
+			Marks.Add(FString::Printf(TEXT("%.0f"), Fraction * 100.f));
+		}
+		Parts.Add(TEXT("markers ") + FString::Join(Marks, TEXT("/")));
+	}
 	if (DisruptionText && DisruptionText->GetVisibility() != ESlateVisibility::Collapsed)
 	{
 		Parts.Add(FString::Printf(TEXT("%s (%.0f%%)"), *DisruptionText->GetText().ToString(), DisruptionBar->GetPercent() * 100.f));

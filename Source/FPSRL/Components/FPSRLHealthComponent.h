@@ -134,6 +134,12 @@ public:
 	/** Server: this enemy's attacks deal this much of their damage (enemy scaling). 1 for players. */
 	float OutgoingDamageMultiplier = 1.f;
 
+	/** Server: damage it takes is multiplied by this (a boss's shield up / down). */
+	float IncomingDamageMultiplier = 1.f;
+
+	/** Server: damage can't take its health below this (a boss held at its next phase threshold); 0 = none. */
+	float HealthFloor = 0.f;
+
 	/** Server: damage from the world itself (a fall), not from anyone, so the friendly-fire filter doesn't apply. */
 	void ApplyEnvironmentDamage(float Amount);
 

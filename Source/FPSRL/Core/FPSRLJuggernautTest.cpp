@@ -3,14 +3,16 @@
 // Test only: FPSRL.JuggernautTest (host, during a real run that reaches a Ground Juggernaut arena, e.g. Lobby +
 // fpsrl.Depth.ForceMinibossRoom DA_Room_Z1_Miniboss_01 + fpsrl.Autopilot.FightSeconds 300 + FPSRLAutoRun). Every player
 // gets god mode (the mechanics, not the damage). Once the encounter is on ([JuggernautTest]):
-//  - two shield layers, the boss can't be hurt, it never moves; the HUD shows SHIELD 1 | SHIELD 2 | HP
+//  - its shield is up from the start (25 % damage), 3 thresholds; it never moves; the HUD shows SHIELD UP | HP and the
+//    75/50/25 markers
 //  - its attack, in its sight: 3 slow shots, then the aim line, then the heavy shot
 //  - out of its sight for 4 s: a forced pull - mines thrown, the pull, a quick shockwave, no platforms lit, the shields
-//    untouched, the shockwave sets off the ring of mines, back to normal
-//  - the platform mechanic: a ring of 16 mines thrown out round it first (in the air, then landed: never on a platform,
-//    never under a player, never more than the cap), the host brought next to the boss, one platform lights per player,
-//    the shockwave goes out and sets the mines off; on the lit platform Shield Disruption charges while the boss keeps
-//    shooting; stepping off pauses it (progress kept), back on resumes; full = a layer breaks. Twice: then it can be hurt.
+//    untouched, the shockwave (after 1.6 s) sets off the ring of mines, back to normal
+//  - each threshold (a huge hit is held there): shield up, a ring of 16 mines thrown out round it first (in the air,
+//    then landed: never on a platform, never under a player, never more than the cap), the host brought next to the
+//    boss, one platform lights per player, the shockwave goes out and sets the mines off; on the lit platform Shield Disruption charges while the boss keeps
+//    shooting; stepping off pauses it (progress kept), back on resumes; full = the shield breaks: 150 % damage until the
+//    next threshold. After the third: no floor, it can be killed.
 
 #include "AI/FPSRLEnemyAIController.h"
 #include "AI/FPSRLEnemyRoleComponent.h"
@@ -281,10 +283,11 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				}
 				{
 					const float Before = BossHealth->GetCurrentHealth();
-					UGameplayStatics::ApplyDamage(Boss, 500.f, PC, Host, nullptr);
-					S->Check(Shield->GetShieldsRemaining() == 2 && BossHealth->IsInvulnerable() && FMath::IsNearlyEqual(BossHealth->GetCurrentHealth(), Before),
-						FString::Printf(TEXT("2 shields up, 500 damage did nothing (%.0f -> %.0f of %.0f)"), Before, BossHealth->GetCurrentHealth(), BossHealth->GetMaxHealth()));
-					S->Check(DescribeHud().StartsWith(TEXT("SHIELD 1 | SHIELD 2 | HP")), FString::Printf(TEXT("HUD: %s"), *DescribeHud()));
+					UGameplayStatics::ApplyDamage(Boss, 400.f, PC, Host, nullptr);
+					const float Taken = Before - BossHealth->GetCurrentHealth();
+					S->Check(Shield->GetShieldsRemaining() == 3 && Shield->IsShieldUp() && Taken > 400.f * 0.2f && Taken < 400.f * 0.3f,
+						FString::Printf(TEXT("shield up from the start, 3 thresholds: 400 damage took %.0f (%.0f -> %.0f of %.0f)"), Taken, Before, BossHealth->GetCurrentHealth(), BossHealth->GetMaxHealth()));
+					S->Check(DescribeHud().StartsWith(TEXT("SHIELD UP | HP")) && DescribeHud().Contains(TEXT("markers 75/50/25")), FString::Printf(TEXT("HUD: %s"), *DescribeHud()));
 				}
 				S->Check(MoveEveryone(World, Boss, true), TEXT("everyone moved to where it can see them"));
 				S->ShotsBefore = AI ? AI->GetProjectilesFired() : 0;
@@ -337,7 +340,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				{
 					return true;
 				}
-				S->Check(S->bShockwaveSeen && InStep < 1.5 && Shield->GetPhase() == EFPSRLShieldPhase::Idle && Shield->GetShieldsRemaining() == 2
+				S->Check(S->bShockwaveSeen && InStep > 1.4 && InStep < 2.2 && Shield->GetPhase() == EFPSRLShieldPhase::Idle && Shield->GetShieldsRemaining() == 3 && Shield->IsShieldUp()
 					&& Shield->GetHighlightedPlatforms().IsEmpty(),
 					FString::Printf(TEXT("forced shockwave after %.1f s, then back to normal: shields %d, no platforms (%s)"), InStep, Shield->GetShieldsRemaining(), *DescribeHud()));
 				S->bShockwaveSeen = false;
@@ -349,7 +352,7 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 					return true;
 				}
 				S->Check(Mines.IsEmpty(), FString::Printf(TEXT("forced pull: the shockwave set off the ring of mines (%d left)"), Mines.Num()));
-				Shield->StartMechanicNow();
+				UGameplayStatics::ApplyDamage(Boss, 100000.f, PC, Host, nullptr);	// to the first threshold
 				Next(10);
 				break;
 
@@ -359,9 +362,14 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				{
 					return true;
 				}
+				{
+					const float Expected = Shield->GetThresholds()[S->Breaks] * BossHealth->GetMaxHealth();
+					S->Check(FMath::Abs(BossHealth->GetCurrentHealth() - Expected) < 2.f && Shield->IsShieldUp(),
+						FString::Printf(TEXT("threshold %d: a huge hit held it at %.0f%% (%.0f), shield up"), S->Breaks + 1, Shield->GetThresholds()[S->Breaks] * 100.f, BossHealth->GetCurrentHealth()));
+				}
 				S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Throwing && !Shield->IsForcedPull() && Shield->GetHighlightedPlatforms().IsEmpty()
 					&& MinesInFlight(Boss) == 16,
-					FString::Printf(TEXT("mechanic %d: mines thrown first (%d in the air, %d down), no platform lit yet (%s)"), S->Breaks + 1, MinesInFlight(Boss), Mines.Num(), *DescribeHud()));
+					FString::Printf(TEXT("threshold %d: mines thrown first (%d in the air, %d down), no platform lit yet (%s)"), S->Breaks + 1, MinesInFlight(Boss), Mines.Num(), *DescribeHud()));
 				S->Shot(PC, 5 + S->Breaks, S->BossStart, TEXT("the mines thrown out"));
 				Next(11);
 				break;
@@ -416,22 +424,28 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				Next(15);
 				break;
 			case 15:	// back on: resumes and breaks a layer
-				if (Shield->GetShieldsRemaining() == 2 - S->Breaks && InStep < 8.0)
+				if (Shield->GetShieldsRemaining() == 3 - S->Breaks && InStep < 8.0)
 				{
 					return true;
 				}
 				S->Check(AI && AI->GetProjectilesFired() > S->ShotsBefore, FString::Printf(TEXT("it kept shooting during Shield Disruption (%d shot(s))"), AI ? AI->GetProjectilesFired() - S->ShotsBefore : 0));
 				++S->Breaks;
-				S->Check(Shield->GetShieldsRemaining() == 2 - S->Breaks, FString::Printf(TEXT("back on: resumed and broke shield %d after %.1f s (%d left; %s)"), S->Breaks, InStep, Shield->GetShieldsRemaining(), *DescribeHud()));
-				Next(S->Breaks < 2 ? 16 : 20);
+				S->Check(Shield->GetShieldsRemaining() == 3 - S->Breaks && !Shield->IsShieldUp() && DescribeHud().StartsWith(TEXT("SHIELD DOWN")), FString::Printf(TEXT("back on: resumed and broke shield %d after %.1f s (%d left; %s)"), S->Breaks, InStep, Shield->GetShieldsRemaining(), *DescribeHud()));
+				Next(S->Breaks < 3 ? 16 : 20);
 				break;
-			case 16:	// between the two
+			case 16:	// shield down until the next threshold: increased damage; then on to it
 				if (InStep < 0.5)
 				{
 					return true;
 				}
+				{
+					const float Before = BossHealth->GetCurrentHealth();
+					UGameplayStatics::ApplyDamage(Boss, 100.f, PC, Host, nullptr);
+					const float Taken = Before - BossHealth->GetCurrentHealth();
+					S->Check(Taken > 140.f && Taken < 160.f && Shield->GetPhase() == EFPSRLShieldPhase::Idle, FString::Printf(TEXT("shield down: 100 damage took %.0f"), Taken));
+				}
 				S->bShockwaveSeen = false;
-				Shield->StartMechanicNow();
+				UGameplayStatics::ApplyDamage(Boss, 100000.f, PC, Host, nullptr);	// to the next threshold
 				Next(10);
 				break;
 
@@ -445,9 +459,12 @@ static FAutoConsoleCommandWithWorld GFPSRLJuggernautTestCommand(TEXT("FPSRL.Jugg
 				{
 					const float Before = BossHealth->GetCurrentHealth();
 					UGameplayStatics::ApplyDamage(Boss, 200.f, PC, Host, nullptr);
-					S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Vulnerable && !BossHealth->IsInvulnerable() && BossHealth->GetCurrentHealth() < Before,
-						FString::Printf(TEXT("both shields broken: vulnerable, 200 damage lands (%.0f -> %.0f)"), Before, BossHealth->GetCurrentHealth()));
-					S->Check(DescribeHud().Contains(TEXT("SHIELD 2  BROKEN")), FString::Printf(TEXT("HUD: %s"), *DescribeHud()));
+					const float Taken = Before - BossHealth->GetCurrentHealth();
+					S->Check(Shield->GetPhase() == EFPSRLShieldPhase::Vulnerable && Taken > 280.f && Taken < 320.f,
+						FString::Printf(TEXT("all three thresholds done: shield down for good, 200 damage took %.0f (%.0f -> %.0f)"), Taken, Before, BossHealth->GetCurrentHealth()));
+					S->Check(DescribeHud().StartsWith(TEXT("SHIELD DOWN")), FString::Printf(TEXT("HUD: %s"), *DescribeHud()));
+					UGameplayStatics::ApplyDamage(Boss, 100000.f, PC, Host, nullptr);
+					S->Check(BossHealth->IsDead(), TEXT("no floor any more: it can be killed"));
 				}
 				S->Check(S->MinesSeen > 0 && S->MinesFlying == S->MinesSeen && S->MaxMines <= 32 && S->BadMines == 0,
 					FString::Printf(TEXT("mines: %d thrown (%d seen in the air), at most %d down at once (cap 32), %d landed badly"), S->MinesSeen, S->MinesFlying, S->MaxMines, S->BadMines));

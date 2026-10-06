@@ -12,30 +12,32 @@ class UFPSRLEnemyBehaviorProfile;
 UENUM(BlueprintType)
 enum class EFPSRLShieldPhase : uint8
 {
-	Idle,				// normal combat (or waiting for the next mechanic)
+	Idle,				// normal combat (shield up or down, until the next threshold)
 	Throwing,			// its mines are flying out all round it: the pull is coming
 	Charging,			// players brought in, platforms lit, the boss charges its shockwave
 	AwaitingPlayers,	// the shockwave is out; not every required player is on a lit platform (disruption paused)
 	Disrupting,			// every required player is placed: Shield Disruption charging
-	Vulnerable			// every shield layer is broken: the mechanic is over for good
+	Vulnerable			// every threshold's shield is broken: the mechanic is over for good
 };
 
 /**
- * The Ground Juggernaut's shields and its platform mechanic (user spec 2026-10-05). The boss's health can't be hurt while
- * any shield layer stands. Every ShieldMechanicInterval seconds while one does:
- *   1. every standing player is brought next to the boss (spread around it),
+ * The Ground Juggernaut's shield and its platform mechanic (user spec 2026-10-05, health thresholds after playtest
+ * v0.1.49). Its shield is up from the start: it takes ShieldedDamageTaken of any damage. When its health reaches one of
+ * its ShieldThresholds (75 / 50 / 25 %; it can't be pushed past one before that one's sequence ran):
+ *   0. the shield comes back up (if it was down),
+ *   1. its mines are thrown out in a ring round it, then every standing player is brought next to it,
  *   2. as many of the arena's four permanent platforms as there are standing players light up (a new combination each
  *      time), and the boss charges ShieldChargeSeconds (its blast area shows on the floor),
- *   3. the epicenter shockwave goes out (AFPSRLShockwave; jumpable; players on platforms are above it),
+ *   3. the epicenter shockwave goes out (AFPSRLShockwave; jumpable; sets the mines off; players on platforms are above it),
  *   4. once EVERY standing player is on a lit platform (one each), Shield Disruption charges for ShieldDisruptionSeconds;
- *      anyone stepping off pauses it (the progress is kept),
- *   5. full: the current layer breaks and combat resumes. After the last layer: vulnerable, the mechanic stops.
- * Downed or dead players stop counting (a lit platform nobody can fill goes dark). The boss's attacks pause from (1) to
- * (5). Values from its behaviour profile (Shield Encounter).
+ *      anyone stepping off pauses it (the progress is kept); the boss keeps shooting meanwhile,
+ *   5. full: the shield breaks - it takes ExposedDamageTaken until the next threshold. After the last: down for good.
+ * Nobody in its sight for ForcedPullBlindSeconds: a forced pull (mines, pull, a quick shockwave, no platforms).
+ * Downed or dead players stop counting (a lit platform nobody can fill goes dark). Values from its behaviour profile.
  *
- * Server-driven by timers (no Tick); state replicated for the HUD (UFPSRLEncounterBarWidget: SHIELD 1 | SHIELD 2 | HP
- * and the SHIELD DISRUPTION bar) and the boss's shield glow. Added to the boss by UFPSRLEnemyBodySubsystem from its
- * definition (EncounterComponent). Test: fpsrl.Juggernaut.MechanicInterval overrides the interval.
+ * Server-driven by its health events and timers (no Tick); state replicated for the HUD (UFPSRLEncounterBarWidget: the
+ * shield state, the health bar with the threshold markers, the SHIELD DISRUPTION bar) and the boss's shield dome. Added to
+ * the boss by UFPSRLEnemyBodySubsystem from its definition (EncounterComponent).
  */
 UCLASS(ClassGroup = (FPSRL))
 class FPSRL_API UFPSRLShieldEncounterComponent : public UActorComponent
@@ -54,13 +56,16 @@ public:
 	int32 GetRequiredCount() const { return RequiredCount; }
 	/** The pull under way is a forced one (nobody was in sight): no platforms. */
 	bool IsForcedPull() const { return bForcedPullShown; }
+	/** Its shield is up (reduced damage) or down (increased damage). */
+	bool IsShieldUp() const { return bShieldUp; }
+	/** Its health fractions that start the sequence (the HUD's markers); the first GetShieldLayers() - GetShieldsRemaining() are done. */
+	const TArray<float>& GetThresholds() const { return Thresholds; }
 
 	/** Any machine: the shields / phase / disruption changed (the HUD). */
 	FSimpleMulticastDelegate OnStateChanged;
 
-	/** Server (tests): the lit platforms, and start the mechanic now. */
+	/** Server (tests): the lit platforms. */
 	TArray<AFPSRLShieldPlatform*> GetHighlightedPlatforms() const;
-	void StartMechanicNow();
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -71,7 +76,10 @@ protected:
 private:
 	const UFPSRLEnemyBehaviorProfile* GetProfile() const;
 	void Watch();
-	void ScheduleMechanic();
+	/** Health at (or below) the next threshold and nothing under way: shield up, the sequence starts. */
+	void CheckThreshold();
+	/** Server: the damage it takes (shield up / down) and the floor at its next threshold. */
+	void ApplyShieldState();
 	void StartMechanic();
 	/** A pull: mines thrown, then players pulled in; forced (nobody in sight) = a short charge and no platforms. */
 	void StartPull(bool bForced);
@@ -88,6 +96,9 @@ private:
 
 	UFUNCTION()
 	void HandleDeath(AController* Killer, AActor* Causer);
+
+	UFUNCTION()
+	void HandleHealthChanged(double CurrentHealth, double MaxHealth);
 
 	UFUNCTION()
 	void OnRep_State();
@@ -113,6 +124,12 @@ private:
 	UPROPERTY(ReplicatedUsing = OnRep_State)
 	bool bForcedPullShown = false;
 
+	UPROPERTY(ReplicatedUsing = OnRep_State)
+	bool bShieldUp = true;
+
+	UPROPERTY(ReplicatedUsing = OnRep_State)
+	TArray<float> Thresholds;
+
 	bool bActive = false;
 	bool bForcedPull = false;
 	double BlindSince = 0.0;
@@ -127,7 +144,7 @@ private:
 	FTimerHandle MechanicTimer;
 	FTimerHandle ChargeTimer;
 	FTimerHandle CheckTimer;
-	int32 LastShieldsShown = -1;
+	int32 LastShieldShown = -1;
 
 	UPROPERTY(Transient)
 	TObjectPtr<class UStaticMeshComponent> Dome;

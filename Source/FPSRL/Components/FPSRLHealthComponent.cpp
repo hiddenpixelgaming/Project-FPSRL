@@ -225,6 +225,17 @@ void UFPSRLHealthComponent::HandleTakeAnyDamage(float Damage, const UDamageType*
 	// A player's attack: scaled by their combat stats for that source, maybe a critical, and reported to their Blessings.
 	FPSRLCombat::FPlayerHit PlayerHit = FPSRLCombat::ResolvePlayerHit(InstigatedBy, DamageCauser, GetOwner(), Damage);
 
+	// A boss's shield up / down, and its next phase threshold (it can't be pushed past one before that phase ran).
+	Damage *= IncomingDamageMultiplier;
+	if (HealthFloor > 0.f)
+	{
+		Damage = FMath::Min(Damage, FMath::Max(0.f, GetCurrentHealth() - HealthFloor));
+	}
+	if (Damage <= 0.f)
+	{
+		return;
+	}
+
 	ApplyHealthEffect(UFPSRLDamageEffect::StaticClass(), FPSRLGameplayTags::SetByCaller_Damage, Damage, InstigatedBy, DamageCauser);
 	OnDamagedBy.Broadcast(Damage, const_cast<APawn*>(Attacker));
 	if (bProjectile)

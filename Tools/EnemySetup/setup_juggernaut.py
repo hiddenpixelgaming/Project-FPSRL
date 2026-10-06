@@ -70,18 +70,19 @@ values = dict(
                hold_position=True, volley_projectile=unreal.load_class(None, BULLET), volley_shots=3, volley_interval=0.35,
                volley_damage=15.0, volley_speed=0.35, heavy_aim_seconds=1.0, heavy_damage=50.0, heavy_speed=0.9),
     ],
-    shield_layers=2, shield_mechanic_interval=30.0, shield_charge_seconds=2.0, shield_disruption_seconds=5.0,
+    shield_thresholds=[0.75, 0.5, 0.25], shielded_damage_taken=0.25, exposed_damage_taken=1.5,
+    shield_charge_seconds=2.0, shield_disruption_seconds=5.0,
     shield_reposition_radius=450.0, shield_shockwave_damage=150.0, shield_shockwave_radius=1500.0,
     shield_shockwave_speed=1100.0, shield_shockwave_height=45.0,
-    shield_mines=mines, forced_pull_blind_seconds=4.0, forced_pull_cooldown=12.0, forced_pull_charge_seconds=0.6,
-    reference_behaviour="Ground Juggernaut (Miniboss #1, user spec 2026-10-05, reworked after playtest v0.1.47): a "
-        "stationary war machine. Two shield layers: its health can't be hurt until both are broken from the arena's four "
-        "platforms. Every 30 s it throws a ring of 16 mines round it (the warning), pulls the standing players next to it, "
-        "lights as many platforms as players, charges 2 s and sends out a jumpable shockwave (150) that sets off the mines; "
-        "once every standing player is on a lit platform, 5 s of Shield Disruption breaks a layer (stepping off pauses it; it keeps "
-        "shooting at them meanwhile). Nobody in its "
-        "sight for 4 s: a forced pull - mines, pull, the shockwave after 0.6 s, no platforms (12 s cooldown). Its attack: "
-        "3 slow dodgeable shots (15), then a laser for 1 s and a heavy shot (50).",
+    shield_mines=mines, forced_pull_blind_seconds=4.0, forced_pull_cooldown=12.0, forced_pull_charge_seconds=1.6,
+    reference_behaviour="Ground Juggernaut (Miniboss #1, user spec 2026-10-05, reworked after playtests v0.1.47-v0.1.49): a "
+        "stationary war machine. Its shield is up from the start (it takes 25% damage). At 75%, 50% and 25% health (it "
+        "can't be pushed past one early) the shield comes up, it throws a ring of 16 mines round it, pulls the standing "
+        "players next to it, lights as many platforms as players, charges 2 s and sends out a jumpable shockwave (150) that "
+        "sets off the mines; once every standing player is on a lit platform, 5 s of Shield Disruption breaks the shield "
+        "(stepping off pauses it; it keeps shooting at them meanwhile) and it takes 150% damage until the next threshold. "
+        "Nobody in its sight for 4 s: a forced pull - mines, pull, the shockwave after 1.6 s, no platforms (12 s "
+        "cooldown). Its attack: 3 slow dodgeable shots (15), then a laser for 1 s and a heavy shot (50).",
 )
 for key, value in values.items():
     profile.set_editor_property(key, value)

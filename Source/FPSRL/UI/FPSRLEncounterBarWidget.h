@@ -18,8 +18,8 @@ class UFPSRLShieldEncounterComponent;
  * (AFPSRLPlayerController::RefreshEncounterBar). Label and look come from the encounter's data; the bar follows the
  * encounter enemy's health through its health component's events (no Tick). Default layout built in code.
  *
- * A boss with shield layers (UFPSRLShieldEncounterComponent, the Ground Juggernaut) shows them before its health:
- * SHIELD 1 | SHIELD 2 | health (greyed while any shield stands), and the SHIELD DISRUPTION bar under it while the
+ * A boss with a shield (UFPSRLShieldEncounterComponent, the Ground Juggernaut) shows SHIELD UP / DOWN before its health,
+ * its threshold markers on the health bar (faded once reached), and the SHIELD DISRUPTION bar under it while the
  * platform mechanic runs. Driven by the component's replicated state events.
  */
 UCLASS()
@@ -69,4 +69,13 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UProgressBar> DisruptionBar;
+
+	/** The threshold markers over the health bar (rebuilt when the thresholds change). */
+	UPROPERTY(Transient)
+	TObjectPtr<class UHorizontalBox> Markers;
+
+	UPROPERTY(Transient)
+	TMap<float, TObjectPtr<UBorder>> MarkerBorders;
+
+	TArray<float> MarkersShown;
 };

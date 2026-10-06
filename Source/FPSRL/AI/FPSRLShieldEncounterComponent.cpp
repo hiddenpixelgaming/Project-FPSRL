@@ -27,8 +27,6 @@
 
 namespace FPSRLShieldEncounter
 {
-	static TAutoConsoleVariable<float> CVarMechanicInterval(TEXT("fpsrl.Juggernaut.MechanicInterval"), 0.f,
-		TEXT("Test: seconds between the Juggernaut's platform mechanics instead of its profile's (0 = the profile's)."));
 	static const TCHAR* ShieldMaterial = TEXT("/Game/MainProject/Contents/Materials/Enemies/M_EnemyPhased.M_EnemyPhased");
 	static const TCHAR* DomeMesh = TEXT("/Engine/BasicShapes/Sphere.Sphere");
 	static constexpr float CheckInterval = 0.1f;
@@ -51,6 +49,8 @@ void UFPSRLShieldEncounterComponent::GetLifetimeReplicatedProps(TArray<FLifetime
 	DOREPLIFETIME(UFPSRLShieldEncounterComponent, DisruptionSeconds);
 	DOREPLIFETIME(UFPSRLShieldEncounterComponent, RequiredCount);
 	DOREPLIFETIME(UFPSRLShieldEncounterComponent, bForcedPullShown);
+	DOREPLIFETIME(UFPSRLShieldEncounterComponent, bShieldUp);
+	DOREPLIFETIME(UFPSRLShieldEncounterComponent, Thresholds);
 }
 
 void UFPSRLShieldEncounterComponent::BeginPlay()
@@ -61,7 +61,7 @@ void UFPSRLShieldEncounterComponent::BeginPlay()
 		OnRep_State();
 		return;
 	}
-	// Shielded from the start (its AI and profile come a moment later: Watch sets the layers).
+	// Can't be hurt until its encounter starts (its AI and profile come a moment later: Watch sets the thresholds).
 	if (UFPSRLHealthComponent* Health = GetOwner()->FindComponentByClass<UFPSRLHealthComponent>())
 	{
 		Health->SetInvulnerable(true);
@@ -103,38 +103,68 @@ void UFPSRLShieldEncounterComponent::Watch()
 	bActive = true;
 	BlindSince = GetWorld()->GetTimeSeconds();	// the blind clock starts now (players are still coming in)
 	GetWorld()->GetTimerManager().ClearTimer(WatchTimer);
-	ShieldLayers = Profile->ShieldLayers;
+	// Highest first: 75 %, 50 %, 25 %.
+	Thresholds = Profile->ShieldThresholds.FilterByPredicate([](float Fraction) { return Fraction > 0.f && Fraction < 1.f; });
+	Thresholds.Sort([](float A, float B) { return A > B; });
+	ShieldLayers = Thresholds.Num();
 	ShieldsRemaining = ShieldLayers;
+	bShieldUp = ShieldLayers > 0;
 	DisruptionSeconds = Profile->ShieldDisruptionSeconds;
 	if (UFPSRLHealthComponent* Health = GetOwner()->FindComponentByClass<UFPSRLHealthComponent>())
 	{
-		Health->SetInvulnerable(ShieldsRemaining > 0);
+		Health->SetInvulnerable(false);
+		Health->OnHealthChanged.AddUniqueDynamic(this, &ThisClass::HandleHealthChanged);
 	}
+	ApplyShieldState();
 	SetPhase(ShieldsRemaining > 0 ? EFPSRLShieldPhase::Idle : EFPSRLShieldPhase::Vulnerable);
-	OnRep_State();	// the HUD and the shield glow (the server has no OnRep)
-	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %s: encounter on, %d shield layer(s)"), *GetOwner()->GetName(), ShieldsRemaining);
-	ScheduleMechanic();
+	OnRep_State();	// the HUD and the shield dome (the server has no OnRep)
+	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] %s: encounter on, shield up, %d threshold(s)"), *GetOwner()->GetName(), ShieldsRemaining);
 	GetWorld()->GetTimerManager().SetTimer(BlindTimer, this, &ThisClass::CheckSight, 0.5f, true);
 }
 
-void UFPSRLShieldEncounterComponent::ScheduleMechanic()
+void UFPSRLShieldEncounterComponent::ApplyShieldState()
 {
 	const UFPSRLEnemyBehaviorProfile* Profile = GetProfile();
-	if (ShieldsRemaining <= 0 || bDead || !Profile)
+	UFPSRLHealthComponent* Health = GetOwner()->FindComponentByClass<UFPSRLHealthComponent>();
+	if (!Profile || !Health || ShieldLayers <= 0)
 	{
 		return;
 	}
-	const float Override = FPSRLShieldEncounter::CVarMechanicInterval.GetValueOnGameThread();
-	GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::StartMechanic, Override > 0.f ? Override : Profile->ShieldMechanicInterval, false);
+	Health->IncomingDamageMultiplier = bShieldUp ? Profile->ShieldedDamageTaken : Profile->ExposedDamageTaken;
+	// Held at the next threshold until that one's sequence has run and its shield is broken.
+	const int32 Next = ShieldLayers - ShieldsRemaining;
+	Health->HealthFloor = Thresholds.IsValidIndex(Next) ? Thresholds[Next] * Health->GetMaxHealth() : 0.f;
 }
 
-void UFPSRLShieldEncounterComponent::StartMechanicNow()
+void UFPSRLShieldEncounterComponent::HandleHealthChanged(double CurrentHealth, double MaxHealth)
 {
-	if (GetOwner()->HasAuthority() && bActive && Phase == EFPSRLShieldPhase::Idle)
+	ApplyShieldState();	// the max can change (player-count scaling at the encounter start)
+	CheckThreshold();
+}
+
+void UFPSRLShieldEncounterComponent::CheckThreshold()
+{
+	const UFPSRLHealthComponent* Health = GetOwner()->FindComponentByClass<UFPSRLHealthComponent>();
+	const int32 Next = ShieldLayers - ShieldsRemaining;
+	if (!bActive || bDead || !Health || !Thresholds.IsValidIndex(Next) || Health->GetCurrentHealth() > Thresholds[Next] * Health->GetMaxHealth() + 1.f)
 	{
-		GetWorld()->GetTimerManager().ClearTimer(MechanicTimer);
-		StartMechanic();
+		return;
 	}
+	if (Phase != EFPSRLShieldPhase::Idle)
+	{
+		// A forced pull (or this threshold's sequence) is under way: look again shortly.
+		GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::CheckThreshold, 1.f, false);
+		return;
+	}
+	if (!bShieldUp)
+	{
+		bShieldUp = true;
+		ApplyShieldState();
+		OnRep_State();
+		GetOwner()->ForceNetUpdate();
+	}
+	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] health at the %.0f%% threshold: shield up, the sequence starts"), Thresholds[Next] * 100.f);
+	StartMechanic();
 }
 
 TArray<APawn*> UFPSRLShieldEncounterComponent::GetStandingPlayers() const
@@ -167,7 +197,7 @@ void UFPSRLShieldEncounterComponent::StartPull(bool bForced)
 	const TArray<AFPSRLShieldPlatform*> Platforms = AFPSRLShieldPlatform::FindAround(GetWorld(), Boss->GetActorLocation(), FPSRLShieldEncounter::PlatformSearchRadius);
 	if (!bForced && Phase != EFPSRLShieldPhase::Idle)
 	{
-		GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::StartMechanic, 3.f, false);	// a forced pull is under way
+		GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::CheckThreshold, 1.f, false);	// a forced pull is under way
 		return;
 	}
 	if (!Profile || bDead || Players.IsEmpty() || (!bForced && (ShieldsRemaining <= 0 || Platforms.IsEmpty())))
@@ -175,7 +205,7 @@ void UFPSRLShieldEncounterComponent::StartPull(bool bForced)
 		UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] pull skipped (%d standing player(s), %d platform(s))"), Players.Num(), Platforms.Num());
 		if (!bForced)
 		{
-			ScheduleMechanic();
+			GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::CheckThreshold, 3.f, false);	// try again
 		}
 		return;
 	}
@@ -386,23 +416,19 @@ void UFPSRLShieldEncounterComponent::CheckPlayers()
 
 void UFPSRLShieldEncounterComponent::BreakShield()
 {
+	// Down until the next threshold: it takes increased damage, and its health is held at that threshold.
 	ShieldsRemaining = FMath::Max(0, ShieldsRemaining - 1);
+	bShieldUp = false;
+	ApplyShieldState();
 	OnRep_State();
 	GetOwner()->ForceNetUpdate();
 	ACharacter* Boss = Cast<ACharacter>(GetOwner());
-	// The break: a burst around the boss (bigger for the last layer); visual only.
+	// The break: a burst around the boss (bigger for the last one); visual only.
 	const FVector Floor = Boss->GetActorLocation() - FVector(0.f, 0.f, Boss->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 	AFPSRLGroundStrike::Spawn(Boss, Floor, ShieldsRemaining > 0 ? 500.f : 900.f, 0.f, -1.f);
-	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] SHIELD %d BROKEN (%d left)%s"), ShieldLayers - ShieldsRemaining, ShieldsRemaining,
-		ShieldsRemaining > 0 ? TEXT("") : TEXT(": fully vulnerable"));
-	if (ShieldsRemaining <= 0)
-	{
-		if (UFPSRLHealthComponent* Health = GetOwner()->FindComponentByClass<UFPSRLHealthComponent>())
-		{
-			Health->SetInvulnerable(false);
-		}
-	}
-	EndMechanic(ShieldsRemaining > 0);
+	UE_LOG(LogFPSRL, Log, TEXT("[Juggernaut] SHIELD BROKEN (%d of %d)%s"), ShieldLayers - ShieldsRemaining, ShieldLayers,
+		ShieldsRemaining > 0 ? TEXT(": increased damage until the next threshold") : TEXT(": down for good"));
+	EndMechanic(false);
 	if (ShieldsRemaining <= 0)
 	{
 		SetPhase(EFPSRLShieldPhase::Vulnerable);
@@ -431,7 +457,7 @@ void UFPSRLShieldEncounterComponent::EndMechanic(bool bResumeLater)
 	SetAttacksPaused(false);
 	if (bResumeLater)
 	{
-		ScheduleMechanic();
+		GetWorld()->GetTimerManager().SetTimer(MechanicTimer, this, &ThisClass::CheckThreshold, 3.f, false);	// called off: the threshold still stands
 	}
 }
 
@@ -478,11 +504,11 @@ TArray<AFPSRLShieldPlatform*> UFPSRLShieldEncounterComponent::GetHighlightedPlat
 void UFPSRLShieldEncounterComponent::OnRep_State()
 {
 	// The shield: a see-through cyan dome over the boss while any layer stands.
-	if (LastShieldsShown != ShieldsRemaining && GetNetMode() != NM_DedicatedServer)
+	if (LastShieldShown != static_cast<int32>(bShieldUp) && GetNetMode() != NM_DedicatedServer)
 	{
-		LastShieldsShown = ShieldsRemaining;
+		LastShieldShown = static_cast<int32>(bShieldUp);
 		ACharacter* Boss = Cast<ACharacter>(GetOwner());
-		if (!Dome && Boss && ShieldsRemaining > 0)
+		if (!Dome && Boss && bShieldUp)
 		{
 			Dome = NewObject<UStaticMeshComponent>(Boss, TEXT("ShieldDome"));
 			Dome->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, FPSRLShieldEncounter::DomeMesh));
@@ -498,9 +524,9 @@ void UFPSRLShieldEncounterComponent::OnRep_State()
 		}
 		if (Dome)
 		{
-			Dome->SetVisibility(ShieldsRemaining > 0);
+			Dome->SetVisibility(bShieldUp);
 		}
-		UE_LOG(LogFPSRL, Verbose, TEXT("[Juggernaut] shield dome %s (%d layer(s))"), ShieldsRemaining > 0 ? TEXT("up") : TEXT("gone"), ShieldsRemaining);
+		UE_LOG(LogFPSRL, Verbose, TEXT("[Juggernaut] shield dome %s (%d threshold(s) left)"), bShieldUp ? TEXT("up") : TEXT("gone"), ShieldsRemaining);
 	}
 	OnStateChanged.Broadcast();
 }
